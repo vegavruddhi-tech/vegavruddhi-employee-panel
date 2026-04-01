@@ -1,0 +1,76 @@
+# -----------------------------
+# ENV FILES
+# -----------------------------
+.env
+**/.env
+
+# -----------------------------
+# NODE MODULES
+# -----------------------------
+node_modules/
+**/node_modules/
+
+# -----------------------------
+# BUILD FILES
+# -----------------------------
+build/
+dist/
+.next/
+out/
+
+# React build
+employee-app/build/
+
+# -----------------------------
+# UPLOADS (user files)
+# -----------------------------
+uploads/
+*.pdf
+*.jpg
+*.png
+*.jpeg
+
+# -----------------------------
+# LOG FILES
+# -----------------------------
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# -----------------------------
+# OS FILES
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# EDITOR FILES
+# -----------------------------
+.vscode/
+.idea/
+
+# -----------------------------
+# CACHE / TEMP
+# -----------------------------
+.cache/
+.tmp/
+temp/
+coverage/
+
+# -----------------------------
+# PYTHON CACHE (if any scripts)
+# -----------------------------
+__pycache__/
+*.pyc
+
+# -----------------------------
+# LOCK FILES (optional)
+# -----------------------------
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+google_credentials.json
+
+scripts/

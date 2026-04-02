@@ -1,8 +1,8 @@
 require('dotenv').config();
-const express  = require('express');
+const express = require('express');
 const mongoose = require('mongoose');
-const cors     = require('cors');
-const fs       = require('fs');
+const cors = require('cors');
+const fs = require('fs');
 
 const app = express();
 
@@ -21,6 +21,10 @@ app.use('/api/forms', require('./routes/forms'));
 app.use('/api/verify', require('./routes/verify'));
 app.use('/api/requests', require('./routes/requests'));
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'Backend running on Vercel' });
+});
+
 app.get('*', (req, res) => {
   res.status(404).json({ message: 'Not found' });
 });
@@ -36,14 +40,16 @@ async function connectDB() {
   if (cached.conn) return cached.conn;
 
   if (!cached.promise) {
-    cached.promise = mongoose.connect(process.env.MONGO_URI, {
-      dbName: "CompanyDB",
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    }).then((mongoose) => {
-      console.log("✅ MongoDB connected");
-      return mongoose;
-    });
+    cached.promise = mongoose
+      .connect(process.env.MONGO_URI, {
+        dbName: 'CompanyDB',
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+      })
+      .then((mongoose) => {
+        console.log('✅ MongoDB connected');
+        return mongoose;
+      });
   }
 
   cached.conn = await cached.promise;

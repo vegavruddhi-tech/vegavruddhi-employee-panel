@@ -38,6 +38,7 @@ if (!cached) {
 
 async function connectDB() {
   if (cached.conn) return cached.conn;
+  console.log(process.env.MONGO_URI);
 
   if (!cached.promise) {
     cached.promise = mongoose

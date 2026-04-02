@@ -15,12 +15,13 @@ const formResponseSchema = new mongoose.Schema({
     'Try but not done due to error',
     'Need to visit again'
   ]},
-  formFillingFor: { type: String, required: true, enum: [
-    'Tide', 'Kotak 811', 'Insurance', 'PineLab',
-    'Credit Card', 'Tide Insurance', 'MSME',
-    'Airtel Payments Bank', 'Equitas SF Bank',
-    'IndusInd Bank', 'Bharat Pay', 'Tide Credit Card'
-  ]},
+formFillingFor: {
+  type: String,
+  required: function () {
+    return this.status === 'Ready for Onboarding';
+  },
+  default: undefined
+},
 
   // For non-onboarding statuses — checkbox list of products attempted
   attemptedProducts: [{ type: String }],

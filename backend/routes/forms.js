@@ -14,29 +14,37 @@ function verifyToken(req, res, next) {
 // POST /api/forms/submit
 router.post('/submit', verifyToken, async (req, res) => {
   try {
-    const emp  = await Employee.findById(req.user.id).select('newJoinerName');
+    const emp = await Employee.findById(req.user.id).select('newJoinerName');
 
-    // ── Duplicate check: same employee, same merchant phone, same product ──
-    const existing = await FormResponse.findOne({
-      submittedBy:    req.user.id,
-      customerNumber: req.body.customerNumber,
-      formFillingFor: req.body.formFillingFor,
-    });
-    if (existing) {
-      return res.status(409).json({
-        duplicate: true,
-        message: `You have already submitted a form for this merchant (${req.body.customerName}) with product "${req.body.formFillingFor}". If the details are different, please edit the existing entry.`,
-        existingId: existing._id,
+    // Duplicate check: only when a product is selected (onboarding only)
+    if (req.body.formFillingFor) {
+      const existing = await FormResponse.findOne({
+        submittedBy:    req.user.id,
+        customerNumber: req.body.customerNumber,
+        formFillingFor: req.body.formFillingFor,
       });
-    }
+      if (existing) {
+        return res.status(409).json({
+          duplicate: true,
+          message: `You have already submitted a form for this merchant (${req.body.customerName}) with product "${req.body.formFillingFor}". If the details are different, please edit the existing entry.`,
+          existingId: existing._id,
+        });
+      }
+    }  // ← if block ends HERE
 
-    const data = { ...req.body, submittedBy: req.user.id, employeeName: emp?.newJoinerName || '' };
+    // This runs for ALL statuses
+    const body = { ...req.body };
+    if (!body.formFillingFor) delete body.formFillingFor;
+
+    const data = { ...body, submittedBy: req.user.id, employeeName: emp?.newJoinerName || '' };
     const form = await FormResponse.create(data);
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
+
 
 // GET /api/forms/my  — get logged-in employee's submissions
 router.get('/my', verifyToken, async (req, res) => {

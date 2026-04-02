@@ -8,6 +8,18 @@ const PRODUCTS = ['Tide','Kotak 811','Insurance','PineLab','Credit Card','Tide I
 const ATTEMPTED = ['Tide','Kotak','Insurance','Pinelab','Credit Card','BharatPe'];
 const BP_PRODUCTS = ['New Onboarding','QR Re-linking','Re-visit','Loan','Sound Box','Swipe','Mid Market Onboarding'];
 
+function FormCard({ icon, title, sub, children }) {
+  return (
+    <div className="form-card">
+      <div className="form-card-header">
+        <div className="fch-icon">{icon}</div>
+        <div><h3>{title}</h3><p>{sub}</p></div>
+      </div>
+      <div className="form-card-body">{children}</div>
+    </div>
+  );
+}
+
 function RadioGroup({ name, options, value, onChange }) {
   return (
     <div className="radio-group">
@@ -67,11 +79,10 @@ export default function MerchantForm() {
     setError(''); setSuccess('');
     if (!status) { setError('Please select a visit status.'); return; }
     if (isOnboarding && !product) { setError('Please select a product.'); return; }
-    if (!isOnboarding && !attempted.length) { setError('Please select at least one product discussed.'); return; }
 
     const payload = {
       customerName, customerNumber, location, status,
-      formFillingFor: isOnboarding ? product : '',
+      ...(isOnboarding && product ? { formFillingFor: product } : {}),
       attemptedProducts: isOnboarding ? [] : attempted,
       tide_qrPosted: tideQR, tide_upiTxnDone: tideUPI,
       kotak_txnDone: kotakTxn, kotak_wifiBtOff: kotakWifi,
@@ -99,16 +110,6 @@ export default function MerchantForm() {
     } catch { setError('Server error. Please try again.'); }
     finally { setLoading(false); }
   };
-
-  const FormCard = ({ icon, title, sub, children }) => (
-    <div className="form-card">
-      <div className="form-card-header">
-        <div className="fch-icon">{icon}</div>
-        <div><h3>{title}</h3><p>{sub}</p></div>
-      </div>
-      <div className="form-card-body">{children}</div>
-    </div>
-  );
 
   return (
     <>

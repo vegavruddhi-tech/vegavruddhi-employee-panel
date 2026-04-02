@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE } from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -53,7 +54,7 @@ export default function MerchantForm() {
   const [dupModal, setDupModal] = useState(null); // { name, product, existingId }
 
   useEffect(() => {
-    fetch('/api/auth/profile', { headers: { Authorization: 'Bearer ' + token } })
+    fetch(`${API_BASE}/api/auth/profile`, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json()).then(setEmp).catch(console.error);
   }, [token]);
 
@@ -81,7 +82,7 @@ export default function MerchantForm() {
 
     setLoading(true);
     try {
-      const res  = await fetch('/api/forms/submit', {
+      const res  = await fetch(`${API_BASE}/api/forms/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify(payload),

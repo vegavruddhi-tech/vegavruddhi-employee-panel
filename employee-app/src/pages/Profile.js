@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { API_BASE } from '../api';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
@@ -22,7 +23,7 @@ export default function Profile() {
   const [pfErr, setPfErr] = useState(''); const [pfOk, setPfOk] = useState(''); const [pfSaving, setPfSaving] = useState(false);
 
   const loadProfile = () => {
-    fetch('/api/auth/profile', { headers: { Authorization: 'Bearer ' + token } })
+    fetch(`${API_BASE}/api/auth/profile`, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => { if (r.status === 401) { localStorage.clear(); navigate('/'); } return r.json(); })
       .then(setEmp).catch(console.error);
   };
@@ -45,7 +46,7 @@ export default function Profile() {
   };
   const uploadPhoto = async (file) => {
     const fd = new FormData(); fd.append('photo', file);
-    const res = await fetch('/api/auth/update-photo', { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fd });
+    const res = await fetch(`${API_BASE}/api/auth/update-photo`, { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fd });
     const data = await res.json();
     if (!res.ok) { alert(data.message || 'Upload failed'); return; }
     setEmp(e => ({ ...e, photoFileName: data.photoFileName }));
@@ -56,7 +57,7 @@ export default function Profile() {
     if (posNew === emp?.position) { setPosErr('You already have this position.'); return; }
     setPosSaving(true); setPosErr('');
     try {
-      const res = await fetch('/api/auth/request-position', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ requestedPosition: posNew, reason: posReason }) });
+      const res = await fetch(`${API_BASE}/api/auth/request-position`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ requestedPosition: posNew, reason: posReason }) });
       const data = await res.json();
       if (!res.ok) { setPosErr(data.message || 'Failed'); return; }
       setPosOk('✓ Request sent! Admin will review and update your position.');
@@ -73,7 +74,7 @@ export default function Profile() {
     setPfSaving(true); setPfErr('');
     try {
       const { reason, ...changes } = pf;
-      const res = await fetch('/api/requests/profile', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ changes, reason }) });
+      const res = await fetch(`${API_BASE}/api/requests/profile`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ changes, reason }) });
       const data = await res.json();
       if (!res.ok) { setPfErr(data.message || 'Failed'); return; }
       setPfOk('✓ Request sent! Admin will review and apply your changes.');

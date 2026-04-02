@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import { API_BASE } from '../api';
 
 const STATUS_COLOR = {
   'Ready for Onboarding':          { color: '#2e7d32', bg: '#e6f4ea' },
@@ -56,17 +57,17 @@ export default function MerchantDetail() {
   const [reqSaving,setReqSaving]= useState(false);
 
   useEffect(() => {
-    fetch('/api/auth/profile', { headers: { Authorization: 'Bearer ' + token } })
+    fetch(`${API_BASE}/api/auth/profile`, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json()).then(setEmp).catch(console.error);
   }, [token]);
 
   useEffect(() => {
-    fetch(`/api/forms/detail/${id}`, { headers: { Authorization: 'Bearer ' + token } })
+    fetch(`${API_BASE}/api/forms/detail/${id}`, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => { if (!r.ok) { navigate('/dashboard'); return null; } return r.json(); })
       .then(f => {
         if (!f) return;
         setForm(f);
-        return fetch(`/api/verify/check?phone=${encodeURIComponent(f.customerNumber)}&name=${encodeURIComponent(f.customerName)}&product=${encodeURIComponent(f.formFillingFor || '')}`, {
+        return fetch(`${API_BASE}/api/verify/check?phone=${encodeURIComponent(f.customerNumber)}&name=${encodeURIComponent(f.customerName)}&product=${encodeURIComponent(f.formFillingFor || '')}`, {
           headers: { Authorization: 'Bearer ' + token }
         }).then(r => r.json()).then(setVData).catch(() => {});
       })
@@ -83,7 +84,7 @@ export default function MerchantDetail() {
   const openDelete = () => {
     const reason = window.prompt(`Reason for deleting "${form.customerName}"? (required)`);
     if (!reason?.trim()) return;
-    fetch('/api/requests/merchant-delete', {
+    fetch(`${API_BASE}/api/requests/merchant-delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({ merchantId: form._id, merchantName: form.customerName, reason: reason.trim() })
@@ -94,7 +95,7 @@ export default function MerchantDetail() {
     if (!reqForm.reason.trim()) { setReqError('Please provide a reason.'); return; }
     setReqSaving(true); setReqError('');
     try {
-      const res  = await fetch('/api/requests/merchant-edit', {
+      const res  = await fetch(`${API_BASE}/api/requests/merchant-edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ merchantId: form._id, merchantName: form.customerName, reason: reqForm.reason, changes: { customerName: reqForm.customerName, customerNumber: reqForm.customerNumber, location: reqForm.location, status: reqForm.status } })

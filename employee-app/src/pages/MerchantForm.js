@@ -93,7 +93,6 @@ export default function MerchantForm() {
 
     setLoading(true);
     try {
-      alert("Form submitting!");
       const res  = await fetch(`${API_BASE}/api/forms/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },

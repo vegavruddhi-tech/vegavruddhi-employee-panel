@@ -2,12 +2,11 @@ require('dotenv').config();
 const express  = require('express');
 const mongoose = require('mongoose');
 const cors     = require('cors');
-const path     = require('path');
 const fs       = require('fs');
 
 const app = express();
 
-// Ensure uploads folder exists
+// uploads temp directory for Vercel
 const uploadsDir = '/tmp/uploads';
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -26,16 +25,31 @@ app.get('*', (req, res) => {
   res.status(404).json({ message: 'Not found' });
 });
 
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log('✅ MongoDB connected to CompanyDB');
-    // Only listen when running locally (not on Vercel)
-    if (process.env.VERCEL !== '1') {
-      app.listen(process.env.PORT || 5000, () => {
-        console.log(`🚀 Server running on http://localhost:${process.env.PORT || 5000}`);
-      });
-    }
-  })
-  .catch(err => console.error('❌ MongoDB error:', err));
+// MongoDB cached connection for Vercel
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
+async function connectDB() {
+  if (cached.conn) return cached.conn;
+
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(process.env.MONGO_URI, {
+      dbName: "CompanyDB",
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    }).then((mongoose) => {
+      console.log("✅ MongoDB connected");
+      return mongoose;
+    });
+  }
+
+  cached.conn = await cached.promise;
+  return cached.conn;
+}
+
+connectDB();
 
 module.exports = app;

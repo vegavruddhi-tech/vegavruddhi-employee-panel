@@ -84,7 +84,7 @@ export default function Profile() {
 
   const initials = emp?.newJoinerName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
   const joined   = emp?.createdAt ? new Date(emp.createdAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }) : '–';
-
+console.log(emp)
   return (
     <>
       <Navbar emp={emp} />

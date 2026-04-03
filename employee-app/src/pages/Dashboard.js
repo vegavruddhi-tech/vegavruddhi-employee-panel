@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo,useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { API_BASE } from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
@@ -150,7 +150,9 @@ export default function Dashboard() {
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
-
+console.log(emp
+  
+)
   return (
     <>
       <Navbar emp={emp} />

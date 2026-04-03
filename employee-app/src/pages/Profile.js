@@ -12,7 +12,9 @@ export default function Profile() {
   const [profModal, setProfModal] = useState(false);
   const [camOpen, setCamOpen] = useState(false);
   const [photoMenu, setPhotoMenu] = useState(false);
-  const videoRef = useRef(); const canvasRef = useRef(); const streamRef = useRef();
+  const videoRef = useRef(); 
+  const canvasRef = useRef(); 
+  const streamRef = useRef();
 
   // Position request state
   const [posNew, setPosNew] = useState(''); const [posReason, setPosReason] = useState('');
@@ -28,15 +30,25 @@ export default function Profile() {
       .then(setEmp).catch(console.error);
   };
   useEffect(loadProfile, [token]); // eslint-disable-line
+useEffect(() => {
+  if (camOpen && videoRef.current && streamRef.current) {
+    videoRef.current.srcObject = streamRef.current;
+  }
+}, [camOpen]);
+const openCamera = async () => {
+  setPhotoMenu(false);
+  try {
+    streamRef.current = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user' },
+      audio: false
+    });
 
-  const openCamera = async () => {
-    setPhotoMenu(false);
-    try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-      videoRef.current.srcObject = streamRef.current;
-      setCamOpen(true);
-    } catch (err) { alert('Camera error: ' + err.message); }
-  };
+    setCamOpen(true); // render video first
+
+  } catch (err) {
+    alert('Camera error: ' + err.message);
+  }
+};
   const stopCamera = () => { streamRef.current?.getTracks().forEach(t => t.stop()); setCamOpen(false); };
   const capture = () => {
     const c = canvasRef.current, v = videoRef.current;
@@ -84,7 +96,7 @@ export default function Profile() {
 
   const initials = emp?.newJoinerName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
   const joined   = emp?.createdAt ? new Date(emp.createdAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }) : '–';
-console.log(emp)
+
   return (
     <>
       <Navbar emp={emp} />
@@ -309,12 +321,14 @@ console.log(emp)
             gap: 16,
           }}
         >
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            style={{ width: "100%", maxWidth: 420, borderRadius: 12 }}
-          />
+          {camOpen && (
+  <video
+    ref={videoRef}
+    autoPlay
+    playsInline
+    style={{ width: "100%" }}
+  />
+)}
           <div style={{ display: "flex", gap: 12 }}>
             <button
               onClick={capture}

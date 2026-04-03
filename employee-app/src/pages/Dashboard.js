@@ -150,9 +150,7 @@ export default function Dashboard() {
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
-console.log(emp
-  
-)
+
   return (
     <>
       <Navbar emp={emp} />

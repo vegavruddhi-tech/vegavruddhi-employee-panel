@@ -26,14 +26,14 @@ export default function Navbar({ emp }) {
     <nav className="navbar">
       <div className="nav-logo">
         <a href="/dashboard" onClick={e => { e.preventDefault(); navigate('/dashboard'); }}>
-          <img src="/logo-full.png" alt="Vegavruddhi Pvt. Ltd." />
+          <img src="https://res.cloudinary.com/dhhcykoqa/image/upload/v1775158486/logo-full_ueklky.png" alt="Vegavruddhi Pvt. Ltd." />
         </a>
       </div>
       <div className="nav-right">
         <div className="nav-profile" ref={ref} onClick={(e) => { if (e.target.closest('a')) return; setOpen(p => !p); }}>
           <div className="nav-avatar">
-            {emp?.photoFileName
-              ? <img src={`/uploads/${emp.photoFileName}`} alt="avatar" />
+            {emp?.image
+  ? <img src={emp.image} />
               : initials}
           </div>
           <div className="nav-info">

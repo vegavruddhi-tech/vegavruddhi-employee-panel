@@ -1,20 +1,21 @@
+const upload = require('../middleware/multer');
 const express  = require('express');
 const router   = express.Router();
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
-const multer   = require('multer');
-const path     = require('path');
+// const multer   = require('multer');
+// const path     = require('path');
 const Employee = require('../models/Employee');
 const { OAuth2Client } = require('google-auth-library');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Storage for cv + photo
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, path.join(__dirname, '../../uploads')),
-  filename:    (_req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-});
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+// const storage = multer.diskStorage({
+//   destination: (_req, _file, cb) => cb(null, path.join(__dirname, '../../uploads')),
+//   filename:    (_req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+// });
+// const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Verify JWT middleware
 function verifyToken(req, res, next) {
@@ -29,28 +30,85 @@ function verifyToken(req, res, next) {
 }
 
 // POST /api/auth/register
-router.post('/register', upload.fields([{ name: 'cv', maxCount: 1 }, { name: 'photo', maxCount: 1 }]), async (req, res) => {
-  try {
-    const { email, newJoinerName, newJoinerPhone, newJoinerEmailId, reportingManager, position, location, password } = req.body;
+router.post(
+  '/register',
+  upload.fields([
+    { name: 'cv', maxCount: 1 },
+    { name: 'photo', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      const {
+        email,
+        newJoinerName,
+        newJoinerPhone,
+        newJoinerEmailId,
+        reportingManager,
+        position,
+        location,
+        password
+      } = req.body;
 
-    const exists = await Employee.findOne({ email });
-    if (exists) return res.status(400).json({ message: 'Email already registered' });
+      const exists = await Employee.findOne({ email });
+      if (exists) {
+        return res.status(400).json({ message: 'Email already registered' });
+      }
 
-    if (!req.files?.photo) return res.status(400).json({ message: 'Profile photo is required' });
+      if (!req.files?.photo) {
+        return res.status(400).json({ message: 'Profile photo is required' });
+      }
 
-    const hashed  = await bcrypt.hash(password, 10);
-    const employee = await Employee.create({
-      email, newJoinerName, newJoinerPhone, newJoinerEmailId,
-      reportingManager, position, location, password: hashed,
-      cvFileName:    req.files?.cv?.[0]?.filename    || '',
-      photoFileName: req.files?.photo?.[0]?.filename || ''
-    });
+      const hashed = await bcrypt.hash(password, 10);
 
-    res.status(201).json({ message: 'Registered successfully', id: employee._id });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+      const employee = await Employee.create({
+        email,
+        newJoinerName,
+        newJoinerPhone,
+        newJoinerEmailId,
+        reportingManager,
+        position,
+        location,
+        password: hashed,
+
+        // ✅ Cloudinary URLs
+        image: req.files?.photo?.[0]?.path || '',
+        cv: req.files?.cv?.[0]?.path || ''
+      });
+
+      res.status(201).json({
+        message: 'Registered successfully',
+        id: employee._id
+      });
+
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
   }
-});
+);
+router.post(
+  '/update-photo',
+  verifyToken,
+  upload.single('photo'),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: 'No photo uploaded' });
+      }
+
+      await Employee.findByIdAndUpdate(req.user.id, {
+        image: req.file.path // ✅ Cloudinary URL
+      });
+
+      res.json({
+        message: 'Photo updated',
+        image: req.file.path
+      });
+
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  }
+);
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
@@ -266,8 +324,15 @@ router.put('/reject/:id', async (req, res) => {
 router.post('/update-photo', verifyToken, upload.single('photo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No photo uploaded' });
-    await Employee.findByIdAndUpdate(req.user.id, { photoFileName: req.file.filename });
-    res.json({ message: 'Photo updated', photoFileName: req.file.filename });
+await Employee.findByIdAndUpdate(req.user.id, {
+  image: req.file.path   // ✅ Cloudinary URL
+});
+
+res.json({
+  message: 'Photo updated',
+  image: req.file.path
+});
+    // res.json({ message: 'Photo updated', photoFileName: req.file.filename });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

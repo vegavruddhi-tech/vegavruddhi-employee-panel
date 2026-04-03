@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { API_BASE } from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 
@@ -28,30 +28,60 @@ export default function Register() {
     reader.readAsDataURL(file);
   };
 
-  const openCamera = async () => {
-    try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-      videoRef.current.srcObject = streamRef.current;
-      setCamOpen(true);
-    } catch (err) { alert('Camera error: ' + err.message); }
-  };
+const openCamera = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false
+    });
+
+    streamRef.current = stream;
+    setCamOpen(true);
+
+  } catch (err) {
+    console.log(err);
+    alert('Camera error: ' + err.message);
+  }
+};
+useEffect(() => {
+  if (!camOpen) return;
+
+  if (videoRef.current && streamRef.current) {
+    videoRef.current.srcObject = streamRef.current;
+  }
+}, [camOpen]);
 
   const capture = () => {
-    const canvas = canvasRef.current;
-    const video  = videoRef.current;
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0);
-    canvas.toBlob(blob => {
-      setPhotoFile(new File([blob], 'photo-' + Date.now() + '.jpg', { type: 'image/jpeg' }));
-      stopCamera();
-    }, 'image/jpeg', 0.9);
-  };
+  const canvas = canvasRef.current;
+  const video  = videoRef.current;
 
+  if (!canvas || !video) return; // safety
+
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+
+  canvas.toBlob(blob => {
+    if (!blob) return;
+
+    setPhotoFile(
+      new File([blob], 'photo-' + Date.now() + '.jpg', {
+        type: 'image/jpeg'
+      })
+    );
+
+    stopCamera();
+  }, 'image/jpeg', 0.9);
+};
   const stopCamera = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    setCamOpen(false);
-  };
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+  }
+  setCamOpen(false);
+};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -105,12 +135,54 @@ export default function Register() {
                 </div>
               </div>
               <div className="photo-actions">
-                <button type="button" className="photo-btn" onClick={openCamera}>📷 Take Photo</button>
-                <label className="photo-btn">
-                  🖼 Choose from Gallery
-                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => e.target.files[0] && setPhotoFile(e.target.files[0])} />
-                </label>
-              </div>
+  <button type="button" className="photo-btn" onClick={openCamera}>
+    📷 Take Photo
+  </button>
+
+  <label className="photo-btn">
+    🖼 Choose from Gallery
+    <input
+      type="file"
+      accept="image/*"
+      style={{ display: 'none' }}
+      onChange={e => e.target.files[0] && setPhotoFile(e.target.files[0])}
+    />
+  </label>
+</div>
+
+{/* 🔥 ADD THIS BELOW
+{camOpen && (
+  <div style={{ marginTop: '15px', textAlign: 'center' }}>
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      style={{
+        width: '220px',
+        borderRadius: '12px',
+        border: '2px solid #2e7d32'
+      }}
+    />
+
+    <br />
+
+    <button
+      type="button"
+      onClick={capture}
+      style={{
+        marginTop: '10px',
+        padding: '8px 15px',
+        background: '#2e7d32',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '6px',
+        cursor: 'pointer'
+      }}
+    >
+      📸 Capture
+    </button>
+  </div>
+)} */}
               <div className="file-name">{photo ? photo.name : 'No photo selected'}</div>
             </div>
           </div>

@@ -8,13 +8,16 @@ const employeeSchema = new mongoose.Schema({
   reportingManager:   { type: String, required: true },
   position:           { type: String, required: true },
   location:           { type: String, required: true },
-  cvFileName:         { type: String, default: '' },
-  photoFileName:      { type: String, default: '' },
+
+  // 🔥 NEW FIELDS (Cloudinary URLs)
+  image:              { type: String, default: '' },
+  cv:                 { type: String, default: '' },
+
   password:           { type: String, required: true },
   status:             { type: String, default: 'Active', enum: ['Active', 'Inactive', 'On Leave'] },
   approvalStatus:     { type: String, default: 'pending', enum: ['pending', 'approved', 'rejected'] },
-  pointsAdjustment:   { type: Number, default: 0 },  // admin manual +/- adjustment
-  verifiedPoints:     { type: Number, default: 0 },  // auto-calculated from fully verified merchants
+  pointsAdjustment:   { type: Number, default: 0 },
+  verifiedPoints:     { type: Number, default: 0 },
   createdAt:          { type: Date, default: Date.now }
 }, { collection: 'Users' });
 

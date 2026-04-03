@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo,useRef } from 'react';
 import { API_BASE } from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
@@ -159,8 +159,8 @@ export default function Dashboard() {
         {/* Welcome card */}
         <div className="welcome-card">
           <div className="welcome-avatar">
-            {emp?.photoFileName
-              ? <img src={`/uploads/${emp.photoFileName}`} alt="avatar" />
+            {emp?.image
+  ? <img src={emp.image} />
               : (emp?.newJoinerName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')}
           </div>
           <div className="welcome-text">

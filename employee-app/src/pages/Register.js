@@ -5,8 +5,8 @@ import { useNavigate, Link } from 'react-router-dom';
 export default function Register() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    email: '', newJoinerName: '', location: '', newJoinerPhone: '',
-    newJoinerEmailId: '', reportingManager: '', position: '', password: '', confirmPassword: ''
+    newJoinerName: '', location: '', newJoinerPhone: '',
+    newJoinerEmailId: '', reportingManager: '', position: '', dob: ''
   });
   const [photo, setPhoto]       = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -86,11 +86,23 @@ useEffect(() => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(''); setSuccess('');
-    if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return; }
+    const nameRegex = /^[a-zA-Z\s]+$/;
+if (!nameRegex.test(form.newJoinerName)) { setError('Name should contain letters only'); return; }
+if (!nameRegex.test(form.reportingManager)) { setError('Reporting Manager name should contain letters only'); return; }
+
+const phoneRegex = /^\d{10}$/;
+if (!phoneRegex.test(form.newJoinerPhone)) { setError('Phone number must be exactly 10 digits'); return; }
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+if (!emailRegex.test(form.newJoinerEmailId)) { setError('Please enter a valid email address'); return; }
+
+    // if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return; }
     if (!photo) { setError('Profile photo is required'); return; }
 
     const fd = new FormData();
-    Object.entries(form).forEach(([k, v]) => { if (k !== 'confirmPassword') fd.append(k, v); });
+    const submitForm = { ...form, email: form.newJoinerEmailId };
+    Object.entries(submitForm).forEach(([k, v]) => { if (k !== 'confirmPassword') fd.append(k, v); });
+
     fd.append('photo', photo);
     if (cvFile) fd.append('cv', cvFile);
 
@@ -109,7 +121,8 @@ useEffect(() => {
     <div className="auth-wrapper">
       <div className="auth-card" style={{ maxWidth: 520 }}>
         <div className="auth-logo">
-          <img src="/logo-full.png" alt="Vegavruddhi Pvt. Ltd." />
+          <img src="https://res.cloudinary.com/dhhcykoqa/image/upload/v1775158486/logo-full_ueklky.png
+" alt="Vegavruddhi Pvt. Ltd." />
           <span className="tagline">IT &amp; Business Consultation Services</span>
         </div>
         <hr className="auth-divider" />
@@ -120,10 +133,10 @@ useEffect(() => {
         {success && <div className="success-msg" style={{ display: 'block' }}>{success}</div>}
 
         <form onSubmit={handleSubmit}>
-          <div className="form-group">
+          {/* <div className="form-group">
             <label>Email Address <span className="req">*</span></label>
             <input type="email" value={form.email} onChange={set('email')} placeholder="your@email.com" required />
-          </div>
+          </div> */}
 
           {/* Photo upload */}
           <div className="form-group">
@@ -213,39 +226,33 @@ useEffect(() => {
           <div className="form-row">
             <div className="form-group">
               <label>Phone Number <span className="req">*</span></label>
-              <input type="tel" value={form.newJoinerPhone} onChange={set('newJoinerPhone')} placeholder="+91 XXXXX XXXXX" required />
+              <input type="tel" value={form.newJoinerPhone} onChange={e => setForm(f => ({ ...f, newJoinerPhone: e.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="+91 XXXXX XXXXX" required />
+
             </div>
             <div className="form-group">
               <label>Joiner Email ID <span className="req">*</span></label>
               <input type="email" value={form.newJoinerEmailId} onChange={set('newJoinerEmailId')} placeholder="joiner@email.com" required />
             </div>
           </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label>Reporting Manager <span className="req">*</span></label>
-              <input type="text" value={form.reportingManager} onChange={set('reportingManager')} placeholder="Manager name" required />
-            </div>
-            <div className="form-group">
-              <label>For Position <span className="req">*</span></label>
-              <select value={form.position} onChange={set('position')} required>
-                <option value="">Choose...</option>
-                <option>Team Lead</option>
-                <option>FSE</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label>Create Password <span className="req">*</span></label>
-              <input type="password" value={form.password} onChange={set('password')} placeholder="Min 6 characters" required minLength={6} />
-            </div>
-            <div className="form-group">
-              <label>Confirm Password <span className="req">*</span></label>
-              <input type="password" value={form.confirmPassword} onChange={set('confirmPassword')} placeholder="Repeat password" required />
-            </div>
-          </div>
+            <div className="form-row">
+  <div className="form-group">
+    <label>Date of Birth <span className="req">*</span></label>
+    <input type="date" value={form.dob} onChange={set('dob')} required />
+  </div>
+  <div className="form-group">
+    <label>Reporting Manager <span className="req">*</span></label>
+    <input type="text" value={form.reportingManager} onChange={set('reportingManager')} placeholder="Manager name" required />
+  </div>
+</div>
+<div className="form-group">
+  <label>For Position <span className="req">*</span></label>
+  <select value={form.position} onChange={set('position')} required>
+    <option value="">Choose...</option>
+    {/* <option>Team Lead</option> */}
+    <option>FSE</option>
+  </select>
+</div>
+          
 
           <button type="submit" className="btn" disabled={loading}>
             {loading ? 'Submitting...' : 'Submit Registration'}

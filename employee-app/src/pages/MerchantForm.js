@@ -78,6 +78,8 @@ export default function MerchantForm() {
     e.preventDefault();
     setError(''); setSuccess('');
     if (!status) { setError('Please select a visit status.'); return; }
+    if (customerNumber.length !== 10) { setError('Customer number must be exactly 10 digits.'); return; }
+
     if (isOnboarding && !product) { setError('Please select a product.'); return; }
 
     const payload = {
@@ -134,7 +136,8 @@ export default function MerchantForm() {
             </div>
             <div className="form-group">
               <label>Customer Number <span className="req">*</span></label>
-              <input type="tel" value={customerNumber} onChange={e => setCustomerNumber(e.target.value)} placeholder="Enter phone number" required />
+              <input type="tel" value={customerNumber} onChange={e => setCustomerNumber(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Enter phone number" required />
+
             </div>
             <div className="form-group">
               <label>Location <span className="req">*</span></label>

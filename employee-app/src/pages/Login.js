@@ -71,7 +71,8 @@ export default function Login() {
           width: '100%', maxWidth: 420, boxShadow: '0 24px 80px rgba(0,0,0,0.35)', textAlign: 'center'
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 32 }}>
-            <img src="/logo-full.png" alt="Vegavruddhi" style={{ height: 64, width: 64, objectFit: 'contain' }} />
+            <img src="https://res.cloudinary.com/dhhcykoqa/image/upload/v1775158486/logo-full_ueklky.png
+" alt="Vegavruddhi" style={{ height: 64, width: 64, objectFit: 'contain' }} />
             <div style={{ fontSize: 22, fontWeight: 800, color: '#1a4731', letterSpacing: '1.5px', textTransform: 'uppercase' }}>Vegavruddhi</div>
             <div style={{ fontSize: 11, color: '#6b9e82', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 600 }}>IT &amp; Business Consultation Services</div>
           </div>

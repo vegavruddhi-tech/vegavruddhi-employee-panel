@@ -61,7 +61,8 @@ const openCamera = async () => {
     const res = await fetch(`${API_BASE}/api/auth/update-photo`, { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: fd });
     const data = await res.json();
     if (!res.ok) { alert(data.message || 'Upload failed'); return; }
-    setEmp(e => ({ ...e, photoFileName: data.photoFileName }));
+    setEmp(e => ({ ...e, image: data.image }));
+
   };
 
   const sendPosRequest = async () => {
@@ -326,7 +327,7 @@ const openCamera = async () => {
     ref={videoRef}
     autoPlay
     playsInline
-    style={{ width: "100%" }}
+    style={{ width: '100%', maxWidth: 400, maxHeight: '60vh', borderRadius: 12, objectFit: 'cover' }}
   />
 )}
           <div style={{ display: "flex", gap: 12 }}>

@@ -103,6 +103,10 @@ export default function Dashboard() {
     if (activeKPI === 'error')    list = list.filter(f => f.status === 'Try but not done due to error');
     if (activeKPI === 'revisit')  list = list.filter(f => f.status === 'Need to visit again');
     if (activeKPI === 'verified') list = list.filter(f => verifiedMap[f.customerNumber]?.status === 'Fully Verified');
+    if (activeKPI === 'partial')  list = list.filter(f => verifiedMap[f.customerNumber]?.status === 'Partially Done');
+    if (activeKPI === 'notver')   list = list.filter(f => verifiedMap[f.customerNumber]?.status === 'Not Verified');
+    if (activeKPI === 'phmatch')  list = list.filter(f => verifiedMap[f.customerNumber]?.phoneMatch === true);
+    if (activeKPI === 'phnomatch')list = list.filter(f => verifiedMap[f.customerNumber]?.inSheet === true && verifiedMap[f.customerNumber]?.phoneMatch === false);
     return list;
   }, [allForms, dateFilter, fromDate, toDate, activeKPI, verifiedMap]);
 
@@ -146,7 +150,14 @@ export default function Dashboard() {
     { key: 'notint',   label: 'Not Interested',        value: allForms.filter(f => f.status === 'Not Interested').length,                          cls: 'kpi-notint' },
     { key: 'error',    label: 'Try but not done',      value: allForms.filter(f => f.status === 'Try but not done due to error').length,            cls: 'kpi-error' },
     { key: 'revisit',  label: 'Need to visit again',   value: allForms.filter(f => f.status === 'Need to visit again').length,                     cls: 'kpi-revisit' },
-    { key: 'verified', label: 'Fully Verified',        value: allForms.filter(f => verifiedMap[f.customerNumber]?.status === 'Fully Verified').length, cls: 'kpi-verified' },
+  ];
+
+  const verifyKpis = [
+    { key: 'verified',  label: 'Fully Verified',       value: allForms.filter(f => verifiedMap[f.customerNumber]?.status === 'Fully Verified').length,  cls: 'kpi-verified' },
+    { key: 'partial',   label: 'Partially Verified',   value: allForms.filter(f => verifiedMap[f.customerNumber]?.status === 'Partially Done').length,   cls: 'kpi-error' },
+    { key: 'notver',    label: 'Not Verified',          value: allForms.filter(f => verifiedMap[f.customerNumber]?.status === 'Not Verified').length,     cls: 'kpi-notint' },
+    { key: 'phmatch',   label: 'Phone Matched',         value: allForms.filter(f => verifiedMap[f.customerNumber]?.phoneMatch === true).length,           cls: 'kpi-onboard' },
+    { key: 'phnomatch', label: 'Phone Not Matched',     value: allForms.filter(f => verifiedMap[f.customerNumber]?.inSheet === true && verifiedMap[f.customerNumber]?.phoneMatch === false).length, cls: 'kpi-revisit' },
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
@@ -167,7 +178,15 @@ export default function Dashboard() {
             <h2>Welcome, {emp?.newJoinerName?.split(' ')[0] || ''}!</h2>
             <p>{emp?.position} · {emp?.location}</p>
           </div>
-          <Link to="/profile" className="profile-btn">View My Profile ›</Link>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 20px', color: '#fff', textAlign: 'center', border: '1px solid rgba(255,255,255,0.25)' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Points</div>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{totalPoints}</div>
+            </div>
+            <Link to="/profile" className="profile-btn" style={{ fontSize: 14, padding: '10px 20px' }}>View My Profile ›</Link>
+
+          </div>
+          
         </div>
 
         {/* Notifications banner */}
@@ -238,17 +257,23 @@ export default function Dashboard() {
         </Link>
 
         {/* KPI cards */}
-        <div className="kpi-row" style={{ marginTop: 24 }}>
+        <div className="kpi-row kpi-row-5" style={{ marginTop: 24 }}>
           {kpis.map(k => (
             <div key={k.key} className={`kpi-card ${k.cls}${activeKPI === k.key ? ' kpi-active' : ''}`} onClick={() => toggleKPI(k.key)}>
               <div className="kpi-label">{k.label}</div>
               <div className="kpi-value">{k.value}</div>
             </div>
           ))}
-          <div className="kpi-card" style={{ borderTopColor: '#f4a261', cursor: 'default' }}>
-            <div className="kpi-label">⭐ Total Points</div>
-            <div className="kpi-value" style={{ color: '#e76f51' }}>{totalPoints}</div>
-          </div>
+        </div>
+
+        {/* Verification KPI cards */}
+        <div className="kpi-row kpi-row-5" style={{ marginTop: 10 }}>
+          {verifyKpis.map(k => (
+            <div key={k.key} className={`kpi-card ${k.cls}${activeKPI === k.key ? ' kpi-active' : ''}`} onClick={() => toggleKPI(k.key)}>
+              <div className="kpi-label">{k.label}</div>
+              <div className="kpi-value">{k.value}</div>
+            </div>
+          ))}
         </div>
 
         {/* Merchants header + filters */}

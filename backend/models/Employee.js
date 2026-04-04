@@ -8,6 +8,7 @@ const employeeSchema = new mongoose.Schema({
   reportingManager:   { type: String, required: true },
   position:           { type: String, required: true },
   location:           { type: String, required: true },
+  dob: { type: String, default: '' },
 
   // 🔥 NEW FIELDS (Cloudinary URLs)
   image:              { type: String, default: '' },

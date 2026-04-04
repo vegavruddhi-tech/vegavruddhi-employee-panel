@@ -58,7 +58,9 @@ router.post(
         return res.status(400).json({ message: 'Profile photo is required' });
       }
 
-      const hashed = await bcrypt.hash(password, 10);
+      const rawPassword = password || Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10);
+const hashed = await bcrypt.hash(rawPassword, 10);
+
 
       const employee = await Employee.create({
         email,

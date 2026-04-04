@@ -721,9 +721,15 @@ body { padding-bottom: 52px; }
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+.kpi-row-5 {
+  grid-template-columns: repeat(5, 1fr);
   gap: 14px;
   margin-bottom: 24px;
 }
+  
+
 
 .kpi-card {
   background: var(--white);
@@ -772,9 +778,11 @@ body { padding-bottom: 52px; }
 
 @media (max-width: 900px) {
   .kpi-row { grid-template-columns: repeat(3, 1fr); }
+  .kpi-row-5 { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 480px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .kpi-row-5 { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* ── KPI CARD ACTIVE (clicked/selected) ── */

@@ -709,7 +709,7 @@ const openCamera = async () => {
                       marginBottom: 6,
                     }}
                   >
-                    Reason for change
+                    Reason for change <span className="req">*</span>
                   </label>
                   <textarea
                     value={pf.reason}

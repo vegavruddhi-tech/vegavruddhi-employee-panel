@@ -596,7 +596,12 @@ body {
 }
 
 @media (max-width: 480px) {
-  .info-grid { grid-template-columns: 1fr; }
+  .info-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .kpi-row-5 { grid-template-columns: repeat(2, 1fr); }
+  .kpi-value { font-size: 20px; }
+  .kpi-card { padding: 10px 12px; }
+  .info-card { padding: 10px 12px; }
   .welcome-card { flex-direction: column; text-align: center; }
   .welcome-avatar { margin: 0 auto; }
   .profile-btn { margin: 8px auto 0; }
@@ -605,6 +610,12 @@ body {
   .form-page { padding: 16px; }
   .merchant-row { flex-wrap: wrap; }
   .mr-info { flex: 1; min-width: 0; }
+  .dash-icon { font-size: 16px; }
+.info-card .label { font-size: 9px; }
+.info-card .value { font-size: 13px; }
+.section-title { font-size: 11px; margin-top: 16px !important; }
+.kpi-label { font-size: 8px; }
+
 }
 
 /* ── STAGGERED ANIMATION FOR LISTS ── */

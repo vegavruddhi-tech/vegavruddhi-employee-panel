@@ -87,14 +87,14 @@ useEffect(() => {
     e.preventDefault();
     setError(''); setSuccess('');
     const nameRegex = /^[a-zA-Z\s]+$/;
-if (!nameRegex.test(form.newJoinerName)) { setError('Name should contain letters only'); return; }
-if (!nameRegex.test(form.reportingManager)) { setError('Reporting Manager name should contain letters only'); return; }
+    if (!nameRegex.test(form.newJoinerName)) { setError('Name should contain letters only'); return; }
+    if (!nameRegex.test(form.reportingManager)) { setError('Reporting Manager name should contain letters only'); return; }
 
-const phoneRegex = /^\d{10}$/;
-if (!phoneRegex.test(form.newJoinerPhone)) { setError('Phone number must be exactly 10 digits'); return; }
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(form.newJoinerPhone)) { setError('Phone number must be exactly 10 digits'); return; }
 
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-if (!emailRegex.test(form.newJoinerEmailId)) { setError('Please enter a valid email address'); return; }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(form.newJoinerEmailId)) { setError('Please enter a valid email address'); return; }
 
     // if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return; }
     if (!photo) { setError('Profile photo is required'); return; }

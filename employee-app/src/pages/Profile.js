@@ -83,7 +83,7 @@ const openCamera = async () => {
     setPfErr(''); setPfOk(''); setProfModal(true);
   };
   const sendProfRequest = async () => {
-    if (!pf.newJoinerName) { setPfErr('Full name is required.'); return; }
+    if (!pf.reason?.trim()) { setPfErr('Reason is required.'); return; }
     setPfSaving(true); setPfErr('');
     try {
       const { reason, ...changes } = pf;

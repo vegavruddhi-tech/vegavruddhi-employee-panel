@@ -82,8 +82,7 @@ export default function MerchantDetail() {
   };
 
   const openDelete = () => {
-    const reason = window.prompt(`Reason for deleting "${form.customerName}"? (required)`);
-    if (!reason?.trim()) return;
+    if (!reason?.trim()) { setReqError('Reason is required.'); return; }
     fetch(`${API_BASE}/api/requests/merchant-delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },

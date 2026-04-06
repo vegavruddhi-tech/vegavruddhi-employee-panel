@@ -155,7 +155,29 @@ async function verifyMerchant(db, phone, name, VerificationRule, product) {
     const col = db.collection(rule.collectionName);
     const isHinted = hintedIds.includes(String(rule._id));
     const { record, matchType } = await findInCollection(col, phone, name || '', isHinted);
-    if (!record) continue;
+    // if (!record) continue;
+
+    // // Found the record — evaluate this rule's conditions
+    // const checks  = rule.conditions.map(cond => evaluateCondition(record, cond));
+    // const passed  = checks.filter(c => c.pass).length;
+    // const total   = checks.length;
+    // const status  = passed === total ? 'Fully Verified'
+    //               : passed > 0       ? 'Partially Done'
+    //               :                    'Not Verified';
+        if (!record) continue;
+
+    // If no conditions set by admin yet — phone found but not verified
+    if (!rule.conditions || rule.conditions.length === 0) {
+      const sheetPhone = String(PHONE_COLS.map(c => record[c]).find(v => v != null) || '');
+      const sheetName  = NAME_COLS.map(c => record[c]).find(v => v) || '';
+      return {
+        status: 'Not Verified', verified: false,
+        passed: 0, total: 0, checks: [],
+        collection: rule.collectionName,
+        monthLabel: rule.monthLabel,
+        matchType, sheetPhone, sheetName
+      };
+    }
 
     // Found the record — evaluate this rule's conditions
     const checks  = rule.conditions.map(cond => evaluateCondition(record, cond));
@@ -164,6 +186,7 @@ async function verifyMerchant(db, phone, name, VerificationRule, product) {
     const status  = passed === total ? 'Fully Verified'
                   : passed > 0       ? 'Partially Done'
                   :                    'Not Verified';
+
 
     const sheetPhone = String(PHONE_COLS.map(c => record[c]).find(v => v != null) || '');
     const sheetName  = NAME_COLS.map(c => record[c]).find(v => v) || '';

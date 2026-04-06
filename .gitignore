@@ -74,3 +74,11 @@ pnpm-lock.yaml
 google_credentials.json
 
 scripts/
+
+backup/
+backup_test/
+backup_test2/
+backup_test3/
+*.bson
+*.metadata.json
+

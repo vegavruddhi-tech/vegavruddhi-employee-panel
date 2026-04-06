@@ -1,1 +1,0 @@
-{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"2590bc4e48cd4b65bc62c04ff3134fa8","collectionName":"DuplicateSettlements","type":"collection"}

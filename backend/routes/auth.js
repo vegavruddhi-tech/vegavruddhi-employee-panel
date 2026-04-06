@@ -49,10 +49,14 @@ router.post(
         password
       } = req.body;
 
-      const exists = await Employee.findOne({ email });
-      if (exists) {
-        return res.status(400).json({ message: 'Email already registered' });
-      }
+     const exists = await Employee.findOne({ email });
+if (exists && exists.approvalStatus !== 'rejected') {
+  return res.status(400).json({ message: 'Email already registered' });
+}
+if (exists && exists.approvalStatus === 'rejected') {
+  await Employee.findByIdAndDelete(exists._id); // delete the rejected record
+}
+
 
       if (!req.files?.photo) {
         return res.status(400).json({ message: 'Profile photo is required' });

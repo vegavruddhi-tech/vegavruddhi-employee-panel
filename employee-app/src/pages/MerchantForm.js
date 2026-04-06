@@ -4,7 +4,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
-const PRODUCTS = ['Tide','Kotak 811','Insurance','PineLab','Credit Card','Tide Insurance','MSME','Airtel Payments Bank','Equitas SF Bank','IndusInd Bank','Bharat Pay','Tide Credit Card'];
+const BRANDS = ['Tide', 'Tide BT', 'Insurance 2W/4W', 'PineLab'];
+const TIDE_PRODUCTS = ['Tide', 'Tide Insurance', 'Tide MSME', 'Tide Credit Card'];
+const PRODUCTS = ['Tide','Tide BT','Insurance 2W/4W','PineLab','Tide MSME','Tide Insurance','Tide Credit Card'];
 const ATTEMPTED = ['Tide','Kotak','Insurance','Pinelab','Credit Card','BharatPe'];
 const BP_PRODUCTS = ['New Onboarding','QR Re-linking','Re-visit','Loan','Sound Box','Swipe','Mid Market Onboarding'];
 
@@ -46,6 +48,7 @@ export default function MerchantForm() {
   const [product,        setProduct]        = useState('');
   const [attempted,      setAttempted]      = useState([]);
 
+
   // Product sub-fields
   const [tideQR,       setTideQR]       = useState('');
   const [tideUPI,      setTideUPI]      = useState('');
@@ -59,6 +62,12 @@ export default function MerchantForm() {
   const [ccName,       setCcName]       = useState('');
   const [tideInsType,  setTideInsType]  = useState('');
   const [bpProduct,    setBpProduct]    = useState('');
+  const [brand, setBrand] = useState('');
+  const [tideProduct, setTideProduct] = useState('');
+  const [tideBtTxn, setTideBtTxn] = useState('');
+  const [reason, setReason] = useState('');
+
+
 
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
@@ -80,17 +89,24 @@ export default function MerchantForm() {
     if (!status) { setError('Please select a visit status.'); return; }
     if (customerNumber.length !== 10) { setError('Customer number must be exactly 10 digits.'); return; }
 
-    if (isOnboarding && !product) { setError('Please select a product.'); return; }
+    // if (isOnboarding && !product) { setError('Please select a product.'); return; }
+    if (!isOnboarding && !reason.trim()) { setError('Please provide a reason.'); return; }
 
     const payload = {
       customerName, customerNumber, location, status,
-      ...(isOnboarding && product ? { formFillingFor: product } : {}),
-      attemptedProducts: isOnboarding ? [] : attempted,
-      tide_qrPosted: tideQR, tide_upiTxnDone: tideUPI,
-      kotak_txnDone: kotakTxn, kotak_wifiBtOff: kotakWifi,
-      ins_vehicleNumber: insVehicleNo, ins_vehicleType: insVehicle, ins_insuranceType: insType,
-      pine_cardTxn: pineCard, pine_wifiConnected: pineWifi,
-      cc_cardName: ccName, tideIns_type: tideInsType, bp_product: bpProduct,
+      ...(isOnboarding && brand ? { brand } : {}),
+      ...(isOnboarding && tideProduct ? { tideProduct } : {}),
+      ...(isOnboarding && tideBtTxn ? { tideBt_txnDone: tideBtTxn } : {}),
+      ...(isOnboarding && tideQR ? { tide_qrPosted: tideQR } : {}),
+      ...(isOnboarding && tideUPI ? { tide_upiTxnDone: tideUPI } : {}),
+      ...(isOnboarding && insVehicleNo ? { ins_vehicleNumber: insVehicleNo } : {}),
+      ...(isOnboarding && insVehicle ? { ins_vehicleType: insVehicle } : {}),
+      ...(isOnboarding && insType ? { ins_insuranceType: insType } : {}),
+      ...(isOnboarding && pineCard ? { pine_cardTxn: pineCard } : {}),
+      ...(isOnboarding && pineWifi ? { pine_wifiConnected: pineWifi } : {}),
+      ...(isOnboarding && ccName ? { cc_cardName: ccName } : {}),
+      ...(isOnboarding && tideInsType ? { tideIns_type: tideInsType } : {}),
+      ...(!isOnboarding && reason ? { reason } : {}),
     };
 
     setLoading(true);
@@ -153,7 +169,7 @@ export default function MerchantForm() {
           </FormCard>
 
           {/* Ready for Onboarding */}
-          {isOnboarding && (
+          {/* {isOnboarding && (
             <FormCard icon="📄" title="Form Filling For" sub="Select the product / service">
               <div className="form-group">
                 <label>Select Product <span className="req">*</span></label>
@@ -200,10 +216,91 @@ export default function MerchantForm() {
                 </div>
               )}
             </FormCard>
-          )}
+          )} */}
+  {status && !isOnboarding && (
+  <FormCard icon="📝" title="Reason" sub="Why was the merchant not onboarded?">
+    <div className="form-group">
+      <label>Reason <span className="req">*</span></label>
+      <textarea
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        placeholder="Enter reason..."
+        rows={3}
+        required
+        style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #dde8dd', borderRadius: 8, fontSize: 14, resize: 'vertical', outline: 'none' }}
+      />
+    </div>
+  </FormCard>
+)}
+
+
+          {isOnboarding && (
+  <FormCard icon="🏷️" title="Brand Name" sub="Select the brand">
+    <div className="form-group">
+      <label>Brand <span className="req">*</span></label>
+      <RadioGroup name="brand" options={BRANDS} value={brand} onChange={setBrand} />
+    </div>
+    {/* {status && !isOnboarding && (
+  <FormCard icon="📝" title="Reason" sub="Why was the merchant not onboarded?">
+    <div className="form-group">
+      <label>Reason <span className="req">*</span></label>
+      <textarea
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        placeholder="Enter reason..."
+        rows={3}
+        required
+        style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #dde8dd', borderRadius: 8, fontSize: 14, resize: 'vertical', outline: 'none' }}
+      />
+    </div>
+  </FormCard>
+)} */}
+
+
+    {/* Tide sub-products */}
+    {brand === 'Tide' && (
+      <div className="form-group">
+        <label>Tide Product <span className="req">*</span></label>
+        <RadioGroup name="tideProduct" options={TIDE_PRODUCTS} value={tideProduct} onChange={setTideProduct} />
+      </div>
+    )}
+
+    {/* Tide sub-fields — same as existing */}
+    {brand === 'Tide' && tideProduct === 'Tide' && <>
+      <div className="form-group"><label>QR Posted</label><RadioGroup name="tide_qr" options={['Yes','No']} value={tideQR} onChange={setTideQR} /></div>
+      <div className="form-group"><label>Rs 10/30 UPI Txn Done</label><RadioGroup name="tide_upi" options={['Yes','No']} value={tideUPI} onChange={setTideUPI} /></div>
+    </>}
+    {brand === 'Tide' && tideProduct === 'Tide Insurance' && (
+      <div className="form-group"><label>Type of Insurance</label><RadioGroup name="tideins" options={['Cyber Security','Accidental']} value={tideInsType} onChange={setTideInsType} /></div>
+    )}
+    {brand === 'Tide' && tideProduct === 'Tide Credit Card' && (
+      <div className="form-group"><label>Name of the Credit Card</label><input type="text" value={ccName} onChange={e => setCcName(e.target.value)} placeholder="e.g. HDFC Regalia" style={{ width:'100%', padding:'11px 14px', border:'1.5px solid #dde8dd', borderRadius:8, fontSize:14 }} /></div>
+    )}
+
+    {/* Tide BT */}
+    {brand === 'Tide BT' && (
+      <div className="form-group"><label>Rs 10 Txn Done</label><RadioGroup name="tideBtTxn" options={['Yes','No']} value={tideBtTxn} onChange={setTideBtTxn} /></div>
+    )}
+
+    {/* Insurance 2W/4W */}
+    {brand === 'Insurance 2W/4W' && <>
+      <p style={{ fontSize:12, color:'#888', marginBottom:8 }}>For Motor Insurance</p>
+      <div className="form-group"><label>Vehicle Number</label><input type="text" value={insVehicleNo} onChange={e => setInsVehicleNo(e.target.value)} placeholder="e.g. MH12AB1234" style={{ width:'100%', padding:'11px 14px', border:'1.5px solid #dde8dd', borderRadius:8, fontSize:14 }} /></div>
+      <div className="form-group"><label>Vehicle Type</label><RadioGroup name="ins_vehicle" options={['2 Wheeler','4 Wheeler','Commercial']} value={insVehicle} onChange={setInsVehicle} /></div>
+      <div className="form-group"><label>Insurance Type</label><RadioGroup name="ins_type" options={['3rd Party','Only OD','OD + 3rd Party']} value={insType} onChange={setInsType} /></div>
+    </>}
+
+    {/* PineLab */}
+    {brand === 'PineLab' && <>
+      <div className="form-group"><label>Card Txn done of Rs 100</label><RadioGroup name="pine_card" options={['Yes','No']} value={pineCard} onChange={setPineCard} /></div>
+      <div className="form-group"><label>Machine connected with Wi-Fi</label><RadioGroup name="pine_wifi" options={['Yes','No']} value={pineWifi} onChange={setPineWifi} /></div>
+    </>}
+  </FormCard>
+)}
+
 
           {/* Not onboarding */}
-          {status && !isOnboarding && (
+          {/* {status && !isOnboarding && (
             <FormCard icon="☐" title="Products Discussed" sub="Select all products that were discussed">
               <div className="form-group">
                 <label>Select Products <span className="req">*</span></label>
@@ -217,7 +314,7 @@ export default function MerchantForm() {
                 </div>
               </div>
             </FormCard>
-          )}
+          )} */}
 
           <button type="submit" className="submit-btn" disabled={loading}>
             {loading ? 'Submitting...' : '✓ Submit Form Response'}

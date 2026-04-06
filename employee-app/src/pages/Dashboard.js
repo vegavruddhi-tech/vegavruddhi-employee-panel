@@ -4,7 +4,15 @@ import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
-const POINTS_MAP = { 'Tide': 2, 'MSME': 0.3, 'Tide Insurance': 1, 'Tide Credit Card': 1 };
+const POINTS_MAP = { 
+  'Tide': 2, 
+  // 'MSME': 0.3, 
+  'Tide MSME': 0.3,
+  'Tide Insurance': 1, 
+  'Tide Credit Card': 1,
+  'Tide BT': 1,
+};
+
 
 const STATUS_COLOR = {
   'Ready for Onboarding':          { color: '#2e7d32', bg: '#e6f4ea' },

@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"ee56bae1c9384b699c985915ce728719","collectionName":"UPI_Onboarding_data","type":"collection"}

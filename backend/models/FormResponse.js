@@ -15,43 +15,56 @@ const formResponseSchema = new mongoose.Schema({
     'Try but not done due to error',
     'Need to visit again'
   ]},
-formFillingFor: {
-  type: String,
-  required: function () {
-    return this.status === 'Ready for Onboarding';
-  },
-  default: undefined
-},
+// formFillingFor: {
+//   type: String,
+//   required: function () {
+//     return this.status === 'Ready for Onboarding';
+//   },
+//   default: undefined
+// },
+formFillingFor: { type: String, },
 
-  // For non-onboarding statuses — checkbox list of products attempted
-  attemptedProducts: [{ type: String }],
-  tide_qrPosted:    { type: String, enum: ['Yes', 'No', ''] },
-  tide_upiTxnDone:  { type: String, enum: ['Yes', 'No', ''] },
+    // Non-onboarding
+  reason:            { type: String },
 
-  // Kotak 811 fields
-  kotak_txnDone:    { type: String, enum: ['Yes', 'No', ''] },
-  kotak_wifiBtOff:  { type: String, enum: ['Yes', 'No', ''] },
+  // Brand Name (new form)
+  brand:             { type: String },
+  tideProduct:       { type: String },
 
-  // Insurance fields
+  // Tide fields
+  tide_qrPosted:     { type: String },
+  tide_upiTxnDone:   { type: String },
+
+  // Tide BT
+  tideBt_txnDone:    { type: String },
+
+  // Insurance 2W/4W fields
   ins_vehicleNumber: { type: String },
-  ins_vehicleType:   { type: String, enum: ['2 Wheeler', '4 Wheeler', 'Commercial', ''] },
-  ins_insuranceType: { type: String, enum: ['3rd Party', 'Only OD', 'OD + 3rd Party', ''] },
+  ins_vehicleType:   { type: String },
+  ins_insuranceType: { type: String },
 
   // PineLab fields
-  pine_cardTxn:      { type: String, enum: ['Yes', 'No', ''] },
-  pine_wifiConnected:{ type: String, enum: ['Yes', 'No', ''] },
+  pine_cardTxn:      { type: String },
+  pine_wifiConnected:{ type: String },
 
-  // Credit Card fields
+  // Tide Credit Card
   cc_cardName:       { type: String },
 
-  // Tide Insurance fields
-  tideIns_type:      { type: String, enum: ['Cyber Security', 'Accidental', ''] },
+  // Tide Insurance
+  tideIns_type:      { type: String },
 
-  // Bharat Pay fields
-  bp_product:        { type: String, enum: [
-    'New Onboarding', 'QR Re-linking', 'Re-visit',
-    'Loan', 'Sound Box', 'Swipe', 'Mid Market Onboarding', ''
-  ]},
+  // Old fields (commented for reference)
+  // formFillingFor:    { type: String },
+  // attemptedProducts: [{ type: String }],
+  // kotak_txnDone:     { type: String },
+  // kotak_wifiBtOff:   { type: String },
+  // bp_product:        { type: String },
+
+  brand:          { type: String },
+  tideProduct:    { type: String },
+  tideBt_txnDone: { type: String, enum: ['Yes', 'No', ''] },
+  reason:         { type: String },
+
 
   createdAt: { type: Date, default: Date.now }
 }, { collection: 'Forms_respones' });

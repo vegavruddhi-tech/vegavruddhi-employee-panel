@@ -37,6 +37,7 @@ router.post('/submit', verifyToken, async (req, res) => {
     if (!body.formFillingFor) delete body.formFillingFor;
 
     const data = { ...body, submittedBy: req.user.id, employeeName: emp?.newJoinerName || '' };
+    console.log(data);
     const form = await FormResponse.create(data);
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });
 

@@ -81,14 +81,16 @@ export default function MerchantDetail() {
     setReqOpen(true);
   };
 
-  const openDelete = () => {
-    if (!reason?.trim()) { setReqError('Reason is required.'); return; }
+const openDelete = () => {
+    const reason = window.prompt(`Reason for deleting "${form?.customerName}"? (required)`);
+    if (!reason?.trim()) return;
     fetch(`${API_BASE}/api/requests/merchant-delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({ merchantId: form._id, merchantName: form.customerName, reason: reason.trim() })
     }).then(() => alert('✓ Delete request sent to admin for approval.')).catch(() => alert('Server error.'));
   };
+
 
   const sendRequest = async () => {
     if (!reqForm.reason.trim()) { setReqError('Please provide a reason.'); return; }

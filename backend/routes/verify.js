@@ -69,6 +69,7 @@ router.get('/bulk-admin', async (req, res) => {
     const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
     const names    = (req.query.names    || '').split(',').map(n => n.trim());
     const products = (req.query.products || '').split(',').map(p => p.trim());
+    const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
     if (!phones.length) return res.json({});
     const db     = mongoose.connection.db;
     const result = {};

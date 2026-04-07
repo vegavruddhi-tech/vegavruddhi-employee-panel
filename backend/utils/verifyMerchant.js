@@ -141,14 +141,18 @@ function evaluateCondition(record, condition) {
  * 3. First collection where phone is found → evaluate its conditions
  * 4. If phone not found anywhere → Not Found
  */
-async function verifyMerchant(db, phone, name, VerificationRule, product) {
-  const allRules = await VerificationRule.find({ active: true });
+async function verifyMerchant(db, phone, name, VerificationRule, product, month) {
+const allRulesRaw = await VerificationRule.find({ active: true });
+const allRules = month
+? allRulesRaw.filter(r => r.monthLabel && r.monthLabel.toLowerCase() === month.toLowerCase())
+: allRulesRaw;
+const hintedIds = product
+? allRules.filter(r => r.productTypes && r.productTypes.some(p => p.toLowerCase() === product.toLowerCase())).map(r => String(r._id))
+: [];
 
-  const hintedIds = product
-    ? allRules.filter(r => r.productTypes && r.productTypes.some(p => p.toLowerCase() === product.toLowerCase())).map(r => String(r._id))
-    : [];
-  const hinted = allRules.filter(r => hintedIds.includes(String(r._id)));
-  const rest    = allRules.filter(r => !hintedIds.includes(String(r._id)));
+const hinted = allRules.filter(r => hintedIds.includes(String(r._id)));
+const rest    = allRules.filter(r => !hintedIds.includes(String(r._id)));
+
   const orderedRules = [...hinted, ...rest];
 
   for (const rule of orderedRules) {

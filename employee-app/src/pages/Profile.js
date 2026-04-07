@@ -102,7 +102,7 @@ const openCamera = async () => {
     <>
       <Navbar emp={emp} />
       <div className="profile-page">
-        {/* Hero */}
+        {/* Hero */}pfErr &&
         <div className="profile-hero">
           <div
             className="avatar-edit-wrap"

@@ -37,6 +37,8 @@ router.get('/bulk', verifyToken, async (req, res) => {
     if (!phones.length) return res.json({});
     const db     = mongoose.connection.db;
     const result = {};
+    const months = (req.query.months || '').split(',').map(m => decodeURIComponent(m.trim()));
+
 
     await Promise.all(phones.map(async (phone, i) => {
       const name    = names[i]    || '';
@@ -74,10 +76,13 @@ router.get('/bulk-admin', async (req, res) => {
     await Promise.all(phones.map(async (phone, i) => {
       const name    = names[i]    || '';
       const product = products[i] || '';
+      const month   = months[i]   || '';
+
       const [v, pc] = await Promise.all([
-        verifyMerchant(db, phone, name, VerificationRule, product),
-        crossCheckPhone(db, phone, name, VerificationRule, product)
+        verifyMerchant(db, phone, name, VerificationRule, product, month),
+        crossCheckPhone(db, phone, name, VerificationRule, product, month)
       ]);
+
       result[phone] = {
         status:     v.status,
         matchType:  v.matchType,

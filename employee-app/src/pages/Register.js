@@ -129,7 +129,8 @@ if (form.position === 'TL') {
 fd.append('photo', photo);
 if (cvFile) fd.append('cv', cvFile);
 
-const endpoint = form.position === 'TL' ? '/api/auth/register-tl' : '/api/auth/register';
+const endpoint = form.position === 'TL' ? '/api/tl/register' : '/api/auth/register';
+
 
 setLoading(true);
 try {
@@ -276,7 +277,7 @@ try {
     <option value="">Choose...</option>
     {/* <option>Team Lead</option> */}
     <option>FSE</option>
-    <option>TL</option>
+    
     
   </select>
 </div>

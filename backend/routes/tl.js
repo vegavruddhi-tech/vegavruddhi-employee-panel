@@ -7,6 +7,7 @@ const upload         = require('../middleware/multer');
 const TeamLead       = require('../models/TeamLead');
 const Employee       = require('../models/Employee');
 const TLChangeRequest = require('../models/TLChangeRequest');
+const mongoose = require('mongoose');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -343,10 +344,10 @@ router.put('/change-requests/:id/reject', async (req, res) => {
   }
 });
 // GET /api/tl/pending — admin: get all pending TL registrations
+// GET /api/tl/pending
 router.get('/pending', async (req, res) => {
   try {
-    const db = mongoose.connection.db;
-    const tls = await db.collection('TeamLeads').find({ status: 'Pending' }).toArray();
+    const tls = await TeamLead.find({ approvalStatus: 'pending' }).select('-password');
     res.json(tls);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -356,9 +357,7 @@ router.get('/pending', async (req, res) => {
 // PUT /api/tl/approve/:id
 router.put('/approve/:id', async (req, res) => {
   try {
-    const db = mongoose.connection.db;
-    const { ObjectId } = require('mongodb');
-    await db.collection('TeamLeads').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: 'Active' } });
+    await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'approved' });
     res.json({ message: 'TL approved' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -368,14 +367,13 @@ router.put('/approve/:id', async (req, res) => {
 // PUT /api/tl/reject/:id
 router.put('/reject/:id', async (req, res) => {
   try {
-    const db = mongoose.connection.db;
-    const { ObjectId } = require('mongodb');
-    await db.collection('TeamLeads').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: 'Rejected' } });
+    await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
     res.json({ message: 'TL rejected' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
+
 
 module.exports = router;
 // // GET all pending TLs

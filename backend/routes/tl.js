@@ -342,22 +342,56 @@ router.put('/change-requests/:id/reject', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+// GET /api/tl/pending — admin: get all pending TL registrations
+router.get('/pending', async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const tls = await db.collection('TeamLeads').find({ status: 'Pending' }).toArray();
+    res.json(tls);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/tl/approve/:id
+router.put('/approve/:id', async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const { ObjectId } = require('mongodb');
+    await db.collection('TeamLeads').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: 'Active' } });
+    res.json({ message: 'TL approved' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/tl/reject/:id
+router.put('/reject/:id', async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const { ObjectId } = require('mongodb');
+    await db.collection('TeamLeads').updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: 'Rejected' } });
+    res.json({ message: 'TL rejected' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 module.exports = router;
-// GET all pending TLs
-router.get('/pending', async (req, res) => {
-  const tls = await TeamLead.find({ approvalStatus: 'pending' }).select('-password');
-  res.json(tls);
-});
+// // GET all pending TLs
+// router.get('/pending', async (req, res) => {
+//   const tls = await TeamLead.find({ approvalStatus: 'pending' }).select('-password');
+//   res.json(tls);
+// });
 
-// Approve TL
-router.put('/approve/:id', async (req, res) => {
-  await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'approved' });
-  res.json({ message: 'TL approved' });
-});
+// // Approve TL
+// router.put('/approve/:id', async (req, res) => {
+//   await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'approved' });
+//   res.json({ message: 'TL approved' });
+// });
 
-// Reject TL
-router.put('/reject/:id', async (req, res) => {
-  await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
-  res.json({ message: 'TL rejected' });
-});
+// // Reject TL
+// router.put('/reject/:id', async (req, res) => {
+//   await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
+//   res.json({ message: 'TL rejected' });
+// });

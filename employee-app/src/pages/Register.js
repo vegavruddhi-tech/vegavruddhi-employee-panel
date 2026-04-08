@@ -99,16 +99,42 @@ useEffect(() => {
     // if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return; }
     if (!photo) { setError('Profile photo is required'); return; }
 
+    // const fd = new FormData();
+    // const submitForm = { ...form, email: form.newJoinerEmailId };
+    // Object.entries(submitForm).forEach(([k, v]) => { if (k !== 'confirmPassword') fd.append(k, v); });
+
+    // fd.append('photo', photo);
+    // if (cvFile) fd.append('cv', cvFile);
+
+    // setLoading(true);
+    // try {
+    //   const res  = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', body: fd });
     const fd = new FormData();
-    const submitForm = { ...form, email: form.newJoinerEmailId };
-    Object.entries(submitForm).forEach(([k, v]) => { if (k !== 'confirmPassword') fd.append(k, v); });
 
-    fd.append('photo', photo);
-    if (cvFile) fd.append('cv', cvFile);
+if (form.position === 'TL') {
+  // TL field names match TeamLead model
+  fd.append('email',            form.newJoinerEmailId);
+  fd.append('name',             form.newJoinerName);
+  fd.append('phone',            form.newJoinerPhone);
+  fd.append('emailId',          form.newJoinerEmailId);
+  fd.append('reportingManager', form.reportingManager);
+  fd.append('location',         form.location);
+  fd.append('dob',              form.dob);
+} else {
+  // FSE — existing logic unchanged
+  const submitForm = { ...form, email: form.newJoinerEmailId };
+  Object.entries(submitForm).forEach(([k, v]) => { if (k !== 'confirmPassword') fd.append(k, v); });
+}
 
-    setLoading(true);
-    try {
-      const res  = await fetch(`${API_BASE}/api/auth/register`, { method: 'POST', body: fd });
+fd.append('photo', photo);
+if (cvFile) fd.append('cv', cvFile);
+
+const endpoint = form.position === 'TL' ? '/api/auth/register-tl' : '/api/auth/register';
+
+setLoading(true);
+try {
+  const res = await fetch(`${API_BASE}${endpoint}`, { method: 'POST', body: fd });
+
       const data = await res.json();
       if (!res.ok) { setError(data.message || 'Registration failed'); return; }
       setSuccess('✓ Registration successful! Redirecting to login...');
@@ -250,6 +276,8 @@ useEffect(() => {
     <option value="">Choose...</option>
     {/* <option>Team Lead</option> */}
     <option>FSE</option>
+    <option>TL</option>
+    
   </select>
 </div>
           

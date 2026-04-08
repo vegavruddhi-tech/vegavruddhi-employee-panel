@@ -91,6 +91,60 @@ const hashed = await bcrypt.hash(rawPassword, 10);
     }
   }
 );
+// POST /api/auth/register-tl — TL registration → saves to TeamLeads collection
+const TeamLead = require('../models/TeamLead');
+
+router.post(
+  '/register-tl',
+  upload.fields([
+    { name: 'cv', maxCount: 1 },
+    { name: 'photo', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      const {
+        email, name, phone, emailId,
+        reportingManager, location, dob, password
+      } = req.body;
+
+      if (!req.files?.photo) {
+        return res.status(400).json({ message: 'Profile photo is required' });
+      }
+
+      const exists = await TeamLead.findOne({ email });
+      if (exists && exists.approvalStatus !== 'rejected') {
+        return res.status(400).json({ message: 'Email already registered' });
+      }
+      if (exists && exists.approvalStatus === 'rejected') {
+        await TeamLead.findByIdAndDelete(exists._id);
+      }
+
+      const hashed = await bcrypt.hash(
+        password || Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10),
+        10
+      );
+
+      const tl = await TeamLead.create({
+        email,
+        name,
+        phone,
+        emailId,
+        reportingManager,
+        location,
+        dob: dob || '',
+        password: hashed,
+        image: req.files?.photo?.[0]?.path || '',
+        cv:    req.files?.cv?.[0]?.path   || ''
+      });
+
+      res.status(201).json({ message: 'Registered successfully', id: tl._id });
+
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  }
+);
+
 router.post(
   '/update-photo',
   verifyToken,

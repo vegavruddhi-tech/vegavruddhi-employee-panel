@@ -40,12 +40,13 @@ router.post(
       }
       // Check for duplicate — allow re-register if rejected
       const exists = await TeamLead.findOne({ email: emailId });
-      if (exists && exists.approvalStatus !== 'rejected') {
-        return res.status(400).json({ message: 'Email already registered' });
+      if (exists && exists.approvalStatus === 'approved') {
+        return res.status(400).json({ message: 'Email already registered and approved' });
       }
-      if (exists && exists.approvalStatus === 'rejected') {
-        await TeamLead.findByIdAndDelete(exists._id); // delete rejected record so they can re-register
+      if (exists) {
+        await TeamLead.findByIdAndDelete(exists._id); // delete pending or rejected, allow fresh registration
       }
+
 
 
       await TeamLead.create({

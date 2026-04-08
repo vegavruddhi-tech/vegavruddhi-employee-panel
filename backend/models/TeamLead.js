@@ -14,6 +14,7 @@ const teamLeadSchema = new mongoose.Schema({
   dob:              { type: String, default: '' },
   status:           { type: String, default: 'Active' },
   role:             { type: String, default: 'tl' },
+  approvalStatus: { type: String, default: 'pending', enum: ['pending', 'approved', 'rejected'] },
   createdAt:        { type: Date, default: Date.now }
 }, { collection: 'TeamLeads' });
 

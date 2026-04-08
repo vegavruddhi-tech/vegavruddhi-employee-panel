@@ -81,6 +81,13 @@ router.post('/google-login', async (req, res) => {
         message: 'No registered Team Lead found with this Google account. Please register first.'
       });
     }
+    if (tl.approvalStatus === 'pending') {
+        return res.status(403).json({ message: 'Your account is pending admin approval. Please wait.' });
+      }
+      if (tl.approvalStatus === 'rejected') {
+        return res.status(403).json({ message: 'Your account was rejected. Contact admin.' });
+      }
+
 
     const token = jwt.sign({ id: tl._id, email: tl.email, role: 'tl' }, process.env.JWT_SECRET, { expiresIn: '8h' });
     res.json({ token, tl: { name: tl.name, email: tl.email, image: tl.image, location: tl.location } });
@@ -337,3 +344,20 @@ router.put('/change-requests/:id/reject', async (req, res) => {
 });
 
 module.exports = router;
+// GET all pending TLs
+router.get('/pending', async (req, res) => {
+  const tls = await TeamLead.find({ approvalStatus: 'pending' }).select('-password');
+  res.json(tls);
+});
+
+// Approve TL
+router.put('/approve/:id', async (req, res) => {
+  await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'approved' });
+  res.json({ message: 'TL approved' });
+});
+
+// Reject TL
+router.put('/reject/:id', async (req, res) => {
+  await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
+  res.json({ message: 'TL rejected' });
+});

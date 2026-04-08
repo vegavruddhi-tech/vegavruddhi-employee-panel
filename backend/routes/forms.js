@@ -250,7 +250,7 @@ router.get('/admin/tl-overview', async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const [tls, users, forms] = await Promise.all([
-      db.collection('TeamLeads').find({}).toArray(),
+      db.collection('TeamLeads').find({ approvalStatus: 'approved' }).toArray(),
       Employee.find({}).lean(),
       FormResponse.find({}).sort({ createdAt: -1 }).lean(),
     ]);

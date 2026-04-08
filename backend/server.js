@@ -17,6 +17,7 @@ app.use(express.json());
 // app.use('/uploads', express.static(uploadsDir));
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/tl', require('./routes/tl'));
 app.use('/api/forms', require('./routes/forms'));
 app.use('/api/verify', require('./routes/verify'));
 app.use('/api/requests', require('./routes/requests'));

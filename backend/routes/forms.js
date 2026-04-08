@@ -3,6 +3,7 @@ const router       = express.Router();
 const jwt          = require('jsonwebtoken');
 const FormResponse = require('../models/FormResponse');
 const Employee     = require('../models/Employee');
+const mongoose = require('mongoose');
 
 function verifyToken(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
@@ -240,6 +241,32 @@ router.put('/save-verified-points', verifyToken, async (req, res) => {
     const { verifiedPoints } = req.body;
     await Employee.findByIdAndUpdate(req.user.id, { verifiedPoints: Number(verifiedPoints) || 0 });
     res.json({ message: 'Saved' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+// GET /api/forms/admin/tl-overview
+router.get('/admin/tl-overview', async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const [tls, users, forms] = await Promise.all([
+      db.collection('TeamLeads').find({}).toArray(),
+      Employee.find({}).lean(),
+      FormResponse.find({}).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    const result = tls.map(tl => {
+      const tlName = tl.email || tl.name;
+      const fses = users.filter(u =>
+        u.reportingManager && tlName &&
+        u.reportingManager.trim().toLowerCase() === tlName.trim().toLowerCase()
+      );
+      const fseNames = fses.map(u => u.newJoinerName);
+      const tlForms = forms.filter(f => fseNames.includes(f.employeeName));
+      return { tl, fses, forms: tlForms };
+    });
+
+    res.json(result);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

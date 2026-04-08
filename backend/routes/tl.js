@@ -38,6 +38,15 @@ router.post(
       if (!req.files?.photo) {
         return res.status(400).json({ message: 'Profile photo is required' });
       }
+      // Check for duplicate — allow re-register if rejected
+      const exists = await TeamLead.findOne({ email: emailId });
+      if (exists && exists.approvalStatus !== 'rejected') {
+        return res.status(400).json({ message: 'Email already registered' });
+      }
+      if (exists && exists.approvalStatus === 'rejected') {
+        await TeamLead.findByIdAndDelete(exists._id); // delete rejected record so they can re-register
+      }
+
 
       await TeamLead.create({
         email:            emailId || '',

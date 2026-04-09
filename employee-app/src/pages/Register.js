@@ -6,7 +6,7 @@ export default function Register() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     newJoinerName: '', location: '', newJoinerPhone: '',
-    newJoinerEmailId: '', reportingManager: '', position: '', dob: ''
+    newJoinerEmailId: '', reportingManager: '', position: 'FSE', dob: ''
   });
   const [photo, setPhoto]       = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -271,16 +271,8 @@ try {
     <input type="text" value={form.reportingManager} onChange={set('reportingManager')} placeholder="Manager name" required />
   </div>
 </div>
-<div className="form-group">
-  <label>For Position <span className="req">*</span></label>
-  <select value={form.position} onChange={set('position')} required>
-    <option value="">Choose...</option>
-    {/* <option>Team Lead</option> */}
-    <option>FSE</option>
-    
-    
-  </select>
-</div>
+<input type="hidden" value="FSE" name="position" />
+
           
 
           <button type="submit" className="btn" disabled={loading}>

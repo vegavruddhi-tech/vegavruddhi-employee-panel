@@ -256,7 +256,7 @@ router.get('/admin/tl-overview', async (req, res) => {
     ]);
 
     const result = tls.map(tl => {
-      const tlName = tl.email || tl.name;
+      const tlName = tl.name || tl.email;
       const fses = users.filter(u =>
         u.reportingManager && tlName &&
         u.reportingManager.trim().toLowerCase() === tlName.trim().toLowerCase()

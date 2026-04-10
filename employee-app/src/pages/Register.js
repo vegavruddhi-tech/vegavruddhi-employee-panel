@@ -18,6 +18,14 @@ export default function Register() {
   const videoRef  = useRef();
   const canvasRef = useRef();
   const streamRef = useRef();
+  const [tlList, setTlList] = useState([]);
+
+useEffect(() => {
+  fetch(`${API_BASE}/api/tl/approved-list`)
+    .then(r => r.json())
+    .then(data => setTlList(Array.isArray(data) ? data : []))
+    .catch(() => {});
+}, []);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -268,7 +276,13 @@ try {
   </div>
   <div className="form-group">
     <label>Reporting Manager <span className="req">*</span></label>
-    <input type="text" value={form.reportingManager} onChange={set('reportingManager')} placeholder="Manager name" required />
+    <select value={form.reportingManager} onChange={set('reportingManager')} required>
+    <option value="">-- Select TL --</option>
+  {tlList.map(tl => (
+    <option key={tl._id} value={tl.name}>{tl.name}</option>
+  ))}
+</select>
+
   </div>
 </div>
 <input type="hidden" value="FSE" name="position" />

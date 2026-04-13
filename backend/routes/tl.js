@@ -452,23 +452,14 @@ router.put('/reject/:id', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+router.get('/approved-list', async (req, res) => {
+  try {
+    const tls = await TeamLead.find({ approvalStatus: 'approved' }).select('name email');
+    res.json(tls);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 
 module.exports = router;
-// // GET all pending TLs
-// router.get('/pending', async (req, res) => {
-//   const tls = await TeamLead.find({ approvalStatus: 'pending' }).select('-password');
-//   res.json(tls);
-// });
-
-// // Approve TL
-// router.put('/approve/:id', async (req, res) => {
-//   await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'approved' });
-//   res.json({ message: 'TL approved' });
-// });
-
-// // Reject TL
-// router.put('/reject/:id', async (req, res) => {
-//   await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
-//   res.json({ message: 'TL rejected' });
-// });

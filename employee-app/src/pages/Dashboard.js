@@ -123,7 +123,11 @@ export default function Dashboard() {
     if (!filtered.length) return;
     const phones   = filtered.map(f => f.customerNumber).join(',');
     const names    = filtered.map(f => encodeURIComponent(f.customerName)).join(',');
-    const products = filtered.map(f => encodeURIComponent(f.formFillingFor || '')).join(',');
+    const products = filtered.map(f => {
+    const p = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
+      return encodeURIComponent(p);
+    }).join(',');
+
     fetch(`${API_BASE}/api/verify/bulk?phones=${encodeURIComponent(phones)}&names=${names}&products=${products}`, {
       headers: { Authorization: 'Bearer ' + token }
     })
@@ -319,7 +323,11 @@ export default function Dashboard() {
             const vstatus = info.status || 'Not Found';
             const b       = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
             const sc      = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };
-            const product = f.formFillingFor || (f.attemptedProducts?.join(', ')) || '–';
+           const product = f.formFillingFor 
+           || (f.attemptedProducts?.join(', ')) 
+           || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand) 
+           || '–';
+
             const date    = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
             const pts     = (info.status === 'Fully Verified') ? (POINTS_MAP[f.formFillingFor] || null) : null;
 

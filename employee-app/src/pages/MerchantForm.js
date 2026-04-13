@@ -95,6 +95,7 @@ export default function MerchantForm() {
     const payload = {
       customerName, customerNumber, location, status,
       ...(isOnboarding && brand ? { brand } : {}),
+      ...(isOnboarding && brand ? { formFillingFor: brand === 'Tide' && tideProduct ? tideProduct : brand } : {}), 
       ...(isOnboarding && tideProduct ? { tideProduct } : {}),
       ...(isOnboarding && tideBtTxn ? { tideBt_txnDone: tideBtTxn } : {}),
       ...(isOnboarding && tideQR ? { tide_qrPosted: tideQR } : {}),

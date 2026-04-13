@@ -22,9 +22,13 @@ const NAME_COLS = [
 
 // All phone variants: string + number, with/without 91
 function phoneVariants(phone) {
-  const digits = String(phone).replace(/\D/g, '');
+  // Handle float/scientific notation
+  const raw = typeof phone === 'number' ? Math.round(phone).toString() : String(phone);
+  const digits = raw.replace(/\D/g, '');
+
   const set = new Set();
   set.add(digits);
+  set.add(parseFloat(digits));  // handles float storage
   set.add(Number(digits));
   if (!digits.startsWith('91') && digits.length === 10) {
     set.add('91' + digits);
@@ -151,9 +155,10 @@ const hintedIds = product
 : [];
 
 const hinted = allRules.filter(r => hintedIds.includes(String(r._id)));
-const rest    = allRules.filter(r => !hintedIds.includes(String(r._id)));
+// When month is specified, only search hinted rules — no fallback to other products
+const rest = month ? [] : allRules.filter(r => !hintedIds.includes(String(r._id)));
+const orderedRules = [...hinted, ...rest];
 
-  const orderedRules = [...hinted, ...rest];
 
   for (const rule of orderedRules) {
     const col = db.collection(rule.collectionName);
@@ -184,12 +189,30 @@ const rest    = allRules.filter(r => !hintedIds.includes(String(r._id)));
     }
 
     // Found the record — evaluate this rule's conditions
+    // For simple products — phone found = Fully Verified, no conditions needed
+    const SIMPLE_PRODUCTS = ['tide msme', 'tide insurance', 'insurance 2w/4w', 'tide credit card'];
+    const isSimple = product && SIMPLE_PRODUCTS.includes(product.toLowerCase());
+
+    if (isSimple) {
+      const sheetPhone = String(PHONE_COLS.map(c => record[c]).find(v => v != null) || '');
+      const sheetName  = NAME_COLS.map(c => record[c]).find(v => v) || '';
+      return {
+        status: 'Fully Verified', verified: true,
+        passed: 1, total: 1, checks: [],
+        collection: rule.collectionName,
+        monthLabel: rule.monthLabel,
+        matchType, sheetPhone, sheetName
+      };
+    }
+
+    // Found the record — evaluate this rule's conditions
     const checks  = rule.conditions.map(cond => evaluateCondition(record, cond));
     const passed  = checks.filter(c => c.pass).length;
     const total   = checks.length;
     const status  = passed === total ? 'Fully Verified'
                   : passed > 0       ? 'Partially Done'
                   :                    'Not Verified';
+
 
 
     const sheetPhone = String(PHONE_COLS.map(c => record[c]).find(v => v != null) || '');
@@ -219,9 +242,10 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
     ? allRules.filter(r => r.productTypes && r.productTypes.some(p => p.toLowerCase() === product.toLowerCase()))
 
     : [];
-  const hinted = allRules.filter(r => hintedIds.includes(String(r._id)));
-  const rest    = allRules.filter(r => !hintedIds.includes(String(r._id)));
-  const orderedRules = [...hinted, ...rest];
+const hinted = allRules.filter(r => hintedIds.includes(String(r._id)));
+const rest = month ? [] : allRules.filter(r => !hintedIds.includes(String(r._id)));
+const orderedRules = [...hinted, ...rest];
+
 
   for (const rule of orderedRules) {
     const col = db.collection(rule.collectionName);

@@ -210,6 +210,7 @@ router.get('/employees', verifyToken, async (req, res) => {
         _id:            e._id,
         newJoinerName:  e.newJoinerName,
         newJoinerPhone: e.newJoinerPhone,
+        emailId:        e.newJoinerEmailId || e.email || '',
         position:       e.position || 'FSE',
         location:       e.location,
         status:         e.status,
@@ -226,8 +227,8 @@ router.get('/employees', verifyToken, async (req, res) => {
 // Forms submitted by the TL themselves
 router.get('/my-forms', verifyToken, async (req, res) => {
   try {
-    const FormResponse = require('../models/FormResponse');
-    const forms = await FormResponse.find({ submittedBy: req.user.id }).sort({ createdAt: -1 });
+    const TLFormResponse = require('../models/TLFormResponse');
+    const forms = await TLFormResponse.find({ submittedBy: req.user.id }).sort({ createdAt: -1 });
     res.json(forms);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -274,6 +275,74 @@ router.get('/team-forms', verifyToken, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+// ── GET /api/tl/team-forms-verified ────────────────────────────
+// Team forms with verification status for each form
+router.get('/team-forms-verified', verifyToken, async (req, res) => {
+  try {
+    const FormResponse   = require('../models/FormResponse');
+    const VerificationRule = require('../models/VerificationRule');
+    const { verifyMerchant } = require('../utils/verifyMerchant');
+
+    const tl = await TeamLead.findById(req.user.id).select('name email');
+    if (!tl) return res.status(404).json({ message: 'TL not found' });
+
+    const tlEmail = tl.email.trim();
+
+    const fseRecords = await TeamLead.find({
+      role: 'fse',
+      reportingManager: { $regex: new RegExp(tlEmail, 'i') }
+    }).select('email name');
+
+    const fseUsers = await Employee.find({
+      reportingManager: { $regex: new RegExp(tl.name.trim(), 'i') }
+    }).select('_id newJoinerName');
+
+    const fseUserIds = fseUsers.map(e => e._id);
+    const fseNames   = [
+      ...fseRecords.map(f => f.email),
+      ...fseUsers.map(e => e.newJoinerName)
+    ];
+
+    const forms = await FormResponse.find({
+      $or: [
+        { submittedBy: { $in: fseUserIds } },
+        { employeeName: { $in: fseNames } }
+      ]
+    }).sort({ createdAt: -1 });
+
+    const db = mongoose.connection.db;
+
+    // Run verification for each form in parallel
+    const formsWithVerification = await Promise.all(forms.map(async (form) => {
+      const f = form.toObject();
+      try {
+        const result = await verifyMerchant(db, form.customerNumber, form.customerName, VerificationRule, form.formFillingFor || '');
+        f.verificationStatus = result.status; // 'Fully Verified' | 'Partially Done' | 'Not Verified' | 'Not Found'
+      } catch {
+        f.verificationStatus = 'Not Found';
+      }
+      return f;
+    }));
+
+    res.json(formsWithVerification);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /api/tl/form/:id ────────────────────────────────────────
+// TL views detail of any FSE form under their team
+router.get('/form/:id', verifyToken, async (req, res) => {
+  try {
+    const FormResponse = require('../models/FormResponse');
+    const form = await FormResponse.findById(req.params.id);
+    if (!form) return res.status(404).json({ message: 'Form not found' });
+    res.json(form);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // TL submits a profile edit request
 router.post('/request-edit', verifyToken, async (req, res) => {
   try {

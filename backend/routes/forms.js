@@ -1,8 +1,10 @@
 const express      = require('express');
 const router       = express.Router();
 const jwt          = require('jsonwebtoken');
-const FormResponse = require('../models/FormResponse');
+const FormResponse   = require('../models/FormResponse');
+const TLFormResponse = require('../models/TLFormResponse');
 const Employee     = require('../models/Employee');
+const TeamLead     = require('../models/TeamLead');
 const mongoose = require('mongoose');
 
 function verifyToken(req, res, next) {
@@ -15,11 +17,21 @@ function verifyToken(req, res, next) {
 // POST /api/forms/submit
 router.post('/submit', verifyToken, async (req, res) => {
   try {
-    const emp = await Employee.findById(req.user.id).select('newJoinerName');
+    const isTL = req.user.role === 'tl';
+    const Model = isTL ? TLFormResponse : FormResponse;
+
+    let employeeName = '';
+    if (isTL) {
+      const tl = await TeamLead.findById(req.user.id).select('name');
+      employeeName = tl?.name || '';
+    } else {
+      const emp = await Employee.findById(req.user.id).select('newJoinerName');
+      employeeName = emp?.newJoinerName || '';
+    }
 
     // Duplicate check: only when a product is selected (onboarding only)
     if (req.body.formFillingFor) {
-      const existing = await FormResponse.findOne({
+      const existing = await Model.findOne({
         submittedBy:    req.user.id,
         customerNumber: req.body.customerNumber,
         formFillingFor: req.body.formFillingFor,
@@ -31,15 +43,14 @@ router.post('/submit', verifyToken, async (req, res) => {
           existingId: existing._id,
         });
       }
-    }  // ← if block ends HERE
+    }
 
-    // This runs for ALL statuses
     const body = { ...req.body };
     if (!body.formFillingFor) delete body.formFillingFor;
 
-    const data = { ...body, submittedBy: req.user.id, employeeName: emp?.newJoinerName || '' };
+    const data = { ...body, submittedBy: req.user.id, employeeName };
     console.log(data);
-    const form = await FormResponse.create(data);
+    const form = await Model.create(data);
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });
 
   } catch (err) {
@@ -61,7 +72,12 @@ router.get('/my', verifyToken, async (req, res) => {
 // GET /api/forms/detail/:id
 router.get('/detail/:id', verifyToken, async (req, res) => {
   try {
-    const form = await FormResponse.findOne({ _id: req.params.id, submittedBy: req.user.id });
+    const isTL = req.user.role === 'tl';
+    // TLs can view any form; FSEs can only view their own
+    const query = isTL
+      ? { _id: req.params.id }
+      : { _id: req.params.id, submittedBy: req.user.id };
+    const form = await FormResponse.findOne(query);
     if (!form) return res.status(404).json({ message: 'Not found' });
     res.json(form);
   } catch (err) {

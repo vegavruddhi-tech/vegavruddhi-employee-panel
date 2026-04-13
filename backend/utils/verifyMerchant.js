@@ -191,7 +191,11 @@ const orderedRules = [...hinted, ...rest];
     // Found the record — evaluate this rule's conditions
     // For simple products — phone found = Fully Verified, no conditions needed
     const SIMPLE_PRODUCTS = ['tide msme', 'tide insurance', 'insurance 2w/4w', 'tide credit card'];
-    const isSimple = product && SIMPLE_PRODUCTS.includes(product.toLowerCase());
+    const normalize = (str) =>
+  str.toLowerCase().replace(/\s+/g, ' ').trim();
+
+    const isSimple = product &&
+    SIMPLE_PRODUCTS.map(normalize).includes(normalize(product));
 
     if (isSimple) {
       const sheetPhone = String(PHONE_COLS.map(c => record[c]).find(v => v != null) || '');

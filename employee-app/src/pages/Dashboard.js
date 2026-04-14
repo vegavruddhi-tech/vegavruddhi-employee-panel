@@ -83,7 +83,10 @@ export default function Dashboard() {
     await fetch(`${API_BASE}/api/requests/${id}/acknowledge`, { method: 'PUT', headers: { Authorization: 'Bearer ' + token } });
     setNotifications(prev => prev.filter(n => n._id !== id));
   };
-
+  const getVerifyKey = (f) => {
+    const p = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
+    return p ? `${f.customerNumber}__${p}` : f.customerNumber;
+  };
   // Filtered forms
   const filtered = useMemo(() => {
     let list = allForms?.slice();
@@ -110,11 +113,11 @@ export default function Dashboard() {
     if (activeKPI === 'notint')   list = list.filter(f => f.status === 'Not Interested');
     if (activeKPI === 'error')    list = list.filter(f => f.status === 'Try but not done due to error');
     if (activeKPI === 'revisit')  list = list.filter(f => f.status === 'Need to visit again');
-    if (activeKPI === 'verified') list = list.filter(f => verifiedMap[f.customerNumber]?.status === 'Fully Verified');
-    if (activeKPI === 'partial')  list = list.filter(f => verifiedMap[f.customerNumber]?.status === 'Partially Done');
-    if (activeKPI === 'notver')   list = list.filter(f => verifiedMap[f.customerNumber]?.status === 'Not Verified');
-    if (activeKPI === 'phmatch')  list = list.filter(f => verifiedMap[f.customerNumber]?.phoneMatch === true);
-    if (activeKPI === 'phnomatch')list = list.filter(f => verifiedMap[f.customerNumber]?.inSheet === true && verifiedMap[f.customerNumber]?.phoneMatch === false);
+    if (activeKPI === 'verified') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified');
+    if (activeKPI === 'partial')  list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done');
+    if (activeKPI === 'notver')   list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified');
+    if (activeKPI === 'phmatch')  list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
+    if (activeKPI === 'phnomatch')list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
     return list;
   }, [allForms, dateFilter, fromDate, toDate, activeKPI, verifiedMap]);
 
@@ -137,7 +140,7 @@ export default function Dashboard() {
         // Save verified points
         let autoPts = 0;
         allForms.forEach(f => {
-          if (vm[f.customerNumber]?.status === 'Fully Verified') autoPts += POINTS_MAP[f.formFillingFor] || 0;
+          if (vm[getVerifyKey(f)]?.status === 'Fully Verified') autoPts += POINTS_MAP[f.formFillingFor] || 0;
         });
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
@@ -151,7 +154,7 @@ export default function Dashboard() {
   const totalPoints = useMemo(() => {
     let auto = 0;
     allForms.forEach(f => {
-      if (verifiedMap[f.customerNumber]?.status === 'Fully Verified') auto += POINTS_MAP[f.formFillingFor] || 0;
+      if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') auto += POINTS_MAP[f.formFillingFor] || 0;
     });
     return Math.round((auto + adjustment) * 10) / 10;
   }, [allForms, verifiedMap, adjustment]);
@@ -165,11 +168,11 @@ export default function Dashboard() {
   ];
 
   const verifyKpis = [
-    { key: 'verified',  label: 'Fully Verified',       value: allForms.filter(f => verifiedMap[f.customerNumber]?.status === 'Fully Verified').length,  cls: 'kpi-verified' },
-    { key: 'partial',   label: 'Partially Verified',   value: allForms.filter(f => verifiedMap[f.customerNumber]?.status === 'Partially Done').length,   cls: 'kpi-error' },
-    { key: 'notver',    label: 'Not Verified',          value: allForms.filter(f => verifiedMap[f.customerNumber]?.status === 'Not Verified').length,     cls: 'kpi-notint' },
-    { key: 'phmatch',   label: 'Phone Matched',         value: allForms.filter(f => verifiedMap[f.customerNumber]?.phoneMatch === true).length,           cls: 'kpi-onboard' },
-    { key: 'phnomatch', label: 'Phone Not Matched',     value: allForms.filter(f => verifiedMap[f.customerNumber]?.inSheet === true && verifiedMap[f.customerNumber]?.phoneMatch === false).length, cls: 'kpi-revisit' },
+    { key: 'verified',  label: 'Fully Verified',       value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length,  cls: 'kpi-verified' },
+    { key: 'partial',   label: 'Partially Verified',   value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length,   cls: 'kpi-error' },
+    { key: 'notver',    label: 'Not Verified',          value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length,     cls: 'kpi-notint' },
+    { key: 'phmatch',   label: 'Phone Matched',         value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length,           cls: 'kpi-onboard' },
+    { key: 'phnomatch', label: 'Phone Not Matched',     value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false).length, cls: 'kpi-revisit' },
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
@@ -319,7 +322,7 @@ export default function Dashboard() {
           <div className="merchants-empty">No merchants found.</div>
         ) : (
           filtered.map(f => {
-            const info    = verifiedMap[f.customerNumber] || {};
+            const info    = verifiedMap[getVerifyKey(f)] || {};
             const vstatus = info.status || 'Not Found';
             const b       = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
             const sc      = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };

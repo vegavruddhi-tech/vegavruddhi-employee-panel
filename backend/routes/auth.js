@@ -266,9 +266,18 @@ router.get('/pending', async (req, res) => {
 });
 
 // GET /api/auth/all-employees — all employees with approval status (admin)
+// router.get('/all-employees', async (req, res) => {
+//   try {
+//     const employees = await Employee.find({}).select('-password').sort({ createdAt: -1 });
+//     res.json(employees);
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// });
 router.get('/all-employees', async (req, res) => {
   try {
-    const employees = await Employee.find({}).select('-password').sort({ createdAt: -1 });
+    const employees = await Employee.find({ approvalStatus: 'approved' })
+      .select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager');
     res.json(employees);
   } catch (err) {
     res.status(500).json({ message: err.message });

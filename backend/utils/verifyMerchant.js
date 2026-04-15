@@ -18,12 +18,6 @@ const NAME_COLS = [
 const normalize = (s) => String(s || '').toLowerCase().trim();
 const normalizeProduct = (p) => {
   const val = (p || '').toLowerCase().trim();
-
-  if (val.includes('msme')) return 'msme';
-  if (val.includes('insurance')) return 'insurance';
-  if (val.includes('credit')) return 'credit card';
-  if (val.includes('tide')) return 'tide';
-
   return val;
 };
 // ---------- PHONE ----------

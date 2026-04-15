@@ -83,7 +83,7 @@ router.get('/bulk', verifyToken, async (req, res) => {
 
 // ---------- BULK ADMIN (FIXED) ----------
 router.get('/bulk-admin', async (req, res) => {
-  console.log("🔥 BULK ADMIN API CALLED");
+  
   try {
     const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
     const names    = (req.query.names    || '').split(',').map(n => n.trim());

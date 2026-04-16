@@ -287,5 +287,21 @@ router.get('/admin/tl-overview', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+router.get('/admin/overview', async (req, res) => {
+  try {
+    const Employee = require('../models/Employee');
+    const TeamLead = require('../models/TeamLead');
+
+    const [forms, employees, tls] = await Promise.all([
+      FormResponse.find({}).sort({ createdAt: -1 }),
+      Employee.find({ approvalStatus: 'approved' }).select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager position location status'),
+      TeamLead.find({ approvalStatus: 'approved' }).select('name email phone location reportingManager status'),
+    ]);
+
+    res.json({ forms, employees, tls });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 module.exports = router;

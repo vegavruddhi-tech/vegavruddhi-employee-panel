@@ -119,10 +119,6 @@ const hinted = product
     }
 
     const checks = rule.conditions.map(cond => evaluateCondition(record, cond));
-    console.log("PHONE:", phone);
-    console.log("PRODUCT:", product);
-    console.log("RECORD:", record);
-    console.log("CHECKS:", checks);
     const passed = checks.filter(c => c.pass).length;
     const total  = checks.length;
 

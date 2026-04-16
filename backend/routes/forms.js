@@ -30,16 +30,23 @@ router.post('/submit', verifyToken, async (req, res) => {
     }
 
     // Duplicate check: only when a product is selected (onboarding only)
+    // Allow same merchant + same brand if sub-type is different (e.g. Tide Insurance Accidental vs Life)
     if (req.body.formFillingFor) {
-      const existing = await Model.findOne({
+      const query = {
         submittedBy:    req.user.id,
         customerNumber: req.body.customerNumber,
         formFillingFor: req.body.formFillingFor,
-      });
+      };
+      // Add sub-type fields to the check so different sub-types are NOT blocked
+      if (req.body.tideIns_type)      query.tideIns_type      = req.body.tideIns_type;
+      if (req.body.ins_insuranceType) query.ins_insuranceType = req.body.ins_insuranceType;
+      if (req.body.tideProduct)       query.tideProduct       = req.body.tideProduct;
+
+      const existing = await Model.findOne(query);
       if (existing) {
         return res.status(409).json({
           duplicate: true,
-          message: `You have already submitted a form for this merchant (${req.body.customerName}) with product "${req.body.formFillingFor}". If the details are different, please edit the existing entry.`,
+          message: `You have already submitted a form for this merchant (${req.body.customerName}) with product "${req.body.formFillingFor}" and the same sub-type. If the details are different, please edit the existing entry.`,
           existingId: existing._id,
         });
       }
@@ -299,6 +306,101 @@ router.get('/admin/overview', async (req, res) => {
     ]);
 
     res.json({ forms, employees, tls });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── PUT /api/forms/save-verified-points ────────────────────────
+// Employee saves their auto-calculated verified points
+router.put('/save-verified-points', verifyToken, async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const Employee = require('../models/Employee');
+    const { verifiedPoints } = req.body;
+
+    const emp = await Employee.findById(req.user.id).select('newJoinerName');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    await EmployeePoints.findOneAndUpdate(
+      { newJoinerName: emp.newJoinerName },
+      { $set: { newJoinerName: emp.newJoinerName, employeeId: req.user.id, verifiedPoints: verifiedPoints || 0, updatedAt: new Date() } },
+      { upsert: true, new: true }
+    );
+    res.json({ message: 'Verified points saved' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /api/forms/admin/employee-points ───────────────────────
+router.get('/admin/employee-points', async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const points = await EmployeePoints.find({}).sort({ newJoinerName: 1 });
+    res.json(points);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── PUT /api/forms/admin/adjust-points/:id ──────────────────────
+// id = EmployeePoints _id OR employeeId
+router.put('/admin/adjust-points/:id', async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const { adjustment, reason } = req.body;
+    const delta = parseFloat(adjustment) || 0;
+
+    let doc = await EmployeePoints.findById(req.params.id);
+    if (!doc) return res.status(404).json({ message: 'Employee points record not found' });
+
+    doc.pointsAdjustment += delta;
+    doc.adjustmentHistory.push({ delta, reason: reason || '', updatedBy: 'admin', updatedAt: new Date() });
+    doc.updatedAt = new Date();
+    await doc.save();
+
+    res.json({ message: 'Points updated', doc });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /api/forms/admin/init-employee-points ──────────────────
+// Creates EmployeePoints record if not exists for an employee
+router.post('/admin/init-employee-points', async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const { newJoinerName, employeeId } = req.body;
+    if (!newJoinerName) return res.status(400).json({ message: 'newJoinerName required' });
+
+    let doc = await EmployeePoints.findOne({ newJoinerName });
+    if (!doc) {
+      doc = await EmployeePoints.create({ newJoinerName, employeeId: employeeId || null });
+    }
+    res.json(doc);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /api/forms/my-points ────────────────────────────────────
+// Employee views their own points
+router.get('/my-points', verifyToken, async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const Employee = require('../models/Employee');
+    const emp = await Employee.findById(req.user.id).select('newJoinerName');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    const doc = await EmployeePoints.findOne({ newJoinerName: emp.newJoinerName });
+    res.json({
+      newJoinerName:    emp.newJoinerName,
+      verifiedPoints:   doc?.verifiedPoints   || 0,
+      pointsAdjustment: doc?.pointsAdjustment || 0,
+      totalPoints:      Math.round(((doc?.verifiedPoints || 0) + (doc?.pointsAdjustment || 0)) * 10) / 10,
+      adjustmentHistory: doc?.adjustmentHistory || []
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

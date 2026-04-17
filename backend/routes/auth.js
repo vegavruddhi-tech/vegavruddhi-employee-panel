@@ -284,6 +284,36 @@ router.get('/all-employees', async (req, res) => {
   }
 });
 
+// GET /api/auth/all-employees-admin — ALL employees regardless of status (for admin approvals page)
+router.get('/all-employees-admin', async (req, res) => {
+  try {
+    const employees = await Employee.find({}).select('-password').sort({ createdAt: -1 });
+    res.json(employees);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/auth/approved — approved employees only
+router.get('/approved', async (req, res) => {
+  try {
+    const employees = await Employee.find({ approvalStatus: 'approved' }).select('-password').sort({ createdAt: -1 });
+    res.json(employees);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/auth/rejected — rejected employees only
+router.get('/rejected', async (req, res) => {
+  try {
+    const employees = await Employee.find({ approvalStatus: 'rejected' }).select('-password').sort({ createdAt: -1 });
+    res.json(employees);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // PUT /api/auth/admin/update-employee/:id  (admin — can update position)
 router.put('/admin/update-employee/:id', async (req, res) => {
   try {

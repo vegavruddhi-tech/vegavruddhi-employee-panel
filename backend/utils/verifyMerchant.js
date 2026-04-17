@@ -5,7 +5,9 @@
 const PHONE_COLS = [
   'Mobile_No_', 'Mobile_Number', 'Phone_Number', 'Number',
   'phone', 'Phone', 'Mobile', 'mobile', 'Contact',
-  'Customer_Number', 'Merchant_Number', 'Mobile_No'
+  'Customer_Number', 'Merchant_Number', 'Mobile_No',
+  'mobile_no_', 'mobile_number', 'phone_number', 'number',
+  'contact', 'customer_number', 'merchant_number', 'mobile_no'
 ];
 
 const NAME_COLS = [
@@ -26,17 +28,25 @@ function phoneVariants(phone) {
   const digits = raw.replace(/\D/g, '');
 
   const set = new Set();
+  // 10-digit variants
   set.add(digits);
   set.add(parseFloat(digits));
   set.add(Number(digits));
 
   if (!digits.startsWith('91') && digits.length === 10) {
+    // add 91 prefix variants — string, number, and float
     set.add('91' + digits);
     set.add(Number('91' + digits));
+    set.add(parseFloat('91' + digits));
+    // also add as integer string (some sheets store as "9.17480045353E9")
+    set.add(String(Number('91' + digits)));
   }
   if (digits.startsWith('91') && digits.length === 12) {
+    // strip 91 prefix variants
     set.add(digits.slice(2));
     set.add(Number(digits.slice(2)));
+    set.add(parseFloat(digits.slice(2)));
+    set.add(String(Number(digits.slice(2))));
   }
   return [...set];
 }

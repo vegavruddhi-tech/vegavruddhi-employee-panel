@@ -66,6 +66,34 @@ router.post('/submit', verifyToken, async (req, res) => {
 });
 
 
+// ── ADMIN EDIT & DELETE (no auth — admin panel access) ────────
+
+// PUT /api/forms/admin/update/:id — admin can edit any form
+router.put('/admin/update/:id', async (req, res) => {
+  try {
+    const form = await FormResponse.findByIdAndUpdate(
+      req.params.id,
+      { $set: req.body },
+      { new: true }
+    );
+    if (!form) return res.status(404).json({ message: 'Form not found' });
+    res.json({ message: 'Form updated successfully', form });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE /api/forms/admin/delete/:id — admin can delete any form
+router.delete('/admin/delete/:id', async (req, res) => {
+  try {
+    const form = await FormResponse.findByIdAndDelete(req.params.id);
+    if (!form) return res.status(404).json({ message: 'Form not found' });
+    res.json({ message: 'Form deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/forms/my  — get logged-in employee's submissions
 router.get('/my', verifyToken, async (req, res) => {
   try {
@@ -401,6 +429,100 @@ router.get('/my-points', verifyToken, async (req, res) => {
       totalPoints:      Math.round(((doc?.verifiedPoints || 0) + (doc?.pointsAdjustment || 0)) * 10) / 10,
       adjustmentHistory: doc?.adjustmentHistory || []
     });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /api/forms/admin/recalculate-all-points ───────────────
+// Runs verification for ALL employees' forms and saves points automatically
+// Called by cron or manually — no frontend interaction needed
+router.post('/admin/recalculate-all-points', async (req, res) => {
+  try {
+    const EmployeePoints   = require('../models/EmployeePoints');
+    const VerificationRule = require('../models/VerificationRule');
+    const { verifyMerchant } = require('../utils/verifyMerchant');
+
+    // Must match exactly what the frontend Dashboard.js uses
+    const POINTS_MAP = {
+      'Tide':             2,
+      'Tide MSME':        0.3,
+      'Tide Insurance':   1,
+      'Tide Credit Card': 1,
+      'Tide BT':          1,
+    };
+
+    const db = mongoose.connection.db;
+
+    // Get all forms grouped by employee
+    const allForms = await FormResponse.find({}).lean();
+
+    // Group forms by employeeName
+    const byEmployee = {};
+    allForms.forEach(f => {
+      const name = f.employeeName || 'Unknown';
+      if (!byEmployee[name]) byEmployee[name] = [];
+      byEmployee[name].push(f);
+    });
+
+    let updatedCount = 0;
+
+    for (const [employeeName, forms] of Object.entries(byEmployee)) {
+      if (employeeName === 'Unknown') continue;
+
+      let autoPoints = 0;
+      const counted = new Set(); // deduplicate by customerNumber+product
+
+      // Run verification for each form
+      for (const f of forms) {
+        try {
+          const product = f.formFillingFor || '';
+          const month   = f.createdAt
+            ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+            : '';
+
+          // Deduplicate — same merchant+product only counts once
+          const dedupKey = `${f.customerNumber}__${product.toLowerCase().trim()}`;
+          if (counted.has(dedupKey)) continue;
+
+          const result = await verifyMerchant(
+            db,
+            f.customerNumber,
+            f.customerName || '',
+            VerificationRule,
+            product,
+            month
+          );
+
+          if (result.status === 'Fully Verified') {
+            counted.add(dedupKey); // mark as counted only when verified
+            autoPoints += POINTS_MAP[product] || 0;
+          }
+        } catch (e) {
+          // skip individual form errors
+        }
+      }
+
+      autoPoints = Math.round(autoPoints * 10) / 10;
+
+      // Save to EmployeePoints collection
+      await EmployeePoints.findOneAndUpdate(
+        { newJoinerName: employeeName },
+        {
+          $set: {
+            newJoinerName: employeeName,
+            verifiedPoints: autoPoints,
+            updatedAt: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
+
+      updatedCount++;
+    }
+
+    res.json({ message: `Points recalculated for ${updatedCount} employees` });
+
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

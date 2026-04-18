@@ -137,10 +137,16 @@ export default function Dashboard() {
       .then(r => r.json())
       .then(vm => {
         setVerifiedMap(vm);
-        // Save verified points
+        // Save verified points — deduplicate by customerNumber+product
+        const counted = new Set();
         let autoPts = 0;
         allForms.forEach(f => {
-          if (vm[getVerifyKey(f)]?.status === 'Fully Verified') autoPts += POINTS_MAP[f.formFillingFor] || 0;
+          if (vm[getVerifyKey(f)]?.status === 'Fully Verified') {
+            const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
+            if (counted.has(dedupKey)) return;
+            counted.add(dedupKey);
+            autoPts += POINTS_MAP[f.formFillingFor] || 0;
+          }
         });
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
@@ -152,9 +158,16 @@ export default function Dashboard() {
   }, [filtered.length, token]); // eslint-disable-line
 
   const totalPoints = useMemo(() => {
+    // Deduplicate by customerNumber+product before counting points
+    const counted = new Set();
     let auto = 0;
     allForms.forEach(f => {
-      if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') auto += POINTS_MAP[f.formFillingFor] || 0;
+      if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
+        const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
+        if (counted.has(dedupKey)) return;
+        counted.add(dedupKey);
+        auto += POINTS_MAP[f.formFillingFor] || 0;
+      }
     });
     return Math.round((auto + adjustment) * 10) / 10;
   }, [allForms, verifiedMap, adjustment]);

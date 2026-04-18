@@ -17,6 +17,22 @@ function verifyToken(req, res, next) {
   }
 }
 
+// ---------- SINGLE CHECK (ADMIN — no token required) ----------
+router.get('/check-admin', async (req, res) => {
+  try {
+    const { phone, name, product, month } = req.query;
+    if (!phone) return res.status(400).json({ message: 'Phone required' });
+    const db = mongoose.connection.db;
+    const [verification, phoneCheck] = await Promise.all([
+      verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || ''),
+      crossCheckPhone(db, phone, name || '', VerificationRule, product || '', month || '')
+    ]);
+    res.json({ verification, phoneCheck });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ---------- SINGLE CHECK ----------
 router.get('/check', verifyToken, async (req, res) => {
   try {

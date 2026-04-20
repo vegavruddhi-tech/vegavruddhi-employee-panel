@@ -58,6 +58,13 @@ router.post('/submit', verifyToken, async (req, res) => {
     const data = { ...body, submittedBy: req.user.id, employeeName };
     console.log(data);
     const form = await Model.create(data);
+    
+    // Update verification status after form creation (async, don't wait)
+    if (!isTL) {
+      const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
+      updateFormVerificationStatus(form._id.toString()).catch(console.error);
+    }
+    
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });
 
   } catch (err) {
@@ -69,6 +76,7 @@ router.post('/submit', verifyToken, async (req, res) => {
 // ── ADMIN EDIT & DELETE (no auth — admin panel access) ────────
 
 // PUT /api/forms/admin/update/:id — admin can edit any form
+// PUT /api/forms/admin/update/:id — admin can update any form
 router.put('/admin/update/:id', async (req, res) => {
   try {
     const form = await FormResponse.findByIdAndUpdate(
@@ -77,6 +85,11 @@ router.put('/admin/update/:id', async (req, res) => {
       { new: true }
     );
     if (!form) return res.status(404).json({ message: 'Form not found' });
+    
+    // Update verification status after form update
+    const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
+    updateFormVerificationStatus(req.params.id).catch(console.error); // Run async, don't wait
+    
     res.json({ message: 'Form updated successfully', form });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -523,6 +536,31 @@ router.post('/admin/recalculate-all-points', async (req, res) => {
 
     res.json({ message: `Points recalculated for ${updatedCount} employees` });
 
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/forms/admin/refresh-verification — Refresh verification status for all or specific forms
+router.post('/admin/refresh-verification', async (req, res) => {
+  try {
+    const { formIds, phone } = req.body;
+    const { updateFormVerificationStatus, updateMultipleFormsVerification, updateVerificationByPhone } = require('../utils/updateVerificationStatus');
+    
+    if (phone) {
+      // Update all forms with this phone number
+      await updateVerificationByPhone(phone);
+      res.json({ message: `Verification updated for all forms with phone ${phone}` });
+    } else if (formIds && Array.isArray(formIds)) {
+      // Update specific forms
+      await updateMultipleFormsVerification(formIds);
+      res.json({ message: `Verification updated for ${formIds.length} forms` });
+    } else {
+      // Update all forms (use with caution!)
+      const forms = await FormResponse.find({}).select('_id').limit(1000);
+      await updateMultipleFormsVerification(forms.map(f => f._id.toString()));
+      res.json({ message: `Verification updated for ${forms.length} forms` });
+    }
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

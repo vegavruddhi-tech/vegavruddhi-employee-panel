@@ -65,6 +65,10 @@ formFillingFor: { type: String, },
   tideBt_txnDone: { type: String, enum: ['Yes', 'No', ''] },
   reason:         { type: String },
 
+  // Verification status (cached)
+  verificationStatus: { type: String, enum: ['Fully Verified', 'Partially Done', 'Not Verified', 'Not Found'], default: 'Not Found' },
+  verificationChecks: { type: Object }, // Store detailed check results
+  verificationUpdatedAt: { type: Date },
 
   createdAt: { type: Date, default: Date.now }
 }, { collection: 'Forms_respones' });

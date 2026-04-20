@@ -36,6 +36,14 @@ router.get('/check-admin', async (req, res) => {
 // ---------- SINGLE CHECK ----------
 router.get('/check', verifyToken, async (req, res) => {
   try {
+    // Set no-cache headers to ensure fresh data
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+
     const { phone, name, product } = req.query;
 
     if (!phone) return res.status(400).json({ message: 'Phone required' });
@@ -101,6 +109,14 @@ router.get('/bulk', verifyToken, async (req, res) => {
 router.get('/bulk-admin', async (req, res) => {
   
   try {
+    // Set no-cache headers to ensure fresh data
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+
     const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
     const names    = (req.query.names    || '').split(',').map(n => n.trim());
     const products = (req.query.products || '').split(',').map(p => p.trim());

@@ -99,7 +99,7 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month)
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
     : allRulesRaw;
 
-  // ✅ FIXED PRODUCT MATCH
+  // ✅ FIXED PRODUCT MATCH - Return "Not Found" if no rule exists for this product
 const hinted = product
   ? allRules.filter(r =>
       r.productTypes &&
@@ -109,7 +109,12 @@ const hinted = product
     )
   : [];
 
-  const orderedRules = hinted.length > 0 ? hinted : [];
+  // If product specified but no matching rules found, return Not Found immediately
+  if (product && hinted.length === 0) {
+    return { status: 'Not Found', verified: false };
+  }
+
+  const orderedRules = hinted.length > 0 ? hinted : allRules;
 
   for (const rule of orderedRules) {
 
@@ -160,7 +165,7 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
     : allRulesRaw;
 
-  // ✅ SAME FIX HERE ALSO
+  // ✅ SAME FIX HERE ALSO - Return "Not Found" if no rule exists for this product
 const hinted = product
   ? allRules.filter(r =>
       r.productTypes &&
@@ -170,7 +175,12 @@ const hinted = product
     )
   : [];
 
-  const orderedRules = hinted.length > 0 ? hinted : [];
+  // If product specified but no matching rules found, return not matched immediately
+  if (product && hinted.length === 0) {
+    return { matched: false, phoneMatch: false };
+  }
+
+  const orderedRules = hinted.length > 0 ? hinted : allRules;
 
   for (const rule of orderedRules) {
 

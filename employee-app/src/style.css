@@ -563,12 +563,19 @@ body {
 
   .main-content { padding: 16px; }
 
-  .welcome-card { padding: 20px; gap: 14px; flex-wrap: wrap; }
-  .welcome-text h2 { font-size: 18px; }
-  .profile-btn { font-size: 12px; padding: 8px 14px; }
+  /* Compact welcome card for mobile */
+  .welcome-card { padding: 16px 18px !important; gap: 12px !important; display: flex !important; flex-wrap: wrap !important; }
+  .welcome-avatar { width: 50px !important; height: 50px !important; font-size: 20px !important; }
+  .welcome-text h2 { font-size: 16px !important; margin-bottom: 2px !important; }
+  .welcome-text p { font-size: 12px !important; }
+  .profile-btn { font-size: 11px !important; padding: 6px 12px !important; }
 
-  .info-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .info-card { padding: 14px 16px; }
+  /* Compact info grid for mobile */
+  .info-grid { grid-template-columns: 1fr 1fr; gap: 8px !important; }
+  .info-card { padding: 10px 12px !important; }
+  .dash-icon { font-size: 16px !important; margin-bottom: 4px !important; }
+  .info-card .label { font-size: 9px !important; margin-bottom: 3px !important; }
+  .info-card .value { font-size: 13px !important; }
 
   .form-row { grid-template-columns: 1fr; gap: 0; }
 
@@ -596,18 +603,25 @@ body {
 }
 
 @media (max-width: 480px) {
-  .info-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .info-grid { grid-template-columns: 1fr 1fr; gap: 6px !important; }
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .kpi-row-5 { grid-template-columns: repeat(2, 1fr); }
   .kpi-value { font-size: 20px; }
   .kpi-card { padding: 10px 12px; }
-  .info-card { padding: 10px 12px; }
-  .welcome-card { flex-direction: column; text-align: center; }
-  .welcome-avatar { margin: 0 auto; }
-  .profile-btn { margin: 8px auto 0; }
+  .info-card { padding: 8px 10px !important; }
+  
+  /* Keep horizontal layout on small mobile */
+  .welcome-card { flex-direction: row !important; text-align: left !important; padding: 14px 16px !important; }
+  .welcome-avatar { margin: 0 !important; width: 45px !important; height: 45px !important; font-size: 18px !important; }
+  .welcome-text { flex: 1 !important; min-width: 120px !important; }
+  .welcome-text h2 { font-size: 15px !important; }
+  .welcome-text p { font-size: 11px !important; }
+  .profile-btn { margin: 0 !important; font-size: 10px !important; padding: 6px 10px !important; }
+  
   .checkbox-group { grid-template-columns: 1fr; }
   .auth-card { padding: 24px 16px; border-radius: 14px; }
   .form-page { padding: 16px; }
+
   .merchant-row { flex-wrap: wrap; }
   .mr-info { flex: 1; min-width: 0; }
   .dash-icon { font-size: 16px; }

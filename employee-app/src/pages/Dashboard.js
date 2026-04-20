@@ -145,7 +145,7 @@ export default function Dashboard() {
             const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
             if (counted.has(dedupKey)) return;
             counted.add(dedupKey);
-            autoPts += POINTS_MAP[f.formFillingFor] || 0;
+            autoPts += POINTS_MAP[normalizeProduct(f.formFillingFor)] || 0;
           }
         });
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
@@ -156,6 +156,13 @@ export default function Dashboard() {
       })
       .catch(() => {});
   }, [filtered.length, token]); // eslint-disable-line
+  const normalizeProduct = (product) => {
+  const p = (product || '').toLowerCase().trim();
+  if (p === 'tide insurance' || p === 'insurance') return 'Tide Insurance';
+  if (p === 'tide' || p === 'tide onboarding') return 'Tide';
+  if (p === 'msme' || p === 'tide msme') return 'Tide MSME';
+  return product; // fallback
+};
 
   const totalPoints = useMemo(() => {
     // Deduplicate by customerNumber+product before counting points
@@ -166,7 +173,9 @@ export default function Dashboard() {
         const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
         if (counted.has(dedupKey)) return;
         counted.add(dedupKey);
-        auto += POINTS_MAP[f.formFillingFor] || 0;
+        const product = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
+        auto += POINTS_MAP[normalizeProduct(product)] || 0;
+
       }
     });
     return Math.round((auto + adjustment) * 10) / 10;
@@ -189,32 +198,45 @@ export default function Dashboard() {
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
+  console.log('=== POINTS DEBUG ===');
+  console.log('Frontend calculated totalPoints:', totalPoints);
+  console.log('Adjustment:', adjustment);
+  console.log('All forms count:', allForms.length);
+  console.log('Verified forms:', allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length);
+
+// Check what products are in the forms
+  allForms.forEach(f => {
+    if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
+      console.log('Verified form product:', f.formFillingFor);
+      console.log('Normalized:', normalizeProduct(f.formFillingFor));
+      console.log('Points:', POINTS_MAP[normalizeProduct(f.formFillingFor)]);
+    }
+  });
+  // ... your JSX
 
   return (
     <>
       <Navbar emp={emp} />
       <div className="main-content">
 
-        {/* Welcome card */}
-        <div className="welcome-card">
-          <div className="welcome-avatar">
+        {/* Welcome card - Compact horizontal layout */}
+        <div className="welcome-card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div className="welcome-avatar" style={{ width: 60, height: 60, fontSize: 24 }}>
             {emp?.image
-  ? <img src={emp.image} />
+              ? <img src={emp.image} />
               : (emp?.newJoinerName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')}
           </div>
-          <div className="welcome-text">
-            <h2>Welcome, {emp?.newJoinerName?.split(' ')[0] || ''}!</h2>
-            <p>{emp?.position} · {emp?.location}</p>
+          <div className="welcome-text" style={{ flex: 1, minWidth: 150 }}>
+            <h2 style={{ fontSize: 20, marginBottom: 4 }}>Welcome, {emp?.newJoinerName?.split(' ')[0] || ''}!</h2>
+            <p style={{ fontSize: 13, margin: 0 }}>{emp?.position} · {emp?.location}</p>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '10px 20px', color: '#fff', textAlign: 'center', border: '1px solid rgba(255,255,255,0.25)' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Points</div>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{totalPoints}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px', color: '#fff', textAlign: 'center', border: '1px solid rgba(255,255,255,0.25)' }}>
+              <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Points</div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{totalPoints}</div>
             </div>
-            <Link to="/profile" className="profile-btn" style={{ fontSize: 14, padding: '10px 20px' }}>View My Profile ›</Link>
-
+            <Link to="/profile" className="profile-btn" style={{ fontSize: 13, padding: '8px 16px' }}>View My Profile ›</Link>
           </div>
-          
         </div>
 
         {/* Notifications banner */}
@@ -256,19 +278,19 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Quick overview */}
-        <div className="section-title">Quick Overview</div>
-        <div className="info-grid">
+        {/* Quick overview - Compact */}
+        <div className="section-title" style={{ marginTop: 20, marginBottom: 10 }}>Quick Overview</div>
+        <div className="info-grid" style={{ gap: 10 }}>
           {[
             { icon: '💼', label: 'Position',          value: emp?.position },
             { icon: '📍', label: 'Location',           value: emp?.location },
             { icon: '👤', label: 'Reporting Manager',  value: emp?.reportingManager },
             { icon: '●',  label: 'Status',             value: emp?.status },
           ].map(c => (
-            <div className="info-card dash-card" key={c.label}>
-              <div className="dash-icon">{c.icon}</div>
-              <div className="label">{c.label}</div>
-              <div className="value">{c.value || '–'}</div>
+            <div className="info-card dash-card" key={c.label} style={{ padding: '12px 14px' }}>
+              <div className="dash-icon" style={{ fontSize: 18, marginBottom: 6 }}>{c.icon}</div>
+              <div className="label" style={{ fontSize: 10, marginBottom: 4 }}>{c.label}</div>
+              <div className="value" style={{ fontSize: 14 }}>{c.value || '–'}</div>
             </div>
           ))}
         </div>
@@ -345,7 +367,9 @@ export default function Dashboard() {
            || '–';
 
             const date    = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-            const pts     = (info.status === 'Fully Verified') ? (POINTS_MAP[f.formFillingFor] || null) : null;
+            // const product = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
+            const pts = (info.status === 'Fully Verified') ? (POINTS_MAP[normalizeProduct(product)] || null) : null;
+
 
             return (
               <Link key={f._id} to={`/merchant/${f._id}`} className="merchant-row">
@@ -362,6 +386,11 @@ export default function Dashboard() {
                     <span className="verify-badge" style={{ background: b.bg, color: b.color, borderColor: b.bg }}>
                       {b.icon} {vstatus}
                     </span>
+                      {pts !== null && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
+                          ⭐ {pts} pts
+                        </span>
+                      )}
                   </div>
                   <div className="mr-meta">
                     <span>📍 {f.location}</span>
@@ -372,7 +401,7 @@ export default function Dashboard() {
                 <div className="mr-right">
                   <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
                   {pts !== null && (
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#fff8e1', color: '#e76f51', border: '1.5px solid #f4a261', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800, marginTop: 4 }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800, marginTop: 4 }}>
                       ⭐ {pts} pts
                     </div>
                   )}

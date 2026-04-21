@@ -314,21 +314,61 @@ router.get('/admin/tl-overview', async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const [tls, users, forms] = await Promise.all([
-      db.collection('TeamLeads').find({ approvalStatus: 'approved' }).toArray(),
+      db.collection('TeamLeads').find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).toArray(),
       Employee.find({}).lean(),
       FormResponse.find({}).sort({ createdAt: -1 }).lean(),
     ]);
 
-    const result = tls.map(tl => {
-      const tlName = tl.name || tl.email;
-      const fses = users.filter(u =>
-        u.reportingManager && tlName &&
-        u.reportingManager.trim().toLowerCase() === tlName.trim().toLowerCase()
-      );
-      const fseNames = fses.map(u => u.newJoinerName);
-      const tlForms = forms.filter(f => fseNames.includes(f.employeeName));
-      return { tl, fses, forms: tlForms };
-    });
+    // Also get FSEs from TeamLeads collection (role=fse)
+    const tlFSEs = tls.filter(t => t.role === 'fse');
+
+    const result = tls
+      .filter(t => t.role !== 'fse') // only actual TLs
+      .map(tl => {
+        const tlName  = (tl.name  || '').trim();
+        const tlEmail = (tl.email || '').trim();
+
+        // FSEs from Users collection matched by TL name (case-insensitive)
+        const fsesFromUsers = users.filter(u =>
+          u.reportingManager &&
+          u.reportingManager.trim().toLowerCase() === tlName.toLowerCase()
+        );
+
+        // FSEs from TeamLeads collection matched by TL email as reportingManager
+        const fsesFromTL = tlFSEs.filter(f =>
+          f.reportingManager &&
+          (f.reportingManager.trim().toLowerCase() === tlEmail.toLowerCase() ||
+           f.reportingManager.trim().toLowerCase() === tlName.toLowerCase())
+        );
+
+        // Combine all FSE names
+        const fseNamesFromUsers = fsesFromUsers.map(u => u.newJoinerName).filter(Boolean);
+        const fseNamesFromTL    = fsesFromTL.map(f => f.email || f.name).filter(Boolean); // email field has actual name
+
+        const allFseNames = [...new Set([...fseNamesFromUsers, ...fseNamesFromTL])];
+
+        // All FSE objects combined
+        const allFses = [
+          ...fsesFromUsers,
+          ...fsesFromTL.map(f => ({
+            _id: f._id,
+            newJoinerName: f.email, // swapped during import
+            newJoinerPhone: String(f.phone || '').replace('.0', ''),
+            email: f.name,          // swapped during import
+            location: f.location,
+            status: f.status,
+            reportingManager: tlName,
+          }))
+        ];
+
+        // Forms by FSEs + TL's own forms
+        const tlForms = forms.filter(f =>
+          allFseNames.includes(f.employeeName) ||
+          f.employeeName === tlName
+        );
+
+        return { tl, fses: allFses, forms: tlForms };
+      });
 
     res.json(result);
   } catch (err) {
@@ -343,7 +383,7 @@ router.get('/admin/overview', async (req, res) => {
     const [forms, employees, tls] = await Promise.all([
       FormResponse.find({}).sort({ createdAt: -1 }),
       Employee.find({ approvalStatus: 'approved' }).select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager position location status'),
-      TeamLead.find({ approvalStatus: 'approved' }).select('name email phone location reportingManager status'),
+      TeamLead.find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).select('name email phone location reportingManager status'),
     ]);
 
     res.json({ forms, employees, tls });

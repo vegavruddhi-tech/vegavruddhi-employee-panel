@@ -147,3 +147,26 @@ router.put('/:id/reject', async (req, res) => {
 });
 
 module.exports = router;
+
+
+// POST /api/requests/notify-points — admin notifies FSE about points adjustment
+router.post('/notify-points', async (req, res) => {
+  try {
+    const { employeeName, adjustment, newTotal, reason } = req.body;
+    const emp = await Employee.findOne({ newJoinerName: employeeName }).select('_id');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    await ChangeRequest.create({
+      type: 'points_adjustment',
+      employeeId: emp._id,
+      employeeName,
+      profileChanges: { adjustment, newTotal },
+      reason: reason || 'Points adjusted by admin',
+      status: 'approved', // auto-approved since admin already applied it
+    });
+
+    res.json({ message: 'Notification sent to FSE' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});

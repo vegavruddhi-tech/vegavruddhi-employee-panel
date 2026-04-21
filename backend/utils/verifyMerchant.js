@@ -90,10 +90,13 @@ function evaluateCondition(record, condition) {
   return { pass, label: condition.label, actual: String(rawVal) };
 }
 
-// ---------- VERIFY ----------
-async function verifyMerchant(db, phone, name, VerificationRule, product, month) {
+// ---------- VERIFY (OPTIMIZED WITH OPTIONAL RULE CACHE) ----------
+async function verifyMerchant(db, phone, name, VerificationRule, product, month, ruleCache = null) {
 
-  const allRulesRaw = await VerificationRule.find({ active: true });
+  // ✅ Use cached rules if provided, otherwise fetch from database
+  const allRulesRaw = ruleCache 
+    ? ruleCache.filter(r => r.active !== false)
+    : await VerificationRule.find({ active: true });
 
   const allRules = month
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
@@ -157,9 +160,12 @@ const hinted = product
 }
 
 // ---------- CROSS CHECK ----------
-async function crossCheckPhone(db, phone, name, VerificationRule, product, month) {
+async function crossCheckPhone(db, phone, name, VerificationRule, product, month, ruleCache = null) {
 
-  const allRulesRaw = await VerificationRule.find({ active: true });
+  // ✅ Use cached rules if provided, otherwise fetch from database
+  const allRulesRaw = ruleCache 
+    ? ruleCache.filter(r => r.active !== false)
+    : await VerificationRule.find({ active: true });
 
   const allRules = month
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))

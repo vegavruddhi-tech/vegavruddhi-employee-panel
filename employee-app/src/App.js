@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import Profile from './pages/Profile';
 import MerchantForm from './pages/MerchantForm';
 import MerchantDetail from './pages/MerchantDetail';
+import Tasks from './pages/Tasks';
 
 function PrivateRoute({ children }) {
   return localStorage.getItem('token') ? children : <Navigate to="/" replace />;
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/register"          element={<Register />} />
         <Route path="/dashboard"         element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/profile"           element={<PrivateRoute><Profile /></PrivateRoute>} />
+        <Route path="/tasks"             element={<PrivateRoute><Tasks /></PrivateRoute>} />
         <Route path="/merchant-form"     element={<PrivateRoute><MerchantForm /></PrivateRoute>} />
         <Route path="/merchant/:id"      element={<PrivateRoute><MerchantDetail /></PrivateRoute>} />
         <Route path="*"                  element={<Navigate to="/" replace />} />

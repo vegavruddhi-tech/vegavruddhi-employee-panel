@@ -8,6 +8,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const [emp, setEmp] = useState(null);
+  const [taskCount, setTaskCount] = useState(0);
   const [posModal, setPosModal] = useState(false);
   const [profModal, setProfModal] = useState(false);
   const [camOpen, setCamOpen] = useState(false);
@@ -30,6 +31,15 @@ export default function Profile() {
       .then(setEmp).catch(console.error);
   };
   useEffect(loadProfile, [token]); // eslint-disable-line
+
+  // Load task count
+  useEffect(() => {
+    fetch(`${API_BASE}/api/tasks/my-tasks/count`, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.json())
+      .then(data => setTaskCount(data.pending || 0))
+      .catch(() => {});
+  }, [token]);
+
 useEffect(() => {
   if (camOpen && videoRef.current && streamRef.current) {
     videoRef.current.srcObject = streamRef.current;
@@ -100,7 +110,7 @@ const openCamera = async () => {
 
   return (
     <>
-      <Navbar emp={emp} />
+      <Navbar emp={emp} taskCount={taskCount} />
       <div className="profile-page">
         {/* Hero */}pfErr &&
         <div className="profile-hero">

@@ -48,6 +48,7 @@ export default function MerchantDetail() {
   const [form,   setForm]   = useState(null);
   const [vData,  setVData]  = useState(null);
   const [loading,setLoading]= useState(true);
+  const [taskCount, setTaskCount] = useState(0);
 
   // Request modal
   const [reqOpen,  setReqOpen]  = useState(false);
@@ -59,6 +60,14 @@ export default function MerchantDetail() {
   useEffect(() => {
     fetch(`${API_BASE}/api/auth/profile`, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json()).then(setEmp).catch(console.error);
+  }, [token]);
+
+  // Load task count
+  useEffect(() => {
+    fetch(`${API_BASE}/api/tasks/my-tasks/count`, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.json())
+      .then(data => setTaskCount(data.pending || 0))
+      .catch(() => {});
   }, [token]);
 
   useEffect(() => {
@@ -109,7 +118,7 @@ const openDelete = () => {
     finally { setReqSaving(false); }
   };
 
-  if (loading) return <><Navbar emp={emp} /><div className="detail-page"><div className="merchants-loading">Loading merchant details...</div></div><Footer /></>;
+  if (loading) return <><Navbar emp={emp} taskCount={taskCount} /><div className="detail-page"><div className="merchants-loading">Loading merchant details...</div></div><Footer /></>;
   if (!form)   return null;
 
   const sc   = STATUS_COLOR[form.status] || { color: '#333', bg: '#f5f5f5' };
@@ -123,7 +132,7 @@ const openDelete = () => {
 
   return (
     <>
-      <Navbar emp={emp} />
+      <Navbar emp={emp} taskCount={taskCount} />
       <div className="detail-page">
         <div className="action-btns">
           <button className="btn-edit" onClick={openEdit}>🔔 Request Edit</button>

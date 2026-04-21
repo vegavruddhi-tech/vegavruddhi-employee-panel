@@ -17,23 +17,30 @@ function verifyToken(req, res, next) {
   }
 }
 
-// ---------- SINGLE CHECK (ADMIN — no token required) ----------
+// ---------- SINGLE CHECK (ADMIN — no token required) - OPTIMIZED ----------
 router.get('/check-admin', async (req, res) => {
   try {
     const { phone, name, product, month } = req.query;
     if (!phone) return res.status(400).json({ message: 'Phone required' });
+    
     const db = mongoose.connection.db;
+    
+    // ✅ OPTIMIZATION: Fetch rules once for admin check
+    const allRules = await VerificationRule.find().lean();
+    
     const [verification, phoneCheck] = await Promise.all([
-      verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || ''),
-      crossCheckPhone(db, phone, name || '', VerificationRule, product || '', month || '')
+      verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || '', allRules),
+      crossCheckPhone(db, phone, name || '', VerificationRule, product || '', month || '', allRules)
     ]);
+    
     res.json({ verification, phoneCheck });
   } catch (err) {
+    console.error('Check-admin error:', err);
     res.status(500).json({ message: err.message });
   }
 });
 
-// ---------- SINGLE CHECK ----------
+// ---------- SINGLE CHECK - OPTIMIZED ----------
 router.get('/check', verifyToken, async (req, res) => {
   try {
     // Set no-cache headers to ensure fresh data
@@ -49,20 +56,24 @@ router.get('/check', verifyToken, async (req, res) => {
     if (!phone) return res.status(400).json({ message: 'Phone required' });
 
     const db = mongoose.connection.db;
+    
+    // ✅ OPTIMIZATION: Fetch rules once for single check
+    const allRules = await VerificationRule.find().lean();
 
     const [verification, phoneCheck] = await Promise.all([
-      verifyMerchant(db, phone, name || '', VerificationRule, product || ''),
-      crossCheckPhone(db, phone, name || '', VerificationRule, product || '')
+      verifyMerchant(db, phone, name || '', VerificationRule, product || '', '', allRules),
+      crossCheckPhone(db, phone, name || '', VerificationRule, product || '', '', allRules)
     ]);
 
     res.json({ verification, phoneCheck });
 
   } catch (err) {
+    console.error('Check error:', err);
     res.status(500).json({ message: err.message });
   }
 });
 
-// ---------- BULK (NORMAL) ----------
+// ---------- BULK (NORMAL) - OPTIMIZED ----------
 router.get('/bulk', verifyToken, async (req, res) => {
   try {
     const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
@@ -72,7 +83,11 @@ router.get('/bulk', verifyToken, async (req, res) => {
 
     if (!phones.length) return res.json({});
 
-    const db     = mongoose.connection.db;
+    const db = mongoose.connection.db;
+    
+    // ✅ OPTIMIZATION: Fetch all verification rules at once
+    const allRules = await VerificationRule.find().lean();
+    
     const result = {};
 
     await Promise.all(phones.map(async (phone, i) => {
@@ -80,12 +95,12 @@ router.get('/bulk', verifyToken, async (req, res) => {
       const product = products[i] || '';
       const month   = months[i]   || '';
 
+      // Pass cached rules to both functions
       const [v, pc] = await Promise.all([
-        verifyMerchant(db, phone, name, VerificationRule, product, month),
-        crossCheckPhone(db, phone, name, VerificationRule, product, month)
+        verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
+        crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
       ]);
 
-      // ✅ KEY FIX
       const key = product ? `${phone}__${product}` : phone;
 
       result[key] = {
@@ -101,11 +116,12 @@ router.get('/bulk', verifyToken, async (req, res) => {
     res.json(result);
 
   } catch (err) {
+    console.error('Bulk error:', err);
     res.status(500).json({ message: err.message });
   }
 });
 
-// ---------- BULK ADMIN (FIXED) ----------
+// ---------- BULK ADMIN (OPTIMIZED WITH BATCH QUERIES) ----------
 router.get('/bulk-admin', async (req, res) => {
   
   try {
@@ -124,33 +140,45 @@ router.get('/bulk-admin', async (req, res) => {
 
     if (!phones.length) return res.json({});
 
-    const db     = mongoose.connection.db;
+    const db = mongoose.connection.db;
+    
+    // ✅ OPTIMIZATION: Fetch all verification rules at once (as array, not Map)
+    const allRules = await VerificationRule.find().lean();
+
     const result = {};
 
+    // Process each phone (still need individual verification logic)
     await Promise.all(phones.map(async (phone, i) => {
       const name    = names[i]    || '';
       const product = products[i] || '';
       const month   = months[i]   || '';
 
+      // Pass cached rules array instead of fetching each time
       const [v, pc] = await Promise.all([
-        verifyMerchant(db, phone, name, VerificationRule, product, month),
-        crossCheckPhone(db, phone, name, VerificationRule, product, month)
+        verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
+        crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
       ]);
 
-      // 🔥 MAIN FIX HERE
       const key = product ? `${phone}__${product}` : phone;
 
       result[key] = {
         status:     v.status,
+        verified:   v.verified,
+        passed:     v.passed,
+        total:      v.total,
+        checks:     v.checks || [],
+        collection: v.collection,
         matchType:  v.matchType,
         phoneMatch: pc.phoneMatch,
-        inSheet:    pc.matched
+        inSheet:    pc.matched,
+        monthLabel: month
       };
     }));
 
     res.json(result);
 
   } catch (err) {
+    console.error('Bulk-admin error:', err);
     res.status(500).json({ message: err.message });
   }
 });

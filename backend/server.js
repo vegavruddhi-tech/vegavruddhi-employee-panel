@@ -22,6 +22,7 @@ app.use('/api/manager', require('./routes/manager'));
 app.use('/api/forms', require('./routes/forms'));
 app.use('/api/verify', require('./routes/verify'));
 app.use('/api/requests', require('./routes/requests'));
+app.use('/api/tasks', require('./routes/tasks'));
 
 
 app.get('/api/health', (req, res) => {

@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [toDate,       setToDate]       = useState('');
   const [adjustment,   setAdjustment]   = useState(0);
   const [notifications,setNotifications]= useState([]);
+  const [taskCounts,   setTaskCounts]   = useState({ pending: 0, completed: 0, total: 0 });
 
   // Load profile
   useEffect(() => {
@@ -78,6 +79,20 @@ export default function Dashboard() {
     const interval = setInterval(loadNotifications, 10000);
     return () => clearInterval(interval);
   }, [loadNotifications]);
+
+  // Load task counts
+  const loadTaskCounts = useCallback(() => {
+    fetch(`${API_BASE}/api/tasks/my-tasks/count`, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.json())
+      .then(data => setTaskCounts(data))
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    loadTaskCounts();
+    const interval = setInterval(loadTaskCounts, 10000);
+    return () => clearInterval(interval);
+  }, [loadTaskCounts]);
 
   const acknowledge = async (id) => {
     await fetch(`${API_BASE}/api/requests/${id}/acknowledge`, { method: 'PUT', headers: { Authorization: 'Bearer ' + token } });
@@ -216,7 +231,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <Navbar emp={emp} />
+      <Navbar emp={emp} taskCount={taskCounts.pending} />
       <div className="main-content">
 
         {/* Welcome card - Compact horizontal layout */}

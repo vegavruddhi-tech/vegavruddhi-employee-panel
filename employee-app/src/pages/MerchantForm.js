@@ -40,6 +40,7 @@ export default function MerchantForm() {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
   const [emp, setEmp] = useState(null);
+  const [taskCount, setTaskCount] = useState(0);
 
   const [customerName,   setCustomerName]   = useState('');
   const [customerNumber, setCustomerNumber] = useState('');
@@ -77,6 +78,14 @@ export default function MerchantForm() {
   useEffect(() => {
     fetch(`${API_BASE}/api/auth/profile`, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json()).then(setEmp).catch(console.error);
+  }, [token]);
+
+  // Load task count
+  useEffect(() => {
+    fetch(`${API_BASE}/api/tasks/my-tasks/count`, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.json())
+      .then(data => setTaskCount(data.pending || 0))
+      .catch(() => {});
   }, [token]);
 
   const isOnboarding = status === 'Ready for Onboarding';
@@ -132,7 +141,7 @@ export default function MerchantForm() {
 
   return (
     <>
-      <Navbar emp={emp} />
+      <Navbar emp={emp} taskCount={taskCount} />
       <div className="form-page">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
           <Link to="/dashboard" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#fff', border: '1.5px solid #dde8dd', borderRadius: 8, fontSize: 13, fontWeight: 600, color: 'var(--green-dark)', textDecoration: 'none' }}>

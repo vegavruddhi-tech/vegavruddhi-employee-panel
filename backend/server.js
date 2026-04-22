@@ -23,6 +23,7 @@ app.use('/api/forms', require('./routes/forms'));
 app.use('/api/verify', require('./routes/verify'));
 app.use('/api/requests', require('./routes/requests'));
 app.use('/api/tasks', require('./routes/tasks'));
+app.use('/api/manual-verification', require('./routes/manualVerification'));
 
 
 app.get('/api/health', (req, res) => {

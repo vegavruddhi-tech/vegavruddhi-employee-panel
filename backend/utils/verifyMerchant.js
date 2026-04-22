@@ -1,5 +1,5 @@
 /**
- * verifyMerchant.js (FINAL FIXED VERSION)
+ * verifyMerchant.js (WITH MANUAL VERIFICATION SUPPORT)
  */
 
 const PHONE_COLS = [
@@ -90,8 +90,58 @@ function evaluateCondition(record, condition) {
   return { pass, label: condition.label, actual: String(rawVal) };
 }
 
-// ---------- VERIFY (OPTIMIZED WITH OPTIONAL RULE CACHE) ----------
+// ---------- CHECK MANUAL VERIFICATION ----------
+async function checkManualVerification(phone, product, month) {
+  try {
+    const ManualVerification = require('../models/ManualVerification');
+    
+    // Build query for manual verification
+    const query = {
+      phone: String(phone).replace(/\D/g, ''), // Normalize phone
+      product: normalizeProduct(product)
+    };
+    
+    // Add month filter if provided
+    if (month) {
+      query.month = normalize(month);
+    }
+    
+    const manualVerification = await ManualVerification.findOne(query).sort({ createdAt: -1 });
+    
+    if (manualVerification) {
+      return {
+        status: manualVerification.status,
+        verified: manualVerification.status === 'Fully Verified',
+        passed: manualVerification.status === 'Fully Verified' ? 1 : 0,
+        total: 1,
+        checks: [{
+          pass: manualVerification.status === 'Fully Verified',
+          label: 'Manual Verification',
+          actual: `Verified by ${manualVerification.verifiedBy}`
+        }],
+        collection: 'manual_verification',
+        matchType: 'manual',
+        manualVerification: true,
+        verifiedBy: manualVerification.verifiedBy,
+        verifiedAt: manualVerification.createdAt
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error checking manual verification:', error);
+    return null;
+  }
+}
+
+// ---------- VERIFY (OPTIMIZED WITH MANUAL VERIFICATION SUPPORT) ----------
 async function verifyMerchant(db, phone, name, VerificationRule, product, month, ruleCache = null) {
+
+  // ✅ FIRST: Check for manual verification override
+  const manualResult = await checkManualVerification(phone, product, month);
+  if (manualResult) {
+    return manualResult;
+  }
 
   // ✅ Use cached rules if provided, otherwise fetch from database
   const allRulesRaw = ruleCache 
@@ -159,8 +209,14 @@ const hinted = product
   return { status: 'Not Found', verified: false };
 }
 
-// ---------- CROSS CHECK ----------
+// ---------- CROSS CHECK (WITH MANUAL VERIFICATION SUPPORT) ----------
 async function crossCheckPhone(db, phone, name, VerificationRule, product, month, ruleCache = null) {
+
+  // ✅ FIRST: Check for manual verification override
+  const manualResult = await checkManualVerification(phone, product, month);
+  if (manualResult) {
+    return { matched: true, phoneMatch: true, manualVerification: true };
+  }
 
   // ✅ Use cached rules if provided, otherwise fetch from database
   const allRulesRaw = ruleCache 

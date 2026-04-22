@@ -184,7 +184,15 @@ router.get('/admin/duplicates', async (req, res) => {
     const groups = await FormResponse.aggregate([
       {
         $group: {
-          _id: { customerNumber: '$customerNumber', formFillingFor: '$formFillingFor' },
+          _id: { 
+            customerNumber: '$customerNumber', 
+            formFillingFor: '$formFillingFor',
+            // Include product-specific fields to differentiate sub-types
+            tideIns_type: '$tideIns_type',           // Tide Insurance type (Accidental, Life, Cyber Security, etc.)
+            ins_vehicleNumber: '$ins_vehicleNumber', // Vehicle Insurance vehicle number
+            cc_cardName: '$cc_cardName',             // Credit Card name
+            tideProduct: '$tideProduct'              // Tide product type (MSME, BT, etc.)
+          },
           count:         { $sum: 1 },
           employees:     { $addToSet: '$employeeName' },
           employeeIds:   { $addToSet: '$submittedBy' },

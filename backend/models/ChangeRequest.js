@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const changeRequestSchema = new mongoose.Schema({
-  type:         { type: String, required: true, enum: ['profile_change', 'merchant_edit', 'merchant_delete', 'duplicate_alert'] },
+  type:         { type: String, required: true, enum: ['profile_change', 'merchant_edit', 'merchant_delete', 'duplicate_alert', 'points_adjustment'] },
   employeeId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
   employeeName: { type: String },
   // For profile changes

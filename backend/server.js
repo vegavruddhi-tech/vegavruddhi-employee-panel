@@ -51,6 +51,7 @@ async function connectDB() {
         dbName: 'CompanyDB',
         useNewUrlParser: true,
         useUnifiedTopology: true,
+        tlsAllowInvalidCertificates: true,
       })
       .then((mongoose) => {
         console.log('✅ MongoDB connected');

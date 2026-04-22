@@ -79,17 +79,38 @@ router.post('/submit', verifyToken, async (req, res) => {
 // PUT /api/forms/admin/update/:id — admin can update any form
 router.put('/admin/update/:id', async (req, res) => {
   try {
+    const { reason, ...updateData } = req.body;
     const form = await FormResponse.findByIdAndUpdate(
       req.params.id,
-      { $set: req.body },
+      { $set: updateData },
       { new: true }
     );
     if (!form) return res.status(404).json({ message: 'Form not found' });
-    
+
     // Update verification status after form update
     const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
-    updateFormVerificationStatus(req.params.id).catch(console.error); // Run async, don't wait
-    
+    updateFormVerificationStatus(req.params.id).catch(console.error);
+
+    // Send notification to FSE if reason provided
+    if (reason && form.employeeName) {
+      try {
+        const Employee = require('../models/Employee');
+        const ChangeRequest = require('../models/ChangeRequest');
+        const emp = await Employee.findOne({ newJoinerName: form.employeeName }).select('_id');
+        if (emp) {
+          await ChangeRequest.create({
+            type: 'merchant_edit',
+            employeeId: emp._id,
+            employeeName: form.employeeName,
+            merchantName: form.customerName,
+            merchantChanges: updateData,
+            reason: reason,
+            status: 'approved',
+          });
+        }
+      } catch { /* ignore notification errors */ }
+    }
+
     res.json({ message: 'Form updated successfully', form });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -278,18 +299,114 @@ router.get('/admin/employee-points', async (req, res) => {
 // PUT /api/forms/admin/adjust-points/:employeeId — admin adds/subtracts points
 router.put('/admin/adjust-points/:employeeId', async (req, res) => {
   try {
+    const EmployeePoints = require('../models/EmployeePoints');
     const Employee = require('../models/Employee');
-    const { adjustment } = req.body; // can be positive or negative
+    const ChangeRequest = require('../models/ChangeRequest');
+    const { adjustment, reason } = req.body;
     if (adjustment === undefined) return res.status(400).json({ message: 'adjustment required' });
 
-    const emp = await Employee.findByIdAndUpdate(
-      req.params.employeeId,
-      { $inc: { pointsAdjustment: Number(adjustment) } },
-      { new: true }
-    ).select('newJoinerName pointsAdjustment');
-
+    const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
-    res.json({ message: 'Points updated', employee: emp });
+
+    // Store in EmployeePoints with history
+    const doc = await EmployeePoints.findOneAndUpdate(
+      { newJoinerName: emp.newJoinerName },
+      {
+        $inc: { pointsAdjustment: Number(adjustment) },
+        $push: { adjustmentHistory: { delta: Number(adjustment), reason: reason || '', updatedBy: 'admin', updatedAt: new Date() } },
+        $set: { updatedAt: new Date() }
+      },
+      { upsert: true, new: true }
+    );
+
+    // Also update Employee.pointsAdjustment for backward compat
+    await Employee.findByIdAndUpdate(req.params.employeeId, { $inc: { pointsAdjustment: Number(adjustment) } });
+
+    // Notify FSE
+    if (reason) {
+      try {
+        await ChangeRequest.create({
+          type: 'points_adjustment',
+          employeeId: req.params.employeeId,
+          employeeName: emp.newJoinerName,
+          profileChanges: { adjustment: Number(adjustment), historyId: doc.adjustmentHistory[doc.adjustmentHistory.length - 1]._id },
+          reason: `Points ${Number(adjustment) >= 0 ? 'added' : 'deducted'} (${Number(adjustment) >= 0 ? '+' : ''}${adjustment}): ${reason}`,
+          status: 'approved',
+        });
+      } catch { /* ignore */ }
+    }
+
+    res.json({ message: 'Points updated', doc });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE /api/forms/admin/adjust-points/:employeeId/history/:historyId — delete a specific adjustment
+router.delete('/admin/adjust-points/:employeeId/history/:historyId', async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const Employee = require('../models/Employee');
+    const ChangeRequest = require('../models/ChangeRequest');
+    const { deleteReason } = req.body;
+
+    const doc = await EmployeePoints.findOne({ employeeId: req.params.employeeId });
+    if (!doc) {
+      // Try by newJoinerName via Employee
+      const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
+      if (!emp) return res.status(404).json({ message: 'Employee not found' });
+      const docByName = await EmployeePoints.findOne({ newJoinerName: emp.newJoinerName });
+      if (!docByName) return res.status(404).json({ message: 'Points record not found' });
+      req._empDoc = docByName;
+      req._empName = emp.newJoinerName;
+    } else {
+      req._empDoc = doc;
+      const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
+      req._empName = emp?.newJoinerName || doc.newJoinerName;
+    }
+
+    const empDoc = req._empDoc;
+    const entry = empDoc.adjustmentHistory.id(req.params.historyId);
+    if (!entry) return res.status(404).json({ message: 'Adjustment not found' });
+
+    const delta = entry.delta;
+
+    // Remove from history and reverse the adjustment
+    empDoc.adjustmentHistory.pull(req.params.historyId);
+    empDoc.pointsAdjustment = (empDoc.pointsAdjustment || 0) - delta;
+    empDoc.updatedAt = new Date();
+    await empDoc.save();
+
+    // Sync Employee.pointsAdjustment
+    await Employee.findByIdAndUpdate(req.params.employeeId, { $inc: { pointsAdjustment: -delta } });
+
+    // Notify FSE about deletion
+    try {
+      await ChangeRequest.create({
+        type: 'points_adjustment',
+        employeeId: req.params.employeeId,
+        employeeName: req._empName,
+        profileChanges: { adjustment: -delta, deleted: true },
+        reason: `Admin removed a previous adjustment of ${delta >= 0 ? '+' : ''}${delta} pts. Reason: ${deleteReason || 'No reason provided'}`,
+        status: 'approved',
+      });
+    } catch { /* ignore */ }
+
+    res.json({ message: 'Adjustment deleted', newTotal: empDoc.pointsAdjustment });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/forms/admin/adjustment-history/:employeeId — get adjustment history
+router.get('/admin/adjustment-history/:employeeId', async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const Employee = require('../models/Employee');
+    const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+    const doc = await EmployeePoints.findOne({ newJoinerName: emp.newJoinerName });
+    res.json(doc?.adjustmentHistory || []);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -40,7 +40,6 @@ export default function Dashboard() {
   const [fromDate,     setFromDate]     = useState('');
   const [toDate,       setToDate]       = useState('');
   const [adjustment,   setAdjustment]   = useState(0);
-  const [notifications,setNotifications]= useState([]);
   const [taskCounts,   setTaskCounts]   = useState({ pending: 0, completed: 0, total: 0 });
 
   // Load profile
@@ -67,19 +66,6 @@ export default function Dashboard() {
       .then(r => r.json()).then(d => setAdjustment(d.pointsAdjustment || 0)).catch(() => {});
   }, [token]);
 
-  // Load notifications
-  const loadNotifications = useCallback(() => {
-    fetch(`${API_BASE}/api/requests/my-notifications`, { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => r.json()).then(data => setNotifications(data.filter(n => !n.acknowledged)))
-      .catch(() => {});
-  }, [token]);
-
-  useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 10000);
-    return () => clearInterval(interval);
-  }, [loadNotifications]);
-
   // Load task counts
   const loadTaskCounts = useCallback(() => {
     fetch(`${API_BASE}/api/tasks/my-tasks/count`, { headers: { Authorization: 'Bearer ' + token } })
@@ -93,11 +79,6 @@ export default function Dashboard() {
     const interval = setInterval(loadTaskCounts, 10000);
     return () => clearInterval(interval);
   }, [loadTaskCounts]);
-
-  const acknowledge = async (id) => {
-    await fetch(`${API_BASE}/api/requests/${id}/acknowledge`, { method: 'PUT', headers: { Authorization: 'Bearer ' + token } });
-    setNotifications(prev => prev.filter(n => n._id !== id));
-  };
   const getVerifyKey = (f) => {
     const p = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
     return p ? `${f.customerNumber}__${p}` : f.customerNumber;
@@ -231,7 +212,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <Navbar emp={emp} taskCount={taskCounts.pending} />
+      <Navbar emp={emp} taskCount={taskCounts.pending} token={token} />
       <div className="main-content">
 
         {/* Welcome card - Compact horizontal layout */}
@@ -253,45 +234,6 @@ export default function Dashboard() {
             <Link to="/profile" className="profile-btn" style={{ fontSize: 13, padding: '8px 16px' }}>View My Profile ›</Link>
           </div>
         </div>
-
-        {/* Notifications banner */}
-        {notifications.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
-            {notifications.map(req => {
-              if (req.type === 'duplicate_alert') return (
-                <div key={req._id} style={{ background: '#fff3e0', border: '1.5px solid #ffb74d', borderRadius: 12, padding: '14px 18px', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: 20 }}>⚠️</span>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#e65100' }}>Duplicate Merchant Detected</div>
-                      <div style={{ fontSize: 12, color: '#bf360c', marginTop: 3 }}>
-                        Merchant <b>{req.duplicateMerchantName || req.duplicateMerchantPhone}</b>
-                        {req.duplicateMerchantPhone ? ` (${req.duplicateMerchantPhone})` : ''} was also submitted by <b>{req.duplicateOtherEmployee || 'another employee'}</b>.
-                      </div>
-                    </div>
-                  </div>
-                  <button onClick={() => acknowledge(req._id)} style={{ padding: '6px 16px', background: '#e65100', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Got it</button>
-                </div>
-              );
-              const approved = req.status === 'approved';
-              const color = approved ? '#2e7d32' : '#c62828';
-              const bg    = approved ? '#e6f4ea' : '#fdecea';
-              const typeLabel = req.type === 'profile_change' ? 'Profile Change' : req.type === 'merchant_edit' ? 'Merchant Edit' : req.type === 'merchant_delete' ? 'Merchant Delete' : 'Position Change';
-              return (
-                <div key={req._id} style={{ background: bg, border: `1.5px solid ${approved ? '#a8d5b5' : '#f5a5a5'}`, borderRadius: 12, padding: '14px 18px', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: 20 }}>{approved ? '✅' : '❌'}</span>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color }}>{approved ? 'Request Approved' : 'Request Rejected'}</div>
-                      <div style={{ fontSize: 12, color, marginTop: 2 }}>Your <b>{typeLabel}</b> request has been <b>{approved ? 'approved' : 'rejected'}</b> by the admin.</div>
-                    </div>
-                  </div>
-                  <button onClick={() => acknowledge(req._id)} style={{ padding: '6px 16px', background: color, color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Got it</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {/* Quick overview - Compact */}
         <div className="section-title" style={{ marginTop: 20, marginBottom: 10 }}>Quick Overview</div>

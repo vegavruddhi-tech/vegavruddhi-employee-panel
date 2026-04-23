@@ -1,5 +1,4 @@
 const express    = require('express');
-const router     = express.Router();
 const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
@@ -7,21 +6,68 @@ const upload         = require('../middleware/multer');
 const TeamLead       = require('../models/TeamLead');
 const Employee       = require('../models/Employee');
 const TLChangeRequest = require('../models/TLChangeRequest');
-const mongoose = require('mongoose');
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+/**
+ * Team Lead Routes with Enhanced Connection Management
+ * 
+ * This module provides team lead management endpoints using the ConnectionManager
+ * for reliable database access with circuit breaker and health monitoring.
+ */
 
-// ── JWT middleware ──────────────────────────────────────────────
-function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
+module.exports = (connectionManager) => {
+  const router = express.Router();
+
+  const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+  // ── JWT middleware ──────────────────────────────────────────────
+  function verifyToken(req, res, next) {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (!token) return res.status(401).json({ message: 'No token provided' });
+    try {
+      req.user = jwt.verify(token, process.env.JWT_SECRET);
+      next();
+    } catch {
+      res.status(401).json({ message: 'Invalid token' });
+    }
   }
-}
+
+  // ---------- CONNECTION MIDDLEWARE ----------
+  /**
+   * Middleware to ensure database connection is available
+   * Adds req.db with the database connection
+   */
+  router.use((req, res, next) => {
+    try {
+      req.db = connectionManager.getConnection();
+      next();
+    } catch (error) {
+      console.error('🔴 Database connection error in tl routes:', error.message);
+      
+      // Determine appropriate error response based on error type
+      if (error.message.includes('Circuit breaker open')) {
+        return res.status(503).json({
+          message: 'Database temporarily unavailable due to high error rate',
+          error: 'circuit_breaker_open',
+          retryAfter: 60,
+          timestamp: new Date().toISOString()
+        });
+      } else if (error.message.includes('not ready')) {
+        return res.status(503).json({
+          message: 'Database connection not ready, please try again',
+          error: 'database_not_ready',
+          retryAfter: 5,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        return res.status(503).json({
+          message: 'Database service unavailable',
+          error: 'database_unavailable',
+          retryAfter: 30,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  });
 
 // ── POST /api/tl/register ───────────────────────────────────────
 router.post(
@@ -310,7 +356,7 @@ router.get('/team-forms-verified', verifyToken, async (req, res) => {
       ]
     }).sort({ createdAt: -1 });
 
-    const db = mongoose.connection.db;
+    const db = req.db;
 
     // Run verification for each form in parallel
     const formsWithVerification = await Promise.all(forms.map(async (form) => {
@@ -462,4 +508,5 @@ router.get('/approved-list', async (req, res) => {
 });
 
 
-module.exports = router;
+  return router;
+};

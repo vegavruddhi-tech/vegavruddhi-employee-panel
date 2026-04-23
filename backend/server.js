@@ -4,7 +4,18 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const fs = require('fs');
 
+// Import the enhanced connection manager
+const ConnectionManager = require('./utils/ConnectionManager');
+
 const app = express();
+
+// Initialize connection manager
+const connectionManager = new ConnectionManager({
+  healthCheckInterval: 30000,  // 30 seconds
+  circuitTimeout: 60000,       // 1 minute
+  maxFailures: 5,              // Open circuit after 5 failures
+  connectionTimeout: 10000     // 10 seconds connection timeout
+});
 
 // uploads temp directory for Vercel
 const uploadsDir = '/tmp/uploads';
@@ -16,24 +27,6 @@ app.use(cors());
 app.use(express.json());
 // app.use('/uploads', express.static(uploadsDir));
 
-app.use('/api/auth',    require('./routes/auth'));
-app.use('/api/tl',      require('./routes/tl'));
-app.use('/api/manager', require('./routes/manager'));
-app.use('/api/forms', require('./routes/forms'));
-app.use('/api/verify', require('./routes/verify'));
-app.use('/api/requests', require('./routes/requests'));
-app.use('/api/tasks', require('./routes/tasks'));
-app.use('/api/manual-verification', require('./routes/manualVerification'));
-
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'Backend running on Vercel' });
-});
-
-app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
-
 // MongoDB cached connection for Vercel
 let cached = global.mongoose;
 
@@ -43,19 +36,40 @@ if (!cached) {
 
 async function connectDB() {
   if (cached.conn) return cached.conn;
-  console.log(process.env.MONGO_URI);
+  console.log('🔄 Connecting to MongoDB...');
+  console.log('📍 URI:', process.env.MONGO_URI ? 'Set' : 'Not Set');
 
   if (!cached.promise) {
     cached.promise = mongoose
       .connect(process.env.MONGO_URI, {
         dbName: 'CompanyDB',
+        
+        // Enhanced connection pool settings
+        maxPoolSize: 10,          // Limit connections per instance
+        minPoolSize: 2,           // Keep minimum connections alive
+        maxIdleTimeMS: 30000,     // Close connections after 30s idle
+        serverSelectionTimeoutMS: 5000,  // Fail fast if can't connect
+        socketTimeoutMS: 45000,   // Socket timeout
+        
+        // Reliability settings
+        retryWrites: true,
+        retryReads: true,
+        readPreference: 'primary',
+        
+        // Basic settings (removed problematic buffer options)
         useNewUrlParser: true,
         useUnifiedTopology: true,
         tlsAllowInvalidCertificates: true,
       })
       .then((mongoose) => {
-        console.log('✅ MongoDB connected');
+        console.log('✅ MongoDB connected successfully');
+        console.log(`📊 Database: ${mongoose.connection.name}`);
+        console.log(`🔗 Host: ${mongoose.connection.host}`);
         return mongoose;
+      })
+      .catch((error) => {
+        console.error('❌ MongoDB connection failed:', error.message);
+        throw error;
       });
   }
 
@@ -63,14 +77,137 @@ async function connectDB() {
   return cached.conn;
 }
 
-connectDB();
+/**
+ * Initialize the application with proper sequencing
+ */
+async function initializeApp() {
+  try {
+    console.log('🚀 Initializing application...');
+    
+    // Step 1: Connect to MongoDB
+    const mongooseConnection = await connectDB();
+    
+    // Step 2: Initialize connection manager
+    await connectionManager.initialize(mongooseConnection.connection);
+    
+    // Step 3: Register routes (now that connection is ready)
+    registerRoutes();
+    
+    // Step 4: Set up error handlers
+    setupErrorHandlers();
+    
+    console.log('✅ Application initialized successfully');
+    
+  } catch (error) {
+    console.error('❌ Application initialization failed:', error.message);
+    process.exit(1);
+  }
+}
 
-if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
+/**
+ * Register all application routes
+ */
+function registerRoutes() {
+  console.log('📝 Registering routes...');
+  
+  // Health check routes (enhanced)
+  app.use('/api/health', require('./routes/health')(connectionManager));
+  
+  // Application routes (converted to use connectionManager)
+  app.use('/api/verify', require('./routes/verify')(connectionManager));
+  app.use('/api/forms', require('./routes/forms')(connectionManager));
+  app.use('/api/tl', require('./routes/tl')(connectionManager));
+  
+  // Application routes (will be converted to use connectionManager)
+  app.use('/api/auth',    require('./routes/auth'));
+  app.use('/api/manager', require('./routes/manager'));
+  app.use('/api/requests', require('./routes/requests'));
+  app.use('/api/tasks', require('./routes/tasks'));
+  app.use('/api/manual-verification', require('./routes/manualVerification'));
+  
+  console.log('✅ Routes registered successfully');
+}
 
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running locally on http://localhost:${PORT}`);
+/**
+ * Set up error handlers and middleware
+ */
+function setupErrorHandlers() {
+  // 404 handler
+  app.use((req, res) => {
+    res.status(404).json({ 
+      message: 'Route not found',
+      path: req.path,
+      method: req.method,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Global error handler
+  app.use((error, req, res, next) => {
+    console.error('🔴 Unhandled error:', error.message);
+    
+    res.status(500).json({
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
+      timestamp: new Date().toISOString()
+    });
   });
 }
 
-module.exports = app;
+/**
+ * Graceful shutdown handler
+ */
+async function gracefulShutdown(signal) {
+  console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+  
+  try {
+    // Shutdown connection manager
+    await connectionManager.shutdown();
+    
+    // Close database connection
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+      console.log('✅ Database connection closed');
+    }
+    
+    console.log('✅ Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error.message);
+    process.exit(1);
+  }
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('🔴 Uncaught Exception:', error.message);
+  console.error(error.stack);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🔴 Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
+});
+
+// Initialize the application
+initializeApp();
+
+// Start server for local development
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 4000;
+
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running locally on http://localhost:${PORT}`);
+    console.log(`💓 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`📊 Detailed health: http://localhost:${PORT}/api/health/detailed`);
+    console.log(`📈 Metrics: http://localhost:${PORT}/api/health/metrics`);
+  });
+}
+
+// Export app and connection manager for use in routes
+module.exports = { app, connectionManager };

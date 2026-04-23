@@ -14,7 +14,7 @@ const TLChangeRequest = require('../models/TLChangeRequest');
  * for reliable database access with circuit breaker and health monitoring.
  */
 
-module.exports = (connectionManager) => {
+module.exports = (connectionManager, connectDB) => {
   const router = express.Router();
 
   const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -35,10 +35,22 @@ module.exports = (connectionManager) => {
   /**
    * Middleware to ensure database connection is available
    * Adds req.db with the database connection
-   * Uses lazy initialization on first request
+   * Waits for MongoDB connection if not ready yet
    */
   router.use(async (req, res, next) => {
     try {
+      // Wait for MongoDB connection to be established
+      const mongooseConn = await connectDB();
+      
+      if (!mongooseConn) {
+        return res.status(503).json({
+          message: 'Database connection unavailable, please try again',
+          error: 'mongodb_connection_failed',
+          retryAfter: 5,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
       // Ensure ConnectionManager is initialized (lazy init on first request)
       await connectionManager.ensureInitialized();
       
@@ -67,6 +79,7 @@ module.exports = (connectionManager) => {
         return res.status(503).json({
           message: 'Database service unavailable',
           error: 'database_unavailable',
+          details: error.message,
           retryAfter: 30,
           timestamp: new Date().toISOString()
         });

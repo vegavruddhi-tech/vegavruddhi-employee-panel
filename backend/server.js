@@ -51,11 +51,11 @@ async function connectDB() {
       .connect(process.env.MONGO_URI, {
         dbName: 'CompanyDB',
         
-        // Enhanced connection pool settings
+        // Enhanced connection pool settings for Vercel
         maxPoolSize: 10,          // Limit connections per instance
         minPoolSize: 2,           // Keep minimum connections alive
         maxIdleTimeMS: 30000,     // Close connections after 30s idle
-        serverSelectionTimeoutMS: 5000,  // Fail fast if can't connect
+        serverSelectionTimeoutMS: 10000,  // 10 seconds for Vercel
         socketTimeoutMS: 45000,   // Socket timeout
         
         // Reliability settings
@@ -63,7 +63,7 @@ async function connectDB() {
         retryReads: true,
         readPreference: 'primary',
         
-        // Basic settings (removed problematic buffer options)
+        // Basic settings
         useNewUrlParser: true,
         useUnifiedTopology: true,
         tlsAllowInvalidCertificates: true,
@@ -80,19 +80,24 @@ async function connectDB() {
       })
       .catch((error) => {
         console.error('❌ MongoDB connection failed:', error.message);
-        throw error;
+        // Don't throw - let requests retry
+        cached.promise = null; // Reset so next request can retry
+        return null;
       });
   }
 
-  cached.conn = await cached.promise;
-  return cached.conn;
+  try {
+    cached.conn = await cached.promise;
+    return cached.conn;
+  } catch (error) {
+    console.error('❌ Error awaiting MongoDB connection:', error.message);
+    cached.promise = null; // Reset for retry
+    return null;
+  }
 }
 
-// Start MongoDB connection immediately (not in async function)
-// This ensures connection is ready before Vercel starts handling requests
-connectDB().catch(err => {
-  console.error('❌ Failed to connect to MongoDB on startup:', err.message);
-});
+// Start MongoDB connection immediately
+connectDB();
 
 /**
  * Register all application routes
@@ -103,10 +108,10 @@ function registerRoutes() {
   // Health check routes (enhanced)
   app.use('/api/health', require('./routes/health')(connectionManager));
   
-  // Application routes (converted to use connectionManager)
-  app.use('/api/verify', require('./routes/verify')(connectionManager));
-  app.use('/api/forms', require('./routes/forms')(connectionManager));
-  app.use('/api/tl', require('./routes/tl')(connectionManager));
+  // Application routes (converted to use connectionManager with connectDB)
+  app.use('/api/verify', require('./routes/verify')(connectionManager, connectDB));
+  app.use('/api/forms', require('./routes/forms')(connectionManager, connectDB));
+  app.use('/api/tl', require('./routes/tl')(connectionManager, connectDB));
   
   // Application routes (will be converted to use connectionManager)
   app.use('/api/auth',    require('./routes/auth'));

@@ -45,35 +45,76 @@ function NotificationPanel({ token, onClose }) {
     if (n.type === 'points_adjustment') {
       const adj = n.profileChanges?.adjustment ?? 0;
       const newTotal = n.profileChanges?.newTotal;
+      const beforeTotal = n.profileChanges?.beforeTotal;
       const isAdd = Number(adj) >= 0;
+      const accentColor = isAdd ? '#1565c0' : '#c62828';
+      const bgColor = isRead ? '#fff' : (isAdd ? '#f0f7ff' : '#fff5f5');
       return (
         <div key={n._id} style={{
           padding: '14px 16px', borderBottom: '1px solid #f0f0f0',
-          background: isRead ? '#fff' : '#f0f7ff',
-          borderLeft: `4px solid ${isAdd ? '#1565c0' : '#c62828'}`,
-          opacity: isRead ? 0.75 : 1,
+          background: bgColor,
+          borderLeft: `4px solid ${accentColor}`,
+          opacity: isRead ? 0.8 : 1,
         }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 10, flex: 1 }}>
-              <span style={{ fontSize: 20, flexShrink: 0 }}>{isAdd ? '⭐' : '📉'}</span>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: isAdd ? '#1565c0' : '#c62828' }}>
+            <div style={{ flex: 1 }}>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 18 }}>{isAdd ? '⭐' : '📉'}</span>
+                <span style={{ fontWeight: 800, fontSize: 13, color: accentColor }}>
                   Points {isAdd ? 'Added' : 'Deducted'}
-                </div>
-                <div style={{ fontSize: 12, color: '#333', marginTop: 2 }}>
-                  <b>{isAdd ? '+' : ''}{adj} point{Math.abs(Number(adj)) !== 1 ? 's' : ''}</b> {isAdd ? 'added to' : 'deducted from'} your account by admin.
-                  {newTotal !== undefined && <> New total: <b style={{ color: '#1565c0' }}>{newTotal} pts</b>.</>}
-                </div>
-                {n.reason && <div style={{ fontSize: 11, color: '#666', marginTop: 3, fontStyle: 'italic' }}>📝 {n.reason}</div>}
-                <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>{date}</div>
+                </span>
               </div>
+
+              {/* Main message */}
+              <div style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 600, marginBottom: 8 }}>
+                <b style={{ color: accentColor }}>{isAdd ? '+' : ''}{adj} point{Math.abs(Number(adj)) !== 1 ? 's' : ''}</b> {isAdd ? 'added to' : 'deducted from'} your account by admin.
+              </div>
+
+              {/* Before → After breakdown card */}
+              {beforeTotal !== undefined && newTotal !== undefined && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 0,
+                  background: '#fff', border: `1px solid ${accentColor}30`,
+                  borderRadius: 8, overflow: 'hidden', marginBottom: 8,
+                }}>
+                  <div style={{ flex: 1, textAlign: 'center', padding: '6px 10px', background: '#f5f5f5' }}>
+                    <div style={{ fontSize: 9, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Before</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#555' }}>{beforeTotal} pts</div>
+                  </div>
+                  <div style={{ padding: '0 8px', fontSize: 16, color: accentColor, fontWeight: 800 }}>→</div>
+                  <div style={{ flex: 1, textAlign: 'center', padding: '6px 10px', background: isAdd ? '#e8f4fd' : '#fdecea' }}>
+                    <div style={{ fontSize: 9, color: accentColor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>After</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: accentColor }}>{newTotal} pts</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Reason */}
+              {n.reason && (
+                <div style={{ fontSize: 11, color: '#333', fontWeight: 500, marginBottom: 4 }}>
+                  📝 {n.reason}
+                </div>
+              )}
+
+              {/* Date */}
+              <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>{date}</div>
             </div>
-            {!isRead && (
-              <button onClick={() => markRead(n._id)} style={{ padding: '4px 10px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                Mark read
-              </button>
-            )}
-            {isRead && <span style={{ fontSize: 10, color: '#aaa', whiteSpace: 'nowrap', flexShrink: 0 }}>✓ Read</span>}
+
+            {/* Action button */}
+            <div style={{ flexShrink: 0 }}>
+              {!isRead ? (
+                <button onClick={() => markRead(n._id)} style={{
+                  padding: '4px 10px', background: accentColor, color: '#fff',
+                  border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>
+                  Mark read
+                </button>
+              ) : (
+                <span style={{ fontSize: 10, color: '#aaa' }}>✓ Read</span>
+              )}
+            </div>
           </div>
         </div>
       );
@@ -204,23 +245,25 @@ export default function Navbar({ emp, taskCount, token }) {
   const ref = useRef();
   const navigate = useNavigate();
 
+  const refreshCount = useCallback(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/api/requests/my-notifications`, {
+      headers: { Authorization: 'Bearer ' + token }
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setUnreadCount(data.filter(n => !n.acknowledged).length);
+      })
+      .catch(() => {});
+  }, [token]);
+
   // Poll unread count
   useEffect(() => {
     if (!token) return;
-    const fetchCount = () => {
-      fetch(`${API_BASE}/api/requests/my-notifications`, {
-        headers: { Authorization: 'Bearer ' + token }
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (Array.isArray(data)) setUnreadCount(data.filter(n => !n.acknowledged).length);
-        })
-        .catch(() => {});
-    };
-    fetchCount();
-    const interval = setInterval(fetchCount, 15000);
+    refreshCount();
+    const interval = setInterval(refreshCount, 15000);
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, refreshCount]);
 
   useEffect(() => {
     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -330,7 +373,7 @@ export default function Navbar({ emp, taskCount, token }) {
       {notifOpen && (
         <NotificationPanel
           token={token}
-          onClose={() => { setNotifOpen(false); /* refresh count */ }}
+          onClose={() => { setNotifOpen(false); refreshCount(); }}
         />
       )}
     </>

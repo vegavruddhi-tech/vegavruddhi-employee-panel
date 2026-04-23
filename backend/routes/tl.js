@@ -461,5 +461,32 @@ router.get('/approved-list', async (req, res) => {
   }
 });
 
+// ── TL Notifications (FSE points updates) ──────────────────────
+
+// GET /api/tl/my-notifications — TL gets their FSE points update notifications
+router.get('/my-notifications', verifyToken, async (req, res) => {
+  try {
+    const TLNotification = require('../models/TLNotification');
+    const notifications = await TLNotification.find({ tlId: req.user.id })
+      .sort({ createdAt: -1 });
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/tl/my-notifications/:id/acknowledge — TL marks notification as read
+router.put('/my-notifications/:id/acknowledge', verifyToken, async (req, res) => {
+  try {
+    const TLNotification = require('../models/TLNotification');
+    await TLNotification.findOneAndUpdate(
+      { _id: req.params.id, tlId: req.user.id },
+      { $set: { acknowledged: true } }
+    );
+    res.json({ message: 'Acknowledged' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 module.exports = router;

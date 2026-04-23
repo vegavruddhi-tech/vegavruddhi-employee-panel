@@ -49,13 +49,19 @@ async function connectDB() {
     cached.promise = mongoose
       .connect(process.env.MONGO_URI, {
         dbName: 'CompanyDB',
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
         tlsAllowInvalidCertificates: true,
+        tlsAllowInvalidHostnames: true,
+        serverSelectionTimeoutMS: 15000,
+        socketTimeoutMS: 45000,
       })
       .then((mongoose) => {
         console.log('✅ MongoDB connected');
         return mongoose;
+      })
+      .catch((err) => {
+        console.error('MongoDB initial connection error (will retry):', err.message);
+        cached.promise = null; // reset so next request retries
+        return null;
       });
   }
 
@@ -64,6 +70,14 @@ async function connectDB() {
 }
 
 connectDB();
+
+// Prevent unhandled SSL/network errors from crashing the server
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection (non-fatal):', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (non-fatal):', err?.message || err);
+});
 
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;

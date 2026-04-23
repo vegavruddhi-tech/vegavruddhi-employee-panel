@@ -297,15 +297,29 @@ router.get('/admin/employee-points', async (req, res) => {
 });
 
 // PUT /api/forms/admin/adjust-points/:employeeId — admin adds/subtracts points
+// Accepts either Employee._id OR EmployeePoints._id
 router.put('/admin/adjust-points/:employeeId', async (req, res) => {
   try {
     const EmployeePoints = require('../models/EmployeePoints');
     const Employee = require('../models/Employee');
-    const ChangeRequest = require('../models/ChangeRequest');
     const { adjustment, reason } = req.body;
     if (adjustment === undefined) return res.status(400).json({ message: 'adjustment required' });
 
-    const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
+    // Try Employee._id first, then EmployeePoints._id
+    let emp = null;
+    let realEmployeeId = req.params.employeeId;
+
+    try { emp = await Employee.findById(req.params.employeeId).select('newJoinerName _id'); } catch {}
+
+    if (!emp) {
+      // It's an EmployeePoints _id — look up via that
+      const epDoc = await EmployeePoints.findById(req.params.employeeId).catch(() => null);
+      if (epDoc) {
+        emp = await Employee.findOne({ newJoinerName: epDoc.newJoinerName }).select('newJoinerName _id').catch(() => null);
+        if (emp) realEmployeeId = emp._id.toString();
+      }
+    }
+
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
 
     // Store in EmployeePoints with history
@@ -320,21 +334,10 @@ router.put('/admin/adjust-points/:employeeId', async (req, res) => {
     );
 
     // Also update Employee.pointsAdjustment for backward compat
-    await Employee.findByIdAndUpdate(req.params.employeeId, { $inc: { pointsAdjustment: Number(adjustment) } });
+    await Employee.findByIdAndUpdate(realEmployeeId, { $inc: { pointsAdjustment: Number(adjustment) } });
 
-    // Notify FSE
-    if (reason) {
-      try {
-        await ChangeRequest.create({
-          type: 'points_adjustment',
-          employeeId: req.params.employeeId,
-          employeeName: emp.newJoinerName,
-          profileChanges: { adjustment: Number(adjustment), historyId: doc.adjustmentHistory[doc.adjustmentHistory.length - 1]._id },
-          reason: `Points ${Number(adjustment) >= 0 ? 'added' : 'deducted'} (${Number(adjustment) >= 0 ? '+' : ''}${adjustment}): ${reason}`,
-          status: 'approved',
-        });
-      } catch { /* ignore */ }
-    }
+    // Note: Frontend handles notifications via /requests/notify-points
+    // to support per-product breakdown notifications
 
     res.json({ message: 'Points updated', doc });
   } catch (err) {
@@ -380,16 +383,53 @@ router.delete('/admin/adjust-points/:employeeId/history/:historyId', async (req,
     // Sync Employee.pointsAdjustment
     await Employee.findByIdAndUpdate(req.params.employeeId, { $inc: { pointsAdjustment: -delta } });
 
-    // Notify FSE about deletion
+    // Notify FSE about deletion — permanent, never deleted by admin
     try {
+      const { autoPoints: frontendAutoPoints } = req.body;
+      const verifiedPts = frontendAutoPoints !== undefined
+        ? Number(frontendAutoPoints)
+        : (empDoc.verifiedPoints || 0);
+      const beforeTotal   = Math.round((verifiedPts + empDoc.pointsAdjustment + delta) * 10) / 10;
+      const newTotalAfter = Math.round((verifiedPts + empDoc.pointsAdjustment) * 10) / 10;
+      const notifReason = `Admin removed a previous adjustment of ${delta >= 0 ? '+' : ''}${delta} pts. Reason: ${deleteReason || 'No reason provided'}`;
+
+      // FSE notification — permanent
       await ChangeRequest.create({
         type: 'points_adjustment',
         employeeId: req.params.employeeId,
         employeeName: req._empName,
-        profileChanges: { adjustment: -delta, deleted: true },
-        reason: `Admin removed a previous adjustment of ${delta >= 0 ? '+' : ''}${delta} pts. Reason: ${deleteReason || 'No reason provided'}`,
+        profileChanges: { adjustment: -delta, deleted: true, beforeTotal, newTotal: newTotalAfter },
+        reason: notifReason,
         status: 'approved',
       });
+
+      // Admin activity log — deletable by admin
+      const PointsActivityLog = require('../models/PointsActivityLog');
+      await PointsActivityLog.create({
+        employeeId: req.params.employeeId,
+        employeeName: req._empName,
+        adjustment: -delta,
+        beforeTotal,
+        newTotal: newTotalAfter,
+        reason: notifReason,
+      });
+
+      // TL notification — permanent
+      try {
+        const emp2 = await Employee.findById(req.params.employeeId).select('reportingManager');
+        if (emp2?.reportingManager) {
+          const TeamLead = require('../models/TeamLead');
+          const tl = await TeamLead.findOne({ name: emp2.reportingManager }).select('_id name');
+          if (tl) {
+            const TLNotification = require('../models/TLNotification');
+            await TLNotification.create({
+              tlId: tl._id, tlName: tl.name, type: 'fse_points_update',
+              fseName: req._empName, adjustment: -delta, beforeTotal, newTotal: newTotalAfter,
+              reason: notifReason,
+            });
+          }
+        }
+      } catch { /* ignore */ }
     } catch { /* ignore */ }
 
     res.json({ message: 'Adjustment deleted', newTotal: empDoc.pointsAdjustment });

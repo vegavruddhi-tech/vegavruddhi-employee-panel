@@ -51,10 +51,10 @@ async function connectDB() {
       .connect(process.env.MONGO_URI, {
         dbName: 'CompanyDB',
         
-        // Enhanced connection pool settings for Vercel
-        maxPoolSize: 10,          // Limit connections per instance
-        minPoolSize: 2,           // Keep minimum connections alive
-        maxIdleTimeMS: 30000,     // Close connections after 30s idle
+        // AGGRESSIVE connection pool settings for Vercel serverless
+        maxPoolSize: 2,           // REDUCED: Only 2 connections per instance (was 10)
+        minPoolSize: 1,           // REDUCED: Keep 1 connection alive (was 2)
+        maxIdleTimeMS: 10000,     // REDUCED: Close idle connections after 10s (was 30s)
         serverSelectionTimeoutMS: 10000,  // 10 seconds for Vercel
         socketTimeoutMS: 45000,   // Socket timeout
         

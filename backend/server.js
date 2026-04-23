@@ -209,5 +209,5 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Export app and connection manager for use in routes
-module.exports = { app, connectionManager };
+// Export app for Vercel (must be default export)
+module.exports = app;

@@ -1,18 +1,82 @@
 const express      = require('express');
-const router       = express.Router();
 const jwt          = require('jsonwebtoken');
 const FormResponse   = require('../models/FormResponse');
 const TLFormResponse = require('../models/TLFormResponse');
 const Employee     = require('../models/Employee');
 const TeamLead     = require('../models/TeamLead');
-const mongoose = require('mongoose');
 
-function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token' });
-  try { req.user = jwt.verify(token, process.env.JWT_SECRET); next(); }
-  catch { res.status(401).json({ message: 'Invalid token' }); }
-}
+/**
+ * Forms Routes with Enhanced Connection Management
+ * 
+ * This module provides form management endpoints using the ConnectionManager
+ * for reliable database access with circuit breaker and health monitoring.
+ */
+
+module.exports = (connectionManager, connectDB) => {
+  const router = express.Router();
+
+  function verifyToken(req, res, next) {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (!token) return res.status(401).json({ message: 'No token' });
+    try { req.user = jwt.verify(token, process.env.JWT_SECRET); next(); }
+    catch { res.status(401).json({ message: 'Invalid token' }); }
+  }
+
+  // ---------- CONNECTION MIDDLEWARE ----------
+  /**
+   * Middleware to ensure database connection is available
+   * Adds req.db with the database connection
+   * Waits for MongoDB connection if not ready yet
+   */
+  router.use(async (req, res, next) => {
+    try {
+      // Wait for MongoDB connection to be established
+      const mongooseConn = await connectDB();
+      
+      if (!mongooseConn) {
+        return res.status(503).json({
+          message: 'Database connection unavailable, please try again',
+          error: 'mongodb_connection_failed',
+          retryAfter: 5,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Ensure ConnectionManager is initialized (lazy init on first request)
+      await connectionManager.ensureInitialized();
+      
+      // Get the database connection
+      req.db = connectionManager.getConnection();
+      next();
+    } catch (error) {
+      console.error('🔴 Database connection error in forms routes:', error.message);
+      
+      // Determine appropriate error response based on error type
+      if (error.message.includes('Circuit breaker open')) {
+        return res.status(503).json({
+          message: 'Database temporarily unavailable due to high error rate',
+          error: 'circuit_breaker_open',
+          retryAfter: 60,
+          timestamp: new Date().toISOString()
+        });
+      } else if (error.message.includes('not ready')) {
+        return res.status(503).json({
+          message: 'Database connection not ready, please try again',
+          error: 'database_not_ready',
+          retryAfter: 5,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        return res.status(503).json({
+          message: 'Database service unavailable',
+          error: 'database_unavailable',
+          details: error.message,
+          retryAfter: 30,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  });
 
 // POST /api/forms/submit
 router.post('/submit', verifyToken, async (req, res) => {
@@ -62,7 +126,7 @@ router.post('/submit', verifyToken, async (req, res) => {
     // Update verification status after form creation (async, don't wait)
     if (!isTL) {
       const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
-      updateFormVerificationStatus(form._id.toString()).catch(console.error);
+      updateFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
     }
     
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });
@@ -89,28 +153,8 @@ router.put('/admin/update/:id', async (req, res) => {
 
     // Update verification status after form update
     const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
-    updateFormVerificationStatus(req.params.id).catch(console.error);
-
-    // Send notification to FSE if reason provided
-    if (reason && form.employeeName) {
-      try {
-        const Employee = require('../models/Employee');
-        const ChangeRequest = require('../models/ChangeRequest');
-        const emp = await Employee.findOne({ newJoinerName: form.employeeName }).select('_id');
-        if (emp) {
-          await ChangeRequest.create({
-            type: 'merchant_edit',
-            employeeId: emp._id,
-            employeeName: form.employeeName,
-            merchantName: form.customerName,
-            merchantChanges: updateData,
-            reason: reason,
-            status: 'approved',
-          });
-        }
-      } catch { /* ignore notification errors */ }
-    }
-
+    updateFormVerificationStatus(req.params.id, req.db).catch(console.error); // Run async, don't wait
+    
     res.json({ message: 'Form updated successfully', form });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -477,7 +521,8 @@ router.put('/save-verified-points', verifyToken, async (req, res) => {
 // GET /api/forms/admin/tl-overview
 router.get('/admin/tl-overview', async (req, res) => {
   try {
-    const db = mongoose.connection.db;
+    // Use connection from middleware
+    const db = req.db;
     const [tls, users, forms] = await Promise.all([
       db.collection('TeamLeads').find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).toArray(),
       Employee.find({}).lean(),
@@ -670,7 +715,8 @@ router.post('/admin/recalculate-all-points', async (req, res) => {
       'Tide BT':          1,
     };
 
-    const db = mongoose.connection.db;
+    // Use connection from middleware
+    const db = req.db;
 
     // Get all forms grouped by employee
     const allForms = await FormResponse.find({}).lean();
@@ -754,16 +800,16 @@ router.post('/admin/refresh-verification', async (req, res) => {
     
     if (phone) {
       // Update all forms with this phone number
-      await updateVerificationByPhone(phone);
+      await updateVerificationByPhone(phone, req.db);
       res.json({ message: `Verification updated for all forms with phone ${phone}` });
     } else if (formIds && Array.isArray(formIds)) {
       // Update specific forms
-      await updateMultipleFormsVerification(formIds);
+      await updateMultipleFormsVerification(formIds, req.db);
       res.json({ message: `Verification updated for ${formIds.length} forms` });
     } else {
       // Update all forms (use with caution!)
       const forms = await FormResponse.find({}).select('_id').limit(1000);
-      await updateMultipleFormsVerification(forms.map(f => f._id.toString()));
+      await updateMultipleFormsVerification(forms.map(f => f._id.toString()), req.db);
       res.json({ message: `Verification updated for ${forms.length} forms` });
     }
   } catch (err) {
@@ -771,4 +817,5 @@ router.post('/admin/refresh-verification', async (req, res) => {
   }
 });
 
-module.exports = router;
+  return router;
+};

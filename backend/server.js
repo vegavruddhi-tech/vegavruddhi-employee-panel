@@ -50,8 +50,6 @@ async function connectDB() {
     cached.promise = mongoose
       .connect(process.env.MONGO_URI, {
         dbName: 'CompanyDB',
-<<<<<<< HEAD
-=======
         
         // AGGRESSIVE connection pool settings for Vercel serverless
         maxPoolSize: 2,           // REDUCED: Only 2 connections per instance (was 10)
@@ -68,11 +66,7 @@ async function connectDB() {
         // Basic settings
         useNewUrlParser: true,
         useUnifiedTopology: true,
->>>>>>> ae4c42e7841d06dfb818891586b89d32b9edaa0c
         tlsAllowInvalidCertificates: true,
-        tlsAllowInvalidHostnames: true,
-        serverSelectionTimeoutMS: 15000,
-        socketTimeoutMS: 45000,
       })
       .then((mongoose) => {
         console.log('✅ MongoDB connected successfully');
@@ -84,16 +78,10 @@ async function connectDB() {
         
         return mongoose;
       })
-<<<<<<< HEAD
-      .catch((err) => {
-        console.error('MongoDB initial connection error (will retry):', err.message);
-        cached.promise = null; // reset so next request retries
-=======
       .catch((error) => {
         console.error('❌ MongoDB connection failed:', error.message);
         // Don't throw - let requests retry
         cached.promise = null; // Reset so next request can retry
->>>>>>> ae4c42e7841d06dfb818891586b89d32b9edaa0c
         return null;
       });
   }
@@ -111,18 +99,6 @@ async function connectDB() {
 // Start MongoDB connection immediately
 connectDB();
 
-<<<<<<< HEAD
-// Prevent unhandled SSL/network errors from crashing the server
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled rejection (non-fatal):', err?.message || err);
-});
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught exception (non-fatal):', err?.message || err);
-});
-
-if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
-=======
 /**
  * Register all application routes
  */
@@ -146,7 +122,6 @@ function registerRoutes() {
   
   console.log('✅ Routes registered successfully');
 }
->>>>>>> ae4c42e7841d06dfb818891586b89d32b9edaa0c
 
 /**
  * Set up error handlers and middleware

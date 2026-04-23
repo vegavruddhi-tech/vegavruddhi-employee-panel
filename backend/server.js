@@ -35,7 +35,14 @@ if (!cached) {
 }
 
 async function connectDB() {
-  if (cached.conn) return cached.conn;
+  if (cached.conn) {
+    // If already connected, register with ConnectionManager
+    if (!connectionManager.mongooseConnection) {
+      connectionManager.setMongooseConnection(cached.conn.connection);
+    }
+    return cached.conn;
+  }
+  
   console.log('🔄 Connecting to MongoDB...');
   console.log('📍 URI:', process.env.MONGO_URI ? 'Set' : 'Not Set');
 
@@ -65,6 +72,10 @@ async function connectDB() {
         console.log('✅ MongoDB connected successfully');
         console.log(`📊 Database: ${mongoose.connection.name}`);
         console.log(`🔗 Host: ${mongoose.connection.host}`);
+        
+        // Register with ConnectionManager immediately after connection
+        connectionManager.setMongooseConnection(mongoose.connection);
+        
         return mongoose;
       })
       .catch((error) => {
@@ -77,33 +88,11 @@ async function connectDB() {
   return cached.conn;
 }
 
-/**
- * Initialize the application with proper sequencing
- */
-async function initializeApp() {
-  try {
-    console.log('🚀 Initializing application...');
-    
-    // Step 1: Connect to MongoDB
-    const mongooseConnection = await connectDB();
-    
-    // Step 2: Register mongoose connection with ConnectionManager (for lazy init)
-    connectionManager.setMongooseConnection(mongooseConnection.connection);
-    
-    // Step 3: Register routes (connection will be initialized on first request)
-    registerRoutes();
-    
-    // Step 4: Set up error handlers
-    setupErrorHandlers();
-    
-    console.log('✅ Application initialized successfully (lazy init enabled)');
-    console.log('💡 Database connection will be initialized on first request');
-    
-  } catch (error) {
-    console.error('❌ Application initialization failed:', error.message);
-    process.exit(1);
-  }
-}
+// Start MongoDB connection immediately (not in async function)
+// This ensures connection is ready before Vercel starts handling requests
+connectDB().catch(err => {
+  console.error('❌ Failed to connect to MongoDB on startup:', err.message);
+});
 
 /**
  * Register all application routes
@@ -155,11 +144,15 @@ function setupErrorHandlers() {
   });
 }
 
+// Register routes and error handlers immediately (synchronously)
+registerRoutes();
+setupErrorHandlers();
+
 /**
  * Graceful shutdown handler
  */
 async function gracefulShutdown(signal) {
-  console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+  console.log(`\n� Received ${signal}. Starting graceful shutdown...`);
   
   try {
     // Shutdown connection manager
@@ -194,9 +187,6 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('🔴 Unhandled Rejection at:', promise, 'reason:', reason);
   gracefulShutdown('unhandledRejection');
 });
-
-// Initialize the application
-initializeApp();
 
 // Start server for local development
 if (process.env.NODE_ENV !== 'production') {

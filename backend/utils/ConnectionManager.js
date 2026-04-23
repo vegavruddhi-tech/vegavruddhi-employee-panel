@@ -1,7 +1,9 @@
 /**
- * Enhanced MongoDB Connection Manager
+ * Enhanced MongoDB Connection Manager with Lazy Initialization
  * 
  * This class provides intelligent connection management with:
+ * - Lazy initialization (Vercel serverless compatible)
+ * - Singleton pattern
  * - Health monitoring
  * - Circuit breaker pattern
  * - Automatic recovery
@@ -12,11 +14,16 @@
  */
 
 class ConnectionManager {
+  // Singleton instance
+  static instance = null;
+  
   constructor(options = {}) {
     // Connection state
     this.connection = null;
     this.isReady = false;
     this.isInitialized = false;
+    this.initializationPromise = null; // Track ongoing initialization
+    this.mongooseConnection = null; // Store mongoose connection for lazy init
     
     // Circuit breaker state
     this.failureCount = 0;
@@ -53,46 +60,109 @@ class ConnectionManager {
     // Health monitoring
     this.healthCheckTimer = null;
     
-    console.log('🔧 ConnectionManager initialized');
+    console.log('🔧 ConnectionManager created');
   }
 
   /**
-   * Initialize the connection manager with a mongoose connection
+   * Get singleton instance of ConnectionManager
+   * @param {Object} options - Configuration options
+   * @returns {ConnectionManager} Singleton instance
+   */
+  static getInstance(options = {}) {
+    if (!ConnectionManager.instance) {
+      ConnectionManager.instance = new ConnectionManager(options);
+    }
+    return ConnectionManager.instance;
+  }
+
+  /**
+   * Set mongoose connection for lazy initialization
    * @param {mongoose.Connection} mongooseConnection - The mongoose connection object
    */
-  async initialize(mongooseConnection) {
+  setMongooseConnection(mongooseConnection) {
+    this.mongooseConnection = mongooseConnection;
+    console.log('🔗 Mongoose connection registered for lazy initialization');
+  }
+
+  /**
+   * Ensure ConnectionManager is initialized (lazy initialization)
+   * This method is idempotent and safe to call multiple times
+   * @returns {Promise<boolean>} True if initialized successfully
+   */
+  async ensureInitialized() {
+    // Already initialized
+    if (this.isInitialized && this.isReady) {
+      return true;
+    }
+
+    // Initialization in progress - wait for it
+    if (this.initializationPromise) {
+      console.log('⏳ Waiting for ongoing initialization...');
+      return await this.initializationPromise;
+    }
+
+    // Start new initialization
+    this.initializationPromise = this._performInitialization();
+    
     try {
-      console.log('🔄 Initializing ConnectionManager...');
+      const result = await this.initializationPromise;
+      return result;
+    } finally {
+      this.initializationPromise = null;
+    }
+  }
+
+  /**
+   * Internal method to perform actual initialization
+   * @private
+   */
+  async _performInitialization() {
+    try {
+      console.log('🚀 Lazy initializing ConnectionManager...');
       
-      if (!mongooseConnection) {
-        throw new Error('Mongoose connection is required');
+      if (!this.mongooseConnection) {
+        throw new Error('Mongoose connection not set. Call setMongooseConnection() first.');
       }
       
       // Wait for connection to be ready
-      await this.waitForMongooseConnection(mongooseConnection);
+      await this.waitForMongooseConnection(this.mongooseConnection);
       
       // Set up the connection
-      this.connection = mongooseConnection.db;
+      this.connection = this.mongooseConnection.db;
       this.isReady = true;
       this.isInitialized = true;
       this.metrics.connectionAttempts++;
       
       // Set up event listeners for connection state changes
-      this.setupConnectionListeners(mongooseConnection);
+      this.setupConnectionListeners(this.mongooseConnection);
       
       // Start health monitoring
       this.startHealthMonitoring();
       
-      console.log('✅ ConnectionManager initialized successfully');
-      console.log(`📊 Database: ${mongooseConnection.name}`);
-      console.log(`🔗 Host: ${mongooseConnection.host}`);
+      console.log('✅ ConnectionManager lazy initialized successfully');
+      console.log(`📊 Database: ${this.mongooseConnection.name}`);
+      console.log(`🔗 Host: ${this.mongooseConnection.host}`);
       
       return true;
     } catch (error) {
-      console.error('❌ ConnectionManager initialization failed:', error.message);
+      console.error('❌ ConnectionManager lazy initialization failed:', error.message);
       this.recordFailure();
+      this.isInitialized = false;
+      this.isReady = false;
       throw error;
     }
+  }
+
+  /**
+   * Initialize the connection manager with a mongoose connection (DEPRECATED - use ensureInitialized)
+   * This method is kept for backward compatibility but lazy init is preferred
+   * @param {mongoose.Connection} mongooseConnection - The mongoose connection object
+   * @deprecated Use setMongooseConnection() + ensureInitialized() instead
+   */
+  async initialize(mongooseConnection) {
+    console.log('⚠️ initialize() is deprecated. Using lazy initialization instead.');
+    this.setMongooseConnection(mongooseConnection);
+    return await this.ensureInitialized();
   }
 
   /**
@@ -148,6 +218,7 @@ class ConnectionManager {
 
   /**
    * Get database connection with safety checks
+   * Automatically ensures initialization on first call (lazy init)
    * @returns {Db} MongoDB native driver database instance
    */
   getConnection() {
@@ -158,7 +229,7 @@ class ConnectionManager {
     try {
       // Check if manager is initialized
       if (!this.isInitialized) {
-        throw new Error('ConnectionManager not initialized. Call initialize() first.');
+        throw new Error('ConnectionManager not initialized. Middleware will call ensureInitialized() first.');
       }
 
       // Check circuit breaker

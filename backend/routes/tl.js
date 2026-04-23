@@ -35,9 +35,14 @@ module.exports = (connectionManager) => {
   /**
    * Middleware to ensure database connection is available
    * Adds req.db with the database connection
+   * Uses lazy initialization on first request
    */
-  router.use((req, res, next) => {
+  router.use(async (req, res, next) => {
     try {
+      // Ensure ConnectionManager is initialized (lazy init on first request)
+      await connectionManager.ensureInitialized();
+      
+      // Get the database connection
       req.db = connectionManager.getConnection();
       next();
     } catch (error) {

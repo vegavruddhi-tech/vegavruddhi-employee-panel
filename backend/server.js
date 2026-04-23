@@ -9,8 +9,8 @@ const ConnectionManager = require('./utils/ConnectionManager');
 
 const app = express();
 
-// Initialize connection manager
-const connectionManager = new ConnectionManager({
+// Get singleton instance of connection manager
+const connectionManager = ConnectionManager.getInstance({
   healthCheckInterval: 30000,  // 30 seconds
   circuitTimeout: 60000,       // 1 minute
   maxFailures: 5,              // Open circuit after 5 failures
@@ -87,16 +87,17 @@ async function initializeApp() {
     // Step 1: Connect to MongoDB
     const mongooseConnection = await connectDB();
     
-    // Step 2: Initialize connection manager
-    await connectionManager.initialize(mongooseConnection.connection);
+    // Step 2: Register mongoose connection with ConnectionManager (for lazy init)
+    connectionManager.setMongooseConnection(mongooseConnection.connection);
     
-    // Step 3: Register routes (now that connection is ready)
+    // Step 3: Register routes (connection will be initialized on first request)
     registerRoutes();
     
     // Step 4: Set up error handlers
     setupErrorHandlers();
     
-    console.log('✅ Application initialized successfully');
+    console.log('✅ Application initialized successfully (lazy init enabled)');
+    console.log('💡 Database connection will be initialized on first request');
     
   } catch (error) {
     console.error('❌ Application initialization failed:', error.message);

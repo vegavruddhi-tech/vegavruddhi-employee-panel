@@ -1,7 +1,9 @@
 const express          = require('express');
 const jwt              = require('jsonwebtoken');
+const crypto           = require('crypto');
 const VerificationRule = require('../models/VerificationRule');
 const { verifyMerchant, crossCheckPhone } = require('../utils/verifyMerchant');
+const { getRedisClient } = require('../utils/redisClient');
 
 /**
  * Verification Routes with Enhanced Connection Management
@@ -78,6 +80,193 @@ module.exports = (connectionManager, connectDB) => {
           timestamp: new Date().toISOString()
         });
       }
+    }
+  });
+
+  // ---------- HELPER FUNCTIONS ----------
+  /**
+   * Normalize product name for consistent cache keys
+   */
+  function normalizeProduct(product) {
+    if (!product || product === 'undefined' || product === 'null') return '';
+    return String(product).toLowerCase().trim();
+  }
+
+  /**
+   * Get product field from form using consistent priority order
+   * This ensures pre-computation and bulk-admin use the SAME product value
+   */
+  function getProductField(form) {
+    // Priority order: try each field until we find a non-empty value
+    const product = form.formFillingFor || 
+                    form.tideProduct || 
+                    form.brand || 
+                    (Array.isArray(form.attemptedProducts) && form.attemptedProducts.length > 0 ? form.attemptedProducts[0] : '') ||
+                    '';
+    
+    return normalizeProduct(product);
+  }
+
+  /**
+   * Calculate hash of form data for change detection
+   */
+  function calculateFormHash(form) {
+    const data = `${form.customerNumber}|${form.formFillingFor || ''}|${form.customerName || ''}|${form.createdAt}`;
+    return crypto.createHash('md5').update(data).digest('hex');
+  }
+
+  // ---------- PRE-COMPUTATION ENDPOINT ----------
+  /**
+   * POST /api/verify/precompute-all
+   * Pre-computes verification for all forms (called by sync script)
+   * Uses smart incremental caching to only verify new/changed forms
+   */
+  router.post('/precompute-all', async (req, res) => {
+    try {
+      console.log('🚀 Starting smart verification pre-computation...');
+      const startTime = Date.now();
+      
+      // Wait for MongoDB connection
+      const mongooseConn = await connectDB();
+      if (!mongooseConn) {
+        return res.status(503).json({ error: 'Database connection unavailable' });
+      }
+
+      await connectionManager.ensureInitialized();
+      const db = connectionManager.getConnection();
+      
+      const redis = getRedisClient();
+      if (!redis) {
+        return res.status(503).json({ error: 'Redis not available' });
+      }
+
+      // Get last sync time
+      const lastSyncTime = await redis.get('last_sync_time');
+      console.log(`📅 Last sync: ${lastSyncTime || 'Never'}`);
+
+      // Get all forms or only new/updated forms
+      const FormResponse = require('../models/FormResponse');
+      let forms;
+      
+      if (lastSyncTime) {
+        // Incremental: Only get new/updated forms
+        const lastSync = new Date(lastSyncTime);
+        forms = await FormResponse.find({
+          $or: [
+            { createdAt: { $gt: lastSync } },
+            { updatedAt: { $gt: lastSync } }
+          ]
+        }).lean();
+        console.log(`📊 Found ${forms.length} new/updated forms since last sync`);
+      } else {
+        // First time: Get all forms
+        forms = await FormResponse.find({}).lean();
+        console.log(`📊 First sync: Found ${forms.length} total forms`);
+      }
+
+      if (forms.length === 0) {
+        console.log('✅ No forms to verify');
+        await redis.set('last_sync_time', new Date().toISOString());
+        return res.json({ 
+          success: true, 
+          total: 0, 
+          cached: 0, 
+          skipped: 0,
+          message: 'No forms to verify' 
+        });
+      }
+
+      // Fetch verification rules once
+      const allRules = await VerificationRule.find().lean();
+
+      let processed = 0;
+      let cached = 0;
+      let skipped = 0;
+
+      // Process forms in batches
+      const batchSize = 50;
+      for (let i = 0; i < forms.length; i += batchSize) {
+        const batch = forms.slice(i, i + batchSize);
+        
+        await Promise.all(batch.map(async (form) => {
+          try {
+            const phone = form.customerNumber;
+            // ✅ USE CONSISTENT PRODUCT EXTRACTION
+            const product = getProductField(form);
+            const cacheKey = `verification:${phone}:${product}`;
+            
+            // Calculate current form hash
+            const currentHash = calculateFormHash(form);
+            
+            // Check if already cached
+            const cachedData = await redis.get(cacheKey);
+            
+            if (cachedData) {
+              const parsed = JSON.parse(cachedData);
+              if (parsed.hash === currentHash) {
+                // Data unchanged, skip verification
+                skipped++;
+                processed++;
+                return;
+              }
+            }
+            
+            // New or changed form - run verification
+            const month = form.createdAt 
+              ? new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+              : '';
+
+            const result = await verifyMerchant(
+              db, 
+              phone, 
+              form.customerName || '', 
+              VerificationRule, 
+              product, 
+              month, 
+              allRules
+            );
+
+            // Store in Redis with hash and 24-hour TTL
+            const cacheValue = {
+              ...result,
+              hash: currentHash,
+              lastVerified: new Date().toISOString()
+            };
+            
+            await redis.setex(cacheKey, 86400, JSON.stringify(cacheValue));
+            cached++;
+            
+          } catch (err) {
+            console.error(`❌ Error verifying ${form.customerNumber}:`, err.message);
+          }
+          
+          processed++;
+        }));
+
+        // Log progress
+        const progress = Math.min(i + batchSize, forms.length);
+        console.log(`⏳ Progress: ${progress}/${forms.length} forms processed`);
+      }
+
+      // Update last sync time
+      await redis.set('last_sync_time', new Date().toISOString());
+
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`✅ Pre-computation complete in ${elapsed}s`);
+      console.log(`   Total: ${forms.length} | Verified: ${cached} | Skipped: ${skipped}`);
+      
+      res.json({ 
+        success: true, 
+        total: forms.length, 
+        cached,
+        skipped,
+        elapsed: `${elapsed}s`,
+        message: 'Verification pre-computed successfully' 
+      });
+
+    } catch (err) {
+      console.error('❌ Pre-computation error:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -203,7 +392,7 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
-  // ---------- BULK ADMIN (OPTIMIZED WITH BATCH QUERIES) ----------
+  // ---------- BULK ADMIN (REDIS CACHED VERSION) ----------
   router.get('/bulk-admin', async (req, res) => {
     
     try {
@@ -217,47 +406,86 @@ module.exports = (connectionManager, connectDB) => {
 
       const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
       const names    = (req.query.names    || '').split(',').map(n => n.trim());
-      const products = (req.query.products || '').split(',').map(p => p.trim());
+      // ✅ NORMALIZE: Convert all products to lowercase, trim, handle empty/null/undefined
+      const products = (req.query.products || '').split(',').map(p => normalizeProduct(p));
       const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
 
       if (!phones.length) return res.json({});
 
-      // Use connection from middleware
-      const db = req.db;
-      
-      // ✅ OPTIMIZATION: Fetch all verification rules at once (as array, not Map)
-      const allRules = await VerificationRule.find().lean();
-
+      const redis = getRedisClient();
       const result = {};
+      let cacheHits = 0;
+      let cacheMisses = 0;
 
-      // Process each phone (still need individual verification logic)
+      // Try to read from Redis cache first
       await Promise.all(phones.map(async (phone, i) => {
         const name    = names[i]    || '';
-        const product = products[i] || '';
+        const product = products[i] || ''; // Already lowercase from above
         const month   = months[i]   || '';
-
-        // Pass cached rules array instead of fetching each time
-        const [v, pc] = await Promise.all([
-          verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
-          crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
-        ]);
-
         const key = product ? `${phone}__${product}` : phone;
 
-        result[key] = {
-          status:     v.status,
-          verified:   v.verified,
-          passed:     v.passed,
-          total:      v.total,
-          checks:     v.checks || [],
-          collection: v.collection,
-          matchType:  v.matchType,
-          phoneMatch: pc.phoneMatch,
-          inSheet:    pc.matched,
-          monthLabel: month
-        };
+        try {
+          if (redis) {
+            const cacheKey = `verification:${phone}:${product}`;
+            const cached = await redis.get(cacheKey);
+            
+            if (cached) {
+              // Cache hit - use cached data
+              const cachedData = JSON.parse(cached);
+              result[key] = {
+                status:     cachedData.status,
+                verified:   cachedData.verified,
+                passed:     cachedData.passed,
+                total:      cachedData.total,
+                checks:     cachedData.checks || [],
+                collection: cachedData.collection,
+                matchType:  cachedData.matchType,
+                phoneMatch: cachedData.phoneMatch || false,
+                inSheet:    cachedData.matched || false,
+                monthLabel: month
+              };
+              cacheHits++;
+              return;
+            }
+          }
+
+          // Cache miss - fallback to direct verification
+          cacheMisses++;
+          const db = req.db;
+          const allRules = await VerificationRule.find().lean();
+          
+          const [v, pc] = await Promise.all([
+            verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
+            crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
+          ]);
+
+          result[key] = {
+            status:     v.status,
+            verified:   v.verified,
+            passed:     v.passed,
+            total:      v.total,
+            checks:     v.checks || [],
+            collection: v.collection,
+            matchType:  v.matchType,
+            phoneMatch: pc.phoneMatch,
+            inSheet:    pc.matched,
+            monthLabel: month
+          };
+          
+        } catch (err) {
+          console.error(`Error for ${phone}:`, err.message);
+          result[key] = {
+            status: 'Error',
+            verified: false,
+            passed: 0,
+            total: 0,
+            checks: [],
+            error: err.message
+          };
+        }
       }));
 
+      console.log(`📊 Cache stats: ${cacheHits} hits, ${cacheMisses} misses`);
       res.json(result);
 
     } catch (err) {

@@ -54,7 +54,7 @@ async function connectDB() {
         // AGGRESSIVE connection pool settings for Vercel serverless
         maxPoolSize: 2,           // REDUCED: Only 2 connections per instance (was 10)
         minPoolSize: 1,           // REDUCED: Keep 1 connection alive (was 2)
-        maxIdleTimeMS: 10000,     // REDUCED: Close idle connections after 10s (was 30s)
+        maxIdleTimeMS: 60000,     // INCREASED: Close idle connections after 60s (was 10s)
         serverSelectionTimeoutMS: 10000,  // 10 seconds for Vercel
         socketTimeoutMS: 45000,   // Socket timeout
         

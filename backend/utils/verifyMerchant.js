@@ -1,5 +1,5 @@
 /**
- * verifyMerchant.js (WITH MANUAL VERIFICATION SUPPORT)
+ * verifyMerchant.js (WITH MANUAL VERIFICATION SUPPORT AND STRICT PRODUCT MATCHING)
  */
 
 const PHONE_COLS = [
@@ -152,22 +152,22 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
     : allRulesRaw;
 
-  // ✅ FIXED PRODUCT MATCH - Return "Not Found" if no rule exists for this product
-const hinted = product
-  ? allRules.filter(r =>
-      r.productTypes &&
-      r.productTypes.some(p =>
-        normalizeProduct(product) === normalizeProduct(p)
+  // ✅ STRICT PRODUCT MATCH - Only use rules that match the product exactly
+  const hinted = product
+    ? allRules.filter(r =>
+        r.productTypes &&
+        r.productTypes.some(p =>
+          normalizeProduct(product) === normalizeProduct(p)
+        )
       )
-    )
-  : [];
+    : allRules;
 
   // If product specified but no matching rules found, return Not Found immediately
   if (product && hinted.length === 0) {
     return { status: 'Not Found', verified: false };
   }
 
-  const orderedRules = hinted.length > 0 ? hinted : allRules;
+  const orderedRules = hinted;
 
   for (const rule of orderedRules) {
 
@@ -227,22 +227,22 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
     : allRulesRaw;
 
-  // ✅ SAME FIX HERE ALSO - Return "Not Found" if no rule exists for this product
-const hinted = product
-  ? allRules.filter(r =>
-      r.productTypes &&
-      r.productTypes.some(p =>
-        normalizeProduct(product) === normalizeProduct(p)
+  // ✅ STRICT PRODUCT MATCH - Only use rules that match the product exactly
+  const hinted = product
+    ? allRules.filter(r =>
+        r.productTypes &&
+        r.productTypes.some(p =>
+          normalizeProduct(product) === normalizeProduct(p)
+        )
       )
-    )
-  : [];
+    : allRules;
 
   // If product specified but no matching rules found, return not matched immediately
   if (product && hinted.length === 0) {
     return { matched: false, phoneMatch: false };
   }
 
-  const orderedRules = hinted.length > 0 ? hinted : allRules;
+  const orderedRules = hinted;
 
   for (const rule of orderedRules) {
 

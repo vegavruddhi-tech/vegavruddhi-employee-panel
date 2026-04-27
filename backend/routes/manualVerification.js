@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ManualVerification = require('../models/ManualVerification');
+const { getRedisClient } = require('../utils/redisClient');
 
 // ---------- CREATE MANUAL VERIFICATION ----------
 router.post('/create', async (req, res) => {
@@ -35,6 +36,19 @@ router.post('/create', async (req, res) => {
       
       await existingVerification.save();
       
+      // ✅ INVALIDATE CACHE: Delete Redis cache for this phone+product
+      try {
+        const redis = getRedisClient();
+        if (redis) {
+          const cacheKey = `verification:${normalizedPhone}:${normalizedProduct}`;
+          await redis.del(cacheKey);
+          console.log(`✅ Cache invalidated for ${cacheKey}`);
+        }
+      } catch (cacheError) {
+        console.error('Cache invalidation error:', cacheError);
+        // Don't fail the request if cache invalidation fails
+      }
+      
       return res.json({
         message: 'Manual verification updated successfully',
         verification: existingVerification
@@ -53,6 +67,19 @@ router.post('/create', async (req, res) => {
     });
 
     await manualVerification.save();
+
+    // ✅ INVALIDATE CACHE: Delete Redis cache for this phone+product
+    try {
+      const redis = getRedisClient();
+      if (redis) {
+        const cacheKey = `verification:${normalizedPhone}:${normalizedProduct}`;
+        await redis.del(cacheKey);
+        console.log(`✅ Cache invalidated for ${cacheKey}`);
+      }
+    } catch (cacheError) {
+      console.error('Cache invalidation error:', cacheError);
+      // Don't fail the request if cache invalidation fails
+    }
 
     res.status(201).json({
       message: 'Manual verification created successfully',
@@ -159,6 +186,18 @@ router.put('/:id', async (req, res) => {
 
     await verification.save();
 
+    // ✅ INVALIDATE CACHE: Delete Redis cache for this phone+product
+    try {
+      const redis = getRedisClient();
+      if (redis) {
+        const cacheKey = `verification:${verification.phone}:${verification.product}`;
+        await redis.del(cacheKey);
+        console.log(`✅ Cache invalidated for ${cacheKey}`);
+      }
+    } catch (cacheError) {
+      console.error('Cache invalidation error:', cacheError);
+    }
+
     res.json({
       message: 'Manual verification updated successfully',
       verification
@@ -178,6 +217,18 @@ router.delete('/:id', async (req, res) => {
     const verification = await ManualVerification.findById(id);
     if (!verification) {
       return res.status(404).json({ message: 'Manual verification not found' });
+    }
+
+    // ✅ INVALIDATE CACHE: Delete Redis cache for this phone+product BEFORE deleting the record
+    try {
+      const redis = getRedisClient();
+      if (redis) {
+        const cacheKey = `verification:${verification.phone}:${verification.product}`;
+        await redis.del(cacheKey);
+        console.log(`✅ Cache invalidated for ${cacheKey}`);
+      }
+    } catch (cacheError) {
+      console.error('Cache invalidation error:', cacheError);
     }
 
     await ManualVerification.findByIdAndDelete(id);

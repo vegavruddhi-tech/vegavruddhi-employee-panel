@@ -115,16 +115,96 @@ module.exports = (connectionManager, connectDB) => {
     return crypto.createHash('md5').update(data).digest('hex');
   }
 
+  // ---------- DEBUG ENDPOINTS ----------
+  /**
+   * GET /api/verify/debug-cache/:phone
+   * Debug endpoint to check what's in cache for a phone number
+   */
+  router.get('/debug-cache/:phone', async (req, res) => {
+    try {
+      const { phone } = req.params;
+      const redis = getRedisClient();
+      
+      if (!redis) {
+        return res.status(503).json({ error: 'Redis not available' });
+      }
+      
+      // Search for all keys with this phone
+      const pattern = `verification:${phone}*`;
+      const keys = await redis.keys(pattern);
+      
+      const results = {};
+      for (const key of keys) {
+        const value = await redis.get(key);
+        results[key] = value ? JSON.parse(value) : null;
+      }
+      
+      res.json({
+        phone,
+        pattern,
+        keysFound: keys.length,
+        keys,
+        data: results
+      });
+    } catch (err) {
+      console.error('Debug cache error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/verify/debug-products
+   * Debug endpoint to see all unique products in forms
+   */
+  router.get('/debug-products', async (req, res) => {
+    try {
+      await connectDB();
+      const FormResponse = require('../models/FormResponse');
+      
+      const forms = await FormResponse.find({}).lean();
+      
+      const productCounts = {};
+      forms.forEach(form => {
+        const product = getProductField(form);
+        if (!productCounts[product]) {
+          productCounts[product] = 0;
+        }
+        productCounts[product]++;
+      });
+      
+      // Sort by count
+      const sorted = Object.entries(productCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([product, count]) => ({ product, count }));
+      
+      res.json({
+        totalForms: forms.length,
+        uniqueProducts: sorted.length,
+        products: sorted
+      });
+    } catch (err) {
+      console.error('Debug products error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ---------- PRE-COMPUTATION ENDPOINT ----------
   /**
    * POST /api/verify/precompute-all
    * Pre-computes verification for all forms (called by sync script)
    * Uses smart incremental caching to only verify new/changed forms
+   * Query param: ?force=true to force full refresh (ignore last sync time)
    */
   router.post('/precompute-all', async (req, res) => {
     try {
       console.log('🚀 Starting smart verification pre-computation...');
       const startTime = Date.now();
+      
+      // Check if force refresh is requested
+      const forceRefresh = req.query.force === 'true';
+      if (forceRefresh) {
+        console.log('⚡ FORCE REFRESH requested - will process ALL forms');
+      }
       
       // Wait for MongoDB connection
       const mongooseConn = await connectDB();
@@ -140,15 +220,15 @@ module.exports = (connectionManager, connectDB) => {
         return res.status(503).json({ error: 'Redis not available' });
       }
 
-      // Get last sync time
-      const lastSyncTime = await redis.get('last_sync_time');
+      // Get last sync time (ignore if force refresh)
+      const lastSyncTime = forceRefresh ? null : await redis.get('last_sync_time');
       console.log(`📅 Last sync: ${lastSyncTime || 'Never'}`);
 
       // Get all forms or only new/updated forms
       const FormResponse = require('../models/FormResponse');
       let forms;
       
-      if (lastSyncTime) {
+      if (lastSyncTime && !forceRefresh) {
         // Incremental: Only get new/updated forms
         const lastSync = new Date(lastSyncTime);
         forms = await FormResponse.find({
@@ -159,9 +239,9 @@ module.exports = (connectionManager, connectDB) => {
         }).lean();
         console.log(`📊 Found ${forms.length} new/updated forms since last sync`);
       } else {
-        // First time: Get all forms
+        // First time OR force refresh: Get all forms
         forms = await FormResponse.find({}).lean();
-        console.log(`📊 First sync: Found ${forms.length} total forms`);
+        console.log(`📊 ${forceRefresh ? 'Force refresh' : 'First sync'}: Found ${forms.length} total forms`);
       }
 
       if (forms.length === 0) {
@@ -195,19 +275,32 @@ module.exports = (connectionManager, connectDB) => {
             const product = getProductField(form);
             const cacheKey = `verification:${phone}:${product}`;
             
+            // 🔍 DEBUG: Log product extraction for this specific phone
+            if (phone === '9939234435') {
+              console.log(`🔍 DEBUG Form ${phone}:`, {
+                formFillingFor: form.formFillingFor,
+                tideProduct: form.tideProduct,
+                brand: form.brand,
+                extractedProduct: product,
+                cacheKey
+              });
+            }
+            
             // Calculate current form hash
             const currentHash = calculateFormHash(form);
             
-            // Check if already cached
-            const cachedData = await redis.get(cacheKey);
-            
-            if (cachedData) {
-              const parsed = JSON.parse(cachedData);
-              if (parsed.hash === currentHash) {
-                // Data unchanged, skip verification
-                skipped++;
-                processed++;
-                return;
+            // Check if already cached (only if NOT force refresh)
+            if (!forceRefresh) {
+              const cachedData = await redis.get(cacheKey);
+              
+              if (cachedData) {
+                const parsed = JSON.parse(cachedData);
+                if (parsed.hash === currentHash) {
+                  // Data unchanged, skip verification
+                  skipped++;
+                  processed++;
+                  return;
+                }
               }
             }
             
@@ -226,7 +319,18 @@ module.exports = (connectionManager, connectDB) => {
               allRules
             );
 
-            // Store in Redis with hash and 24-hour TTL
+            // 🔍 DEBUG: Log verification result for this specific phone
+            if (phone === '9939234435') {
+              console.log(`🔍 DEBUG Verification ${phone}:`, {
+                product,
+                month,
+                status: result.status,
+                verified: result.verified
+              });
+            }
+
+            // ✅ ALWAYS store in Redis, even if "Not Found"
+            // This ensures all forms are cached, not just verified ones
             const cacheValue = {
               ...result,
               hash: currentHash,
@@ -234,7 +338,11 @@ module.exports = (connectionManager, connectDB) => {
             };
             
             await redis.setex(cacheKey, 86400, JSON.stringify(cacheValue));
-            cached++;
+            
+            // Only count as "cached" if verification succeeded
+            if (result.status !== 'Not Found') {
+              cached++;
+            }
             
           } catch (err) {
             console.error(`❌ Error verifying ${form.customerNumber}:`, err.message);
@@ -254,12 +362,17 @@ module.exports = (connectionManager, connectDB) => {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`✅ Pre-computation complete in ${elapsed}s`);
       console.log(`   Total: ${forms.length} | Verified: ${cached} | Skipped: ${skipped}`);
+      console.log(`   📊 Breakdown:`);
+      console.log(`      - Cached (verified): ${cached}`);
+      console.log(`      - Skipped (unchanged): ${skipped}`);
+      console.log(`      - Not Found: ${forms.length - cached - skipped}`);
       
       res.json({ 
         success: true, 
         total: forms.length, 
         cached,
         skipped,
+        notFound: forms.length - cached - skipped,
         elapsed: `${elapsed}s`,
         message: 'Verification pre-computed successfully' 
       });

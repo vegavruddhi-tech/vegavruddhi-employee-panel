@@ -502,7 +502,9 @@ router.get('/admin/adjustment-history/:employeeId', async (req, res) => {
   }
 });
 
+// ⚠️ OLD ENDPOINT REMOVED - Use the one at line 858 instead (EmployeePoints collection)
 // GET /api/forms/my-points — employee gets their own points adjustment
+/*
 router.get('/my-points', verifyToken, async (req, res) => {
   try {
     const Employee = require('../models/Employee');
@@ -512,8 +514,11 @@ router.get('/my-points', verifyToken, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+*/
 
+// ⚠️ OLD ENDPOINT REMOVED - Use the one at line 616 instead (EmployeePoints collection)
 // PUT /api/forms/save-verified-points — employee dashboard saves auto-calculated verified points
+/*
 router.put('/save-verified-points', verifyToken, async (req, res) => {
   try {
     const Employee = require('../models/Employee');
@@ -524,6 +529,7 @@ router.put('/save-verified-points', verifyToken, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+*/
 // GET /api/forms/admin/tl-overview
 router.get('/admin/tl-overview', async (req, res) => {
   try {

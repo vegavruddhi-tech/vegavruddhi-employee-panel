@@ -87,8 +87,10 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [loadTaskCounts]);
   const getVerifyKey = (f) => {
-    const p = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
-    return p ? `${f.customerNumber}__${p}` : f.customerNumber;
+    // ✅ MATCH BACKEND PRIORITY: formFillingFor → tideProduct → brand
+    const p = f.formFillingFor || f.tideProduct || f.brand || '';
+    // ✅ NORMALIZE: Convert to lowercase to match cache keys
+    return p ? `${f.customerNumber}__${p.toLowerCase().trim()}` : f.customerNumber;
   };
   // Filtered forms
   const filtered = useMemo(() => {
@@ -134,8 +136,10 @@ export default function Dashboard() {
     const phones   = filtered.map(f => f.customerNumber).join(',');
     const names    = filtered.map(f => encodeURIComponent(f.customerName)).join(',');
     const products = filtered.map(f => {
-    const p = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
-      return encodeURIComponent(p);
+      // ✅ MATCH BACKEND PRIORITY: formFillingFor → tideProduct → brand
+      const p = f.formFillingFor || f.tideProduct || f.brand || '';
+      // ✅ NORMALIZE: Convert to lowercase to match cache keys
+      return encodeURIComponent(p.toLowerCase().trim());
     }).join(',');
     const months = filtered.map(f => 
       encodeURIComponent(new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }))
@@ -162,7 +166,8 @@ export default function Dashboard() {
       .then(vm => {
         console.log('✅ Verification data received:', { 
           keys: Object.keys(vm).length,
-          sample: Object.keys(vm).slice(0, 3)
+          sample: Object.keys(vm).slice(0, 3),
+          fullData: vm
         });
         setVerifiedMap(vm);
         
@@ -174,17 +179,44 @@ export default function Dashboard() {
             const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
             if (counted.has(dedupKey)) return;
             counted.add(dedupKey);
-            autoPts += POINTS_MAP[normalizeProduct(f.formFillingFor)] || 0;
+            const product = f.formFillingFor || f.tideProduct || f.brand || '';
+            const normalizedProduct = normalizeProduct(product);
+            const points = POINTS_MAP[normalizedProduct] || 0;
+            console.log('🔍 Verified form:', {
+              customerNumber: f.customerNumber,
+              formFillingFor: f.formFillingFor,
+              product,
+              normalizedProduct,
+              points,
+              pointsMapKey: normalizedProduct,
+              pointsMapValue: POINTS_MAP[normalizedProduct]
+            });
+            autoPts += points;
           }
         });
         
-        console.log('💰 Calculated points:', autoPts);
+        console.log('💰 Total calculated points:', autoPts);
+        console.log('💰 Verified forms count:', counted.size);
         
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ verifiedPoints: Math.round(autoPts * 10) / 10 })
-        }).catch(() => {});
+        })
+        .then(() => {
+          // ✅ Reload backend points after saving to get fresh data
+          console.log('✅ Points saved, reloading from backend...');
+          return fetch(`${API_BASE}/api/forms/my-points`, { 
+            headers: { Authorization: 'Bearer ' + token } 
+          });
+        })
+        .then(r => r.json())
+        .then(d => {
+          console.log('📊 Reloaded backend points:', d);
+          setAdjustment(d.pointsAdjustment || 0);
+          setBackendPoints(d.totalPoints || 0);
+        })
+        .catch(() => {});
       })
       .catch(err => {
         console.error('❌ Verification fetch error:', err);
@@ -192,12 +224,16 @@ export default function Dashboard() {
       });
   }, [filtered.length, token]); // eslint-disable-line
   const normalizeProduct = (product) => {
-  const p = (product || '').toLowerCase().trim();
-  if (p === 'tide insurance' || p === 'insurance') return 'Tide Insurance';
-  if (p === 'tide' || p === 'tide onboarding') return 'Tide';
-  if (p === 'msme' || p === 'tide msme') return 'Tide MSME';
-  return product; // fallback
-};
+    const p = (product || '').toLowerCase().trim();
+    if (p === 'tide insurance' || p === 'insurance') return 'Tide Insurance';
+    if (p === 'tide' || p === 'tide onboarding' || p === 'pinelab') return 'Tide';
+    if (p === 'msme' || p === 'tide msme') return 'Tide MSME';
+    if (p === 'tide credit card') return 'Tide Credit Card';
+    if (p === 'tide bt') return 'Tide BT';
+    // If no match, return the original product (might not have points)
+    console.warn('⚠️ Unknown product:', product, '→ No points assigned');
+    return product;
+  };
 
   // Use backend points if available (includes slabs), otherwise calculate from verified forms
   const totalPoints = useMemo(() => {

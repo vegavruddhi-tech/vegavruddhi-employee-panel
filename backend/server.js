@@ -119,6 +119,7 @@ function registerRoutes() {
   app.use('/api/requests', require('./routes/requests'));
   app.use('/api/tasks', require('./routes/tasks'));
   app.use('/api/manual-verification', require('./routes/manualVerification'));
+  app.use('/api/points-activity', require('./routes/pointsActivity'));
   
   console.log('✅ Routes registered successfully');
 }

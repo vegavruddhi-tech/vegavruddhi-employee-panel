@@ -60,10 +60,17 @@ export default function Dashboard() {
 
   useEffect(() => { loadForms(); }, [loadForms]);
 
-  // Load points adjustment
+  // Load points from backend (includes slabs + adjustment)
+  const [backendPoints, setBackendPoints] = useState(null);
   useEffect(() => {
     fetch(`${API_BASE}/api/forms/my-points`, { headers: { Authorization: 'Bearer ' + token } }) 
-      .then(r => r.json()).then(d => setAdjustment(d.pointsAdjustment || 0)).catch(() => {});
+      .then(r => r.json())
+      .then(d => {
+        console.log('📊 Backend points data:', d);
+        setAdjustment(d.pointsAdjustment || 0);
+        setBackendPoints(d.totalPoints || 0);
+      })
+      .catch(() => {});
   }, [token]);
 
   // Load task counts
@@ -117,22 +124,48 @@ export default function Dashboard() {
     return list;
   }, [allForms, dateFilter, fromDate, toDate, activeKPI, verifiedMap]);
 
-  // Fetch verification for filtered forms
+  // Fetch verification for filtered forms (using Redis cache)
   useEffect(() => {
-    if (!filtered.length) return;
+    if (!filtered.length) {
+      console.log('⚠️ No filtered forms to verify');
+      return;
+    }
+    
     const phones   = filtered.map(f => f.customerNumber).join(',');
     const names    = filtered.map(f => encodeURIComponent(f.customerName)).join(',');
     const products = filtered.map(f => {
     const p = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
       return encodeURIComponent(p);
     }).join(',');
+    const months = filtered.map(f => 
+      encodeURIComponent(new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }))
+    ).join(',');
 
-    fetch(`${API_BASE}/api/verify/bulk?phones=${encodeURIComponent(phones)}&names=${names}&products=${products}`, {
+    const url = `${API_BASE}/api/verify/bulk-cached?phones=${encodeURIComponent(phones)}&names=${names}&products=${products}&months=${months}`;
+    console.log('🔍 Fetching verification (Redis cached):', { 
+      formCount: filtered.length, 
+      endpoint: '/api/verify/bulk-cached',
+      url: url.substring(0, 150) + '...'
+    });
+
+    // ✅ Use Redis-cached endpoint for fast verification
+    fetch(url, {
       headers: { Authorization: 'Bearer ' + token }
     })
-      .then(r => r.json())
+      .then(r => {
+        console.log('📡 Verification response status:', r.status);
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        }
+        return r.json();
+      })
       .then(vm => {
+        console.log('✅ Verification data received:', { 
+          keys: Object.keys(vm).length,
+          sample: Object.keys(vm).slice(0, 3)
+        });
         setVerifiedMap(vm);
+        
         // Save verified points — deduplicate by customerNumber+product
         const counted = new Set();
         let autoPts = 0;
@@ -144,13 +177,19 @@ export default function Dashboard() {
             autoPts += POINTS_MAP[normalizeProduct(f.formFillingFor)] || 0;
           }
         });
+        
+        console.log('💰 Calculated points:', autoPts);
+        
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ verifiedPoints: Math.round(autoPts * 10) / 10 })
         }).catch(() => {});
       })
-      .catch(() => {});
+      .catch(err => {
+        console.error('❌ Verification fetch error:', err);
+        setVerifiedMap({});
+      });
   }, [filtered.length, token]); // eslint-disable-line
   const normalizeProduct = (product) => {
   const p = (product || '').toLowerCase().trim();
@@ -160,8 +199,15 @@ export default function Dashboard() {
   return product; // fallback
 };
 
+  // Use backend points if available (includes slabs), otherwise calculate from verified forms
   const totalPoints = useMemo(() => {
-    // Deduplicate by customerNumber+product before counting points
+    // If backend returned total points (with slabs), use that
+    if (backendPoints !== null) {
+      console.log('💰 Using backend total points (includes slabs):', backendPoints);
+      return backendPoints;
+    }
+    
+    // Otherwise calculate from verified forms (fallback)
     const counted = new Set();
     let auto = 0;
     allForms.forEach(f => {
@@ -174,8 +220,10 @@ export default function Dashboard() {
 
       }
     });
-    return Math.round((auto + adjustment) * 10) / 10;
-  }, [allForms, verifiedMap, adjustment]);
+    const calculated = Math.round((auto + adjustment) * 10) / 10;
+    console.log('💰 Calculated from verified forms:', calculated);
+    return calculated;
+  }, [allForms, verifiedMap, adjustment, backendPoints]);
 
   const kpis = [
     { key: 'all',      label: 'Total Responses',      value: allForms.length,                                                                    cls: 'kpi-total' },

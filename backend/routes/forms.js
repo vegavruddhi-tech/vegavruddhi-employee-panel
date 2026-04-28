@@ -321,7 +321,9 @@ const POINTS_MAP = {
   'Tide Credit Card': 1,
 };
 
+// ⚠️ OLD ENDPOINT - DISABLED - Returns Employee collection instead of EmployeePoints
 // GET /api/forms/admin/employee-points — all employees with auto + adjusted points
+/*
 router.get('/admin/employee-points', async (req, res) => {
   try {
     const mongoose = require('mongoose');
@@ -339,9 +341,12 @@ router.get('/admin/employee-points', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+*/
 
+// ⚠️ OLD ENDPOINT - DISABLED - Use the one at line 667 instead
 // PUT /api/forms/admin/adjust-points/:employeeId — admin adds/subtracts points
 // Accepts either Employee._id OR EmployeePoints._id
+/*
 router.put('/admin/adjust-points/:employeeId', async (req, res) => {
   try {
     const EmployeePoints = require('../models/EmployeePoints');
@@ -388,6 +393,7 @@ router.put('/admin/adjust-points/:employeeId', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+*/
 
 // DELETE /api/forms/admin/adjust-points/:employeeId/history/:historyId — delete a specific adjustment
 router.delete('/admin/adjust-points/:employeeId/history/:historyId', async (req, res) => {
@@ -628,9 +634,36 @@ router.put('/save-verified-points', verifyToken, async (req, res) => {
 router.get('/admin/employee-points', async (req, res) => {
   try {
     const EmployeePoints = require('../models/EmployeePoints');
-    const points = await EmployeePoints.find({}).sort({ newJoinerName: 1 });
+    const points = await EmployeePoints.find({}).sort({ newJoinerName: 1 }).lean();
+    
+    console.log('📊 Returning employee points, count:', points.length);
+    if (points.length > 0) {
+      console.log('📊 Sample record:', JSON.stringify(points[0], null, 2));
+    }
+    
     res.json(points);
   } catch (err) {
+    console.error('❌ Error fetching employee points:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /api/forms/admin/employee-points/:name ─────────────────
+// Get specific employee's points data for debugging
+router.get('/admin/employee-points/:name', async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const data = await EmployeePoints.findOne({ newJoinerName: req.params.name }).lean();
+    
+    console.log('📊 Employee points for', req.params.name, ':', JSON.stringify(data, null, 2));
+    
+    if (!data) {
+      return res.status(404).json({ message: 'Employee points not found' });
+    }
+    
+    res.json(data);
+  } catch (err) {
+    console.error('❌ Error fetching employee points:', err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -640,20 +673,62 @@ router.get('/admin/employee-points', async (req, res) => {
 router.put('/admin/adjust-points/:id', async (req, res) => {
   try {
     const EmployeePoints = require('../models/EmployeePoints');
-    const { adjustment, reason } = req.body;
+    const { adjustment, reason, productSlabs } = req.body;
     const delta = parseFloat(adjustment) || 0;
 
+    console.log('📝 Adjust points request:', { 
+      id: req.params.id, 
+      delta, 
+      reason, 
+      productSlabs: JSON.stringify(productSlabs, null, 2)
+    });
+
     let doc = await EmployeePoints.findById(req.params.id);
-    if (!doc) return res.status(404).json({ message: 'Employee points record not found' });
+    if (!doc) {
+      console.error('❌ Employee points record not found:', req.params.id);
+      return res.status(404).json({ message: 'Employee points record not found' });
+    }
+
+    console.log('✅ Found employee points record BEFORE update:', { 
+      newJoinerName: doc.newJoinerName, 
+      currentAdjustment: doc.pointsAdjustment,
+      currentSlabs: JSON.stringify(doc.productSlabs, null, 2)
+    });
 
     doc.pointsAdjustment += delta;
-    doc.adjustmentHistory.push({ delta, reason: reason || '', updatedBy: 'admin', updatedAt: new Date() });
+    
+    // ✅ Save product slabs as plain object
+    if (productSlabs !== undefined) {
+      console.log('💾 Setting productSlabs to:', JSON.stringify(productSlabs, null, 2));
+      doc.productSlabs = productSlabs;
+      doc.markModified('productSlabs');
+    }
+    
+    doc.adjustmentHistory.push({ 
+      delta, 
+      reason: reason || '', 
+      updatedBy: 'admin', 
+      updatedAt: new Date() 
+    });
     doc.updatedAt = new Date();
+    
+    // Save and wait for it to complete
     await doc.save();
+    console.log('💾 Document saved to database');
+    
+    // Fetch fresh data directly from database to confirm save
+    const freshDoc = await EmployeePoints.findById(req.params.id).lean();
+    
+    console.log('✅ Points updated successfully - AFTER save from DB:', { 
+      newJoinerName: freshDoc.newJoinerName, 
+      newAdjustment: freshDoc.pointsAdjustment,
+      newSlabs: JSON.stringify(freshDoc.productSlabs, null, 2)
+    });
 
-    res.json({ message: 'Points updated', doc });
+    res.json({ message: 'Points updated', doc: freshDoc });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('❌ Error in adjust-points:', err);
+    res.status(500).json({ message: err.message, error: err.toString(), stack: err.stack });
   }
 });
 

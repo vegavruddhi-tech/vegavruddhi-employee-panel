@@ -41,8 +41,87 @@ function NotificationPanel({ token, onClose }) {
     const isRead = n.acknowledged;
     const date = new Date(n.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-    // Points notification
+    // Points adjustment notification (includes both manual adjustments and slab changes)
     if (n.type === 'points_adjustment') {
+      // Check if this is a slab-based notification (new format)
+      const hasSlabData = n.profileChanges?.product && n.profileChanges?.slabDetails;
+      
+      if (hasSlabData) {
+        // New format: Slab-based points update
+        const product = n.profileChanges.product;
+        const slabDetails = n.profileChanges.slabDetails;
+        const reason = n.profileChanges.reason || n.reason || '';
+        const actionType = n.profileChanges.actionType || 'added';
+        const points = slabDetails.points || (slabDetails.forms * slabDetails.multiplier) || 0;
+        
+        const accentColor = actionType === 'added' ? '#2e7d32' : actionType === 'modified' ? '#1565c0' : '#c62828';
+        const bgColor = isRead ? '#fff' : (actionType === 'added' ? '#f0fdf4' : actionType === 'modified' ? '#f0f7ff' : '#fff5f5');
+        const emoji = actionType === 'added' ? '⭐' : actionType === 'modified' ? '✏️' : '🗑️';
+        
+        return (
+          <div key={n._id} style={{
+            padding: '14px 16px', borderBottom: '1px solid #f0f0f0',
+            background: bgColor,
+            borderLeft: `4px solid ${accentColor}`,
+            opacity: isRead ? 0.8 : 1,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 18 }}>{emoji}</span>
+                  <span style={{ fontWeight: 800, fontSize: 13, color: accentColor }}>
+                    Points {actionType === 'added' ? 'Added' : actionType === 'modified' ? 'Modified' : 'Removed'}
+                  </span>
+                </div>
+
+                {/* Main message */}
+                <div style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 600, marginBottom: 8 }}>
+                  Admin {actionType} points for <b style={{ color: accentColor }}>{product}</b>
+                </div>
+
+                {/* Slab details card */}
+                <div style={{
+                  background: '#fff', border: `1px solid ${accentColor}30`,
+                  borderRadius: 8, padding: '8px 12px', marginBottom: 8,
+                }}>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Slab Details:</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: accentColor, fontFamily: 'monospace' }}>
+                    {slabDetails.forms} forms × {slabDetails.multiplier} = {points} pts
+                  </div>
+                </div>
+
+                {/* Reason */}
+                {reason && (
+                  <div style={{ fontSize: 11, color: '#333', fontWeight: 500, marginBottom: 4, background: '#f9f9f9', padding: '6px 8px', borderRadius: 6 }}>
+                    📝 <b>Reason:</b> {reason}
+                  </div>
+                )}
+
+                {/* Date */}
+                <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>{date}</div>
+              </div>
+
+              {/* Action button */}
+              <div style={{ flexShrink: 0 }}>
+                {!isRead ? (
+                  <button onClick={() => markRead(n._id)} style={{
+                    padding: '4px 10px', background: accentColor, color: '#fff',
+                    border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}>
+                    Mark read
+                  </button>
+                ) : (
+                  <span style={{ fontSize: 10, color: '#aaa' }}>✓ Read</span>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+      
+      // Old format: Manual adjustment
       const adj = n.profileChanges?.adjustment ?? 0;
       const newTotal = n.profileChanges?.newTotal;
       const beforeTotal = n.profileChanges?.beforeTotal;

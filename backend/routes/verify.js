@@ -392,7 +392,135 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
-  // ---------- BULK ADMIN (REDIS CACHED VERSION) ----------
+  // ---------- BULK CACHED (REDIS CACHED VERSION FOR EMPLOYEES) ----------
+  router.get('/bulk-cached', verifyToken, async (req, res) => {
+    try {
+      const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
+      const names    = (req.query.names    || '').split(',').map(n => n.trim());
+      const products = (req.query.products || '').split(',').map(p => normalizeProduct(p));
+      const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
+
+      if (!phones.length) return res.json({});
+
+      const redis = getRedisClient();
+      const result = {};
+      let cacheHits = 0;
+      let cacheMisses = 0;
+
+      // Build all cache keys
+      const cacheKeys = phones.map((phone, i) => {
+        const product = products[i] || '';
+        return `verification:${phone}:${product}`;
+      });
+
+      // Get ALL cached values in ONE Redis call
+      let cachedValues = [];
+      if (redis) {
+        try {
+          cachedValues = await redis.mget(...cacheKeys);
+        } catch (err) {
+          console.error('Redis MGET error:', err.message);
+          cachedValues = new Array(cacheKeys.length).fill(null);
+        }
+      } else {
+        cachedValues = new Array(cacheKeys.length).fill(null);
+      }
+
+      // Process results: separate cache hits from misses
+      const missedIndices = [];
+      
+      phones.forEach((phone, i) => {
+        const name    = names[i]    || '';
+        const product = products[i] || '';
+        const month   = months[i]   || '';
+        const key = product ? `${phone}__${product}` : phone;
+        const cached = cachedValues[i];
+
+        if (cached) {
+          try {
+            const cachedData = JSON.parse(cached);
+            result[key] = {
+              status:     cachedData.status,
+              verified:   cachedData.verified,
+              passed:     cachedData.passed,
+              total:      cachedData.total,
+              checks:     cachedData.checks || [],
+              collection: cachedData.collection,
+              matchType:  cachedData.matchType,
+              phoneMatch: cachedData.phoneMatch || false,
+              inSheet:    cachedData.matched || false,
+              monthLabel: month
+            };
+            cacheHits++;
+          } catch (parseErr) {
+            console.error(`Error parsing cached data for ${phone}:`, parseErr.message);
+            missedIndices.push(i);
+            cacheMisses++;
+          }
+        } else {
+          missedIndices.push(i);
+          cacheMisses++;
+        }
+      });
+
+      // For cache misses, fetch from database
+      if (missedIndices.length > 0) {
+        const db = req.db;
+        const allRules = await VerificationRule.find().lean();
+
+        await Promise.all(missedIndices.map(async (i) => {
+          const phone   = phones[i];
+          const name    = names[i]    || '';
+          const product = products[i] || '';
+          const month   = months[i]   || '';
+          const key = product ? `${phone}__${product}` : phone;
+
+          try {
+            const [v, pc] = await Promise.all([
+              verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
+              crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
+            ]);
+
+            result[key] = {
+              status:     v.status,
+              verified:   v.verified,
+              passed:     v.passed,
+              total:      v.total,
+              checks:     v.checks || [],
+              collection: v.collection,
+              matchType:  v.matchType,
+              phoneMatch: pc.phoneMatch,
+              inSheet:    pc.matched,
+              monthLabel: month
+            };
+            
+          } catch (err) {
+            console.error(`Error verifying ${phone}:`, err.message);
+            result[key] = {
+              status: 'Error',
+              verified: false,
+              passed: 0,
+              total: 0,
+              checks: [],
+              error: err.message
+            };
+          }
+        }));
+      }
+
+      console.log(`📊 Employee cache stats: ${cacheHits} hits, ${cacheMisses} misses (${phones.length} forms)`);
+      res.json(result);
+
+    } catch (err) {
+      console.error('Bulk-cached error:', err);
+      res.status(500).json({ 
+        message: err.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // ---------- BULK ADMIN (REDIS CACHED VERSION WITH MGET OPTIMIZATION) ----------
   router.get('/bulk-admin', async (req, res) => {
     
     try {
@@ -417,75 +545,110 @@ module.exports = (connectionManager, connectDB) => {
       let cacheHits = 0;
       let cacheMisses = 0;
 
-      // Try to read from Redis cache first
-      await Promise.all(phones.map(async (phone, i) => {
+      // ✅ MGET OPTIMIZATION: Build all cache keys first
+      const cacheKeys = phones.map((phone, i) => {
+        const product = products[i] || '';
+        return `verification:${phone}:${product}`;
+      });
+
+      // ✅ MGET OPTIMIZATION: Get ALL cached values in ONE Redis call (instead of 813 calls)
+      let cachedValues = [];
+      if (redis) {
+        try {
+          cachedValues = await redis.mget(...cacheKeys);
+        } catch (err) {
+          console.error('Redis MGET error:', err.message);
+          cachedValues = new Array(cacheKeys.length).fill(null);
+        }
+      } else {
+        cachedValues = new Array(cacheKeys.length).fill(null);
+      }
+
+      // ✅ Process results: separate cache hits from misses
+      const missedIndices = [];
+      
+      phones.forEach((phone, i) => {
         const name    = names[i]    || '';
-        const product = products[i] || ''; // Already lowercase from above
+        const product = products[i] || '';
         const month   = months[i]   || '';
         const key = product ? `${phone}__${product}` : phone;
+        const cached = cachedValues[i];
 
-        try {
-          if (redis) {
-            const cacheKey = `verification:${phone}:${product}`;
-            const cached = await redis.get(cacheKey);
-            
-            if (cached) {
-              // Cache hit - use cached data
-              const cachedData = JSON.parse(cached);
-              result[key] = {
-                status:     cachedData.status,
-                verified:   cachedData.verified,
-                passed:     cachedData.passed,
-                total:      cachedData.total,
-                checks:     cachedData.checks || [],
-                collection: cachedData.collection,
-                matchType:  cachedData.matchType,
-                phoneMatch: cachedData.phoneMatch || false,
-                inSheet:    cachedData.matched || false,
-                monthLabel: month
-              };
-              cacheHits++;
-              return;
-            }
+        if (cached) {
+          // Cache hit - use cached data
+          try {
+            const cachedData = JSON.parse(cached);
+            result[key] = {
+              status:     cachedData.status,
+              verified:   cachedData.verified,
+              passed:     cachedData.passed,
+              total:      cachedData.total,
+              checks:     cachedData.checks || [],
+              collection: cachedData.collection,
+              matchType:  cachedData.matchType,
+              phoneMatch: cachedData.phoneMatch || false,
+              inSheet:    cachedData.matched || false,
+              monthLabel: month
+            };
+            cacheHits++;
+          } catch (parseErr) {
+            console.error(`Error parsing cached data for ${phone}:`, parseErr.message);
+            missedIndices.push(i);
+            cacheMisses++;
           }
-
-          // Cache miss - fallback to direct verification
+        } else {
+          // Cache miss - need to verify from database
+          missedIndices.push(i);
           cacheMisses++;
-          const db = req.db;
-          const allRules = await VerificationRule.find().lean();
-          
-          const [v, pc] = await Promise.all([
-            verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
-            crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
-          ]);
-
-          result[key] = {
-            status:     v.status,
-            verified:   v.verified,
-            passed:     v.passed,
-            total:      v.total,
-            checks:     v.checks || [],
-            collection: v.collection,
-            matchType:  v.matchType,
-            phoneMatch: pc.phoneMatch,
-            inSheet:    pc.matched,
-            monthLabel: month
-          };
-          
-        } catch (err) {
-          console.error(`Error for ${phone}:`, err.message);
-          result[key] = {
-            status: 'Error',
-            verified: false,
-            passed: 0,
-            total: 0,
-            checks: [],
-            error: err.message
-          };
         }
-      }));
+      });
 
-      console.log(`📊 Cache stats: ${cacheHits} hits, ${cacheMisses} misses`);
+      // ✅ For cache misses, fetch from database (only if needed)
+      if (missedIndices.length > 0) {
+        const db = req.db;
+        const allRules = await VerificationRule.find().lean();
+
+        await Promise.all(missedIndices.map(async (i) => {
+          const phone   = phones[i];
+          const name    = names[i]    || '';
+          const product = products[i] || '';
+          const month   = months[i]   || '';
+          const key = product ? `${phone}__${product}` : phone;
+
+          try {
+            const [v, pc] = await Promise.all([
+              verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
+              crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
+            ]);
+
+            result[key] = {
+              status:     v.status,
+              verified:   v.verified,
+              passed:     v.passed,
+              total:      v.total,
+              checks:     v.checks || [],
+              collection: v.collection,
+              matchType:  v.matchType,
+              phoneMatch: pc.phoneMatch,
+              inSheet:    pc.matched,
+              monthLabel: month
+            };
+            
+          } catch (err) {
+            console.error(`Error verifying ${phone}:`, err.message);
+            result[key] = {
+              status: 'Error',
+              verified: false,
+              passed: 0,
+              total: 0,
+              checks: [],
+              error: err.message
+            };
+          }
+        }));
+      }
+
+      console.log(`📊 Cache stats: ${cacheHits} hits, ${cacheMisses} misses (MGET optimization: 1 Redis call for ${phones.length} forms)`);
       res.json(result);
 
     } catch (err) {

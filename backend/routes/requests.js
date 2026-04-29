@@ -92,10 +92,18 @@ router.post('/notify-duplicate', async (req, res) => {
 // GET /api/requests/my-notifications — employee checks their approved/rejected requests
 router.get('/my-notifications', verifyToken, async (req, res) => {
   try {
-    const requests = await ChangeRequest.find({
-      employeeId: req.user.id,
-      status: { $in: ['approved', 'rejected'] }
-    }).sort({ createdAt: -1 });
+    // Get employee name for fallback lookup
+    const emp = await Employee.findById(req.user.id).select('newJoinerName').lean();
+
+    const query = {
+      status: { $in: ['approved', 'rejected'] },
+      $or: [
+        { employeeId: req.user.id },
+        ...(emp?.newJoinerName ? [{ employeeName: emp.newJoinerName }] : [])
+      ]
+    };
+
+    const requests = await ChangeRequest.find(query).sort({ createdAt: -1 });
     res.json(requests);
   } catch (err) { res.status(500).json({ message: err.message }); }
 });

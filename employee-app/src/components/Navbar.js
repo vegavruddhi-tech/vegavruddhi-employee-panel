@@ -52,69 +52,62 @@ function NotificationPanel({ token, onClose }) {
         const slabDetails = n.profileChanges.slabDetails;
         const reason = n.profileChanges.reason || n.reason || '';
         const actionType = n.profileChanges.actionType || 'added';
-        const points = slabDetails.points || (slabDetails.forms * slabDetails.multiplier) || 0;
-        
-        const accentColor = actionType === 'added' ? '#2e7d32' : actionType === 'modified' ? '#1565c0' : '#c62828';
-        const bgColor = isRead ? '#fff' : (actionType === 'added' ? '#f0fdf4' : actionType === 'modified' ? '#f0f7ff' : '#fff5f5');
-        const emoji = actionType === 'added' ? '⭐' : actionType === 'modified' ? '✏️' : '🗑️';
-        
+        const points = Math.round((slabDetails.points || (slabDetails.forms * slabDetails.multiplier) || 0) * 100) / 100;
+        const beforeTotal = n.profileChanges.beforeTotal;
+        const newTotal    = n.profileChanges.newTotal;
+        const adjustment  = actionType === 'removed' ? -points : points;
+
+        const accentColor = actionType === 'added' ? '#2e7d32' : '#c62828';
+        const bgColor = isRead ? '#fff' : (actionType === 'added' ? '#f0fdf4' : '#fff5f5');
+        const emoji = actionType === 'added' ? '⭐' : '📉';
+
         return (
           <div key={n._id} style={{
             padding: '14px 16px', borderBottom: '1px solid #f0f0f0',
-            background: bgColor,
-            borderLeft: `4px solid ${accentColor}`,
+            background: bgColor, borderLeft: `4px solid ${accentColor}`,
             opacity: isRead ? 0.8 : 1,
           }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
               <div style={{ flex: 1 }}>
-                {/* Header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 18 }}>{emoji}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 16 }}>{emoji}</span>
                   <span style={{ fontWeight: 800, fontSize: 13, color: accentColor }}>
-                    Points {actionType === 'added' ? 'Added' : actionType === 'modified' ? 'Modified' : 'Removed'}
+                    Points {actionType === 'added' ? 'Added' : 'Deducted'}
                   </span>
                 </div>
-
-                {/* Main message */}
-                <div style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 600, marginBottom: 8 }}>
-                  Admin {actionType} points for <b style={{ color: accentColor }}>{product}</b>
+                <div style={{ fontSize: 12, color: '#1a1a1a', fontWeight: 600, marginBottom: 6 }}>
+                  {actionType === 'added' ? '+' : ''}{adjustment} pts — {product}
                 </div>
-
-                {/* Slab details card */}
-                <div style={{
-                  background: '#fff', border: `1px solid ${accentColor}30`,
-                  borderRadius: 8, padding: '8px 12px', marginBottom: 8,
-                }}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>Slab Details:</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: accentColor, fontFamily: 'monospace' }}>
-                    {slabDetails.forms} forms × {slabDetails.multiplier} = {points} pts
+                {beforeTotal !== undefined && newTotal !== undefined && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 0,
+                    background: '#fff', border: `1px solid ${accentColor}30`,
+                    borderRadius: 8, overflow: 'hidden', marginBottom: 6,
+                  }}>
+                    <div style={{ flex: 1, textAlign: 'center', padding: '6px 10px', background: '#f5f5f5' }}>
+                      <div style={{ fontSize: 9, color: '#888', fontWeight: 600, textTransform: 'uppercase' }}>Before</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#555' }}>{beforeTotal} pts</div>
+                    </div>
+                    <div style={{ padding: '0 8px', fontSize: 16, color: accentColor, fontWeight: 800 }}>→</div>
+                    <div style={{ flex: 1, textAlign: 'center', padding: '6px 10px', background: actionType === 'removed' ? '#fdecea' : '#e8f4fd' }}>
+                      <div style={{ fontSize: 9, color: accentColor, fontWeight: 600, textTransform: 'uppercase' }}>After</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: accentColor }}>{newTotal} pts</div>
+                    </div>
                   </div>
-                </div>
-
-                {/* Reason */}
+                )}
                 {reason && (
                   <div style={{ fontSize: 11, color: '#333', fontWeight: 500, marginBottom: 4, background: '#f9f9f9', padding: '6px 8px', borderRadius: 6 }}>
-                    📝 <b>Reason:</b> {reason}
+                    📝 {reason}
                   </div>
                 )}
-
-                {/* Date */}
                 <div style={{ fontSize: 10, color: '#999', marginTop: 2 }}>{date}</div>
               </div>
-
-              {/* Action button */}
               <div style={{ flexShrink: 0 }}>
                 {!isRead ? (
-                  <button onClick={() => markRead(n._id)} style={{
-                    padding: '4px 10px', background: accentColor, color: '#fff',
-                    border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700,
-                    cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}>
+                  <button onClick={() => markRead(n._id)} style={{ padding: '4px 10px', background: accentColor, color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                     Mark read
                   </button>
-                ) : (
-                  <span style={{ fontSize: 10, color: '#aaa' }}>✓ Read</span>
-                )}
+                ) : <span style={{ fontSize: 10, color: '#aaa' }}>✓ Read</span>}
               </div>
             </div>
           </div>

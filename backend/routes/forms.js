@@ -469,7 +469,12 @@ router.delete('/admin/adjust-points/:employeeId/history/:historyId', async (req,
         const emp2 = await Employee.findById(req.params.employeeId).select('reportingManager');
         if (emp2?.reportingManager) {
           const TeamLead = require('../models/TeamLead');
-          const tl = await TeamLead.findOne({ name: emp2.reportingManager }).select('_id name');
+          const allTLs = await TeamLead.find({}).select('_id name email').lean();
+          const rmLower = emp2.reportingManager.trim().toLowerCase();
+          const tl = allTLs.find(t =>
+            (t.name || '').trim().toLowerCase() === rmLower ||
+            (t.email || '').trim().toLowerCase() === rmLower
+          );
           if (tl) {
             const TLNotification = require('../models/TLNotification');
             await TLNotification.create({
@@ -705,6 +710,7 @@ router.put('/admin/adjust-points/:id', async (req, res) => {
     
     // ✅ Save product slabs as plain object
     if (productSlabs !== undefined) {
+      // Notifications handled by frontend via /points-activity/bulk-create
       console.log('💾 Setting productSlabs to:', JSON.stringify(productSlabs, null, 2));
       doc.productSlabs = productSlabs;
       doc.markModified('productSlabs');
@@ -894,6 +900,68 @@ router.post('/admin/refresh-verification', async (req, res) => {
       res.json({ message: `Verification updated for ${forms.length} forms` });
     }
   } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /api/forms/admin/delete-slab ─────────────────────────────────────
+router.post('/admin/delete-slab', async (req, res) => {
+  try {
+    const EmployeePoints = require('../models/EmployeePoints');
+    const ChangeRequest  = require('../models/ChangeRequest');
+    const TLNotification = require('../models/TLNotification');
+    const { empPointsId, product, tierIdx, deleteReason } = req.body;
+
+    if (!empPointsId || !product || tierIdx === undefined) {
+      return res.status(400).json({ message: 'empPointsId, product and tierIdx required' });
+    }
+
+    // Find the record — prefer the one that actually has slabs for this product
+    let doc = await EmployeePoints.findById(empPointsId);
+    if (!doc) return res.status(404).json({ message: 'Employee points record not found' });
+
+    console.log(`[delete-slab] Found doc: "${doc.newJoinerName}", has product "${product}":`, !!doc.productSlabs?.[product]);
+
+    // If this doc has no slabs for the product, find the correct one by name
+    if (!doc.productSlabs?.[product]) {
+      console.log(`[delete-slab] Searching for better record by name: "${doc.newJoinerName}"`);
+      const better = await EmployeePoints.findOne({
+        newJoinerName: { $regex: new RegExp(`^${doc.newJoinerName.trim()}\\s*$`, 'i') },
+        [`productSlabs.${product}`]: { $exists: true }
+      });
+      console.log(`[delete-slab] Better record found:`, better ? better._id : 'NONE');
+      if (better) doc = better;
+    }
+
+    const ps = doc.productSlabs?.[product];
+    if (!ps) return res.status(404).json({ message: `No slabs found for product "${product}"` });
+
+    // Support both new {slabTiers:[]} and old flat array format
+    const tiers = ps.slabTiers || (Array.isArray(ps) ? ps : []);
+    const deleted = tiers[tierIdx];
+    if (!deleted) return res.status(404).json({ message: `Slab tier at index ${tierIdx} not found` });
+
+    const pts = Math.round((parseFloat(deleted.forms) || 0) * (parseFloat(deleted.multiplier) || 0) * 10) / 10;
+
+    // Remove the tier
+    const updatedTiers = tiers.filter((_, i) => i !== tierIdx);
+    const newProductSlabs = { ...doc.productSlabs };
+    if (updatedTiers.length === 0) {
+      delete newProductSlabs[product];
+    } else {
+      // Preserve format — if was flat array keep flat array, else use slabTiers
+      newProductSlabs[product] = ps.slabTiers
+        ? { slabTiers: updatedTiers }
+        : updatedTiers;
+    }
+    doc.productSlabs = newProductSlabs;
+    doc.markModified('productSlabs');
+    await doc.save();
+
+    // Notifications are sent by the frontend via /points-activity/bulk-create
+    res.json({ message: 'Slab deleted', updatedSlabs: doc.productSlabs });
+  } catch (err) {
+    console.error('[delete-slab] Error:', err.message, err.stack);
     res.status(500).json({ message: err.message });
   }
 });

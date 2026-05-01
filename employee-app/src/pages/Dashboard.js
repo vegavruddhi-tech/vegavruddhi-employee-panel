@@ -3,6 +3,7 @@ import { API_BASE } from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const POINTS_MAP = { 
   'Tide': 2, 
@@ -30,7 +31,14 @@ const BADGE_MAP = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const token = localStorage.getItem('token');
+  
+  // ✅ Check for impersonation parameters first
+  const [isImpersonating, setIsImpersonating] = useState(false);
+  const [impersonationToken, setImpersonationToken] = useState(null);
+  const [viewAsEmail, setViewAsEmail] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false); // Track if auth check is complete
+  
+  const token = isImpersonating ? impersonationToken : localStorage.getItem('token');
 
   const [emp,          setEmp]          = useState(null);
   const [allForms,     setAllForms]     = useState([]);
@@ -42,28 +50,108 @@ export default function Dashboard() {
   const [adjustment,   setAdjustment]   = useState(0);
   const [taskCounts,   setTaskCounts]   = useState({ pending: 0, completed: 0, total: 0 });
 
-  // Load profile
+  // ✅ Check for impersonation on mount
   useEffect(() => {
-    fetch(`${API_BASE}/api/auth/profile`, { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => { if (r.status === 401) { localStorage.clear(); navigate('/'); } return r.json(); })
+    const params = new URLSearchParams(window.location.search);
+    const viewAs = params.get('viewAs');
+    const adminToken = params.get('adminToken');
+    
+    if (viewAs && adminToken) {
+      console.log('🔐 Impersonation detected:', { viewAs, hasToken: !!adminToken });
+      
+      // Validate admin impersonation
+      fetch(`${API_BASE}/api/auth/verify-impersonation?viewAs=${encodeURIComponent(viewAs)}`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      })
+        .then(r => {
+          if (!r.ok) throw new Error('Invalid impersonation');
+          return r.json();
+        })
+        .then(data => {
+          console.log('✅ Impersonation validated:', data);
+          setIsImpersonating(true);
+          setImpersonationToken(adminToken);
+          setViewAsEmail(viewAs);
+          
+          // Store in sessionStorage (cleared when tab closes)
+          sessionStorage.setItem('impersonationToken', adminToken);
+          sessionStorage.setItem('viewAsEmail', viewAs);
+          
+          // Clean URL (remove params)
+          window.history.replaceState({}, '', window.location.pathname);
+          setAuthChecked(true);
+        })
+        .catch(err => {
+          console.error('❌ Impersonation validation failed:', err);
+          setAuthChecked(true);
+          navigate('/');
+        });
+    } else {
+      // Check sessionStorage for existing impersonation
+      const sessionToken = sessionStorage.getItem('impersonationToken');
+      const sessionEmail = sessionStorage.getItem('viewAsEmail');
+      
+      if (sessionToken && sessionEmail) {
+        console.log('🔄 Restoring impersonation from session');
+        setIsImpersonating(true);
+        setImpersonationToken(sessionToken);
+        setViewAsEmail(sessionEmail);
+        setAuthChecked(true);
+      } else {
+        // Normal auth check
+        const normalToken = localStorage.getItem('token');
+        if (!normalToken) {
+          navigate('/');
+        }
+        setAuthChecked(true);
+      }
+    }
+  }, [navigate]);
+
+  // Load profile (modified to use impersonation email if present)
+  useEffect(() => {
+    if (!token) return;
+    
+    const url = isImpersonating 
+      ? `${API_BASE}/api/auth/profile-by-email?email=${encodeURIComponent(viewAsEmail)}`
+      : `${API_BASE}/api/auth/profile`;
+    
+    fetch(url, { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => { 
+        if (r.status === 401 && !isImpersonating) { 
+          localStorage.clear(); 
+          navigate('/'); 
+        } 
+        return r.json(); 
+      })
       .then(setEmp)
       .catch(console.error);
-  }, [token, navigate]);
+  }, [token, navigate, isImpersonating, viewAsEmail]);
 
-  // Load forms
+  // Load forms (modified to support impersonation)
   const loadForms = useCallback(() => {
-    fetch(`${API_BASE}/api/forms/my`, { headers: { Authorization: 'Bearer ' + token } })
+    const url = isImpersonating 
+      ? `${API_BASE}/api/forms/my?viewAs=${encodeURIComponent(viewAsEmail)}`
+      : `${API_BASE}/api/forms/my`;
+    
+    fetch(url, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json())
       .then(data => setAllForms(Array.isArray(data) ? data : []))
       .catch(console.error);
-  }, [token]);
+  }, [token, isImpersonating, viewAsEmail]);
 
   useEffect(() => { loadForms(); }, [loadForms]);
 
-  // Load points from backend (includes slabs + adjustment)
+  // Load points from backend (includes slabs + adjustment) - supports impersonation
   const [backendPoints, setBackendPoints] = useState(null);
   useEffect(() => {
-    fetch(`${API_BASE}/api/forms/my-points`, { headers: { Authorization: 'Bearer ' + token } }) 
+    if (!token) return;
+    
+    const url = isImpersonating 
+      ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}`
+      : `${API_BASE}/api/forms/my-points`;
+    
+    fetch(url, { headers: { Authorization: 'Bearer ' + token } }) 
       .then(r => r.json())
       .then(d => {
         console.log('📊 Backend points data:', d);
@@ -71,7 +159,7 @@ export default function Dashboard() {
         setBackendPoints(d.totalPoints || 0);
       })
       .catch(() => {});
-  }, [token]);
+  }, [token, isImpersonating, viewAsEmail]);
 
   // Load task counts
   const loadTaskCounts = useCallback(() => {
@@ -125,6 +213,16 @@ export default function Dashboard() {
     if (activeKPI === 'phnomatch')list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
     return list;
   }, [allForms, dateFilter, fromDate, toDate, activeKPI, verifiedMap]);
+
+  // Exit impersonation handler
+  const handleExitImpersonation = () => {
+    // Clear session storage
+    sessionStorage.removeItem('impersonationToken');
+    sessionStorage.removeItem('viewAsEmail');
+    
+    // Redirect back to admin panel
+    window.location.href = 'http://localhost:3002/merchant-forms';
+  };
 
   // Fetch verification for filtered forms (using Redis cache)
   useEffect(() => {
@@ -294,10 +392,27 @@ export default function Dashboard() {
   });
   // ... your JSX
 
+  // Show loading while checking authentication
+  if (!authChecked) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
   return (
     <>
       <Navbar emp={emp} taskCount={taskCounts.pending} token={token} />
       <div className="main-content">
+        
+        {/* Admin Impersonation Banner */}
+        <ImpersonationBanner 
+          isImpersonating={isImpersonating}
+          targetName={emp?.newJoinerName}
+          targetEmail={viewAsEmail}
+          onExit={handleExitImpersonation}
+        />
 
         {/* Welcome card - Compact horizontal layout */}
         <div className="welcome-card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>

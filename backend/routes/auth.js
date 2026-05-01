@@ -227,7 +227,14 @@ router.post('/google-login', async (req, res) => {
       return res.status(403).json({ message: 'Your account registration was rejected. Please contact admin.' });
     }
 
-    const token = jwt.sign({ id: employee._id, email: employee.email }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    // Generate JWT with admin flag for impersonation support
+    const token = jwt.sign({ 
+      id: employee._id, 
+      email: employee.email,
+      role: employee.position || 'fse',
+      isAdmin: employee.position === 'admin' || employee.email === process.env.ADMIN_EMAIL || false
+    }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    
     res.json({
       token,
       employee: {
@@ -252,6 +259,159 @@ router.get('/profile', verifyToken, async (req, res) => {
     res.json(employee);
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/auth/profile-by-email - Get profile by email (for admin impersonation)
+router.get('/profile-by-email', verifyToken, async (req, res) => {
+  try {
+    const { email } = req.query;
+    
+    // Security check: Only admins can fetch other users' profiles
+    if (!req.user.isAdmin && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized: Admin access required' });
+    }
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email parameter required' });
+    }
+    
+    const employee = await Employee.findOne({ 
+      newJoinerEmailId: email 
+    }).select('-password');
+    
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+    
+    res.json(employee);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/auth/verify-impersonation - Validate admin impersonation request
+router.get('/verify-impersonation', verifyToken, async (req, res) => {
+  try {
+    const { viewAs } = req.query;
+    
+    // Security check: Only admins can impersonate
+    if (!req.user.isAdmin && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        allowed: false, 
+        error: 'Unauthorized: Admin access required' 
+      });
+    }
+    
+    if (!viewAs) {
+      return res.status(400).json({ 
+        allowed: false, 
+        error: 'Missing viewAs parameter' 
+      });
+    }
+    
+    // Find target user
+    const targetUser = await Employee.findOne({ 
+      newJoinerEmailId: viewAs 
+    }).select('-password');
+    
+    if (!targetUser) {
+      return res.status(404).json({ 
+        allowed: false, 
+        error: `User not found: ${viewAs}` 
+      });
+    }
+    
+    // Return impersonation data
+    res.json({
+      allowed: true,
+      targetUser: {
+        userId: targetUser._id,
+        email: targetUser.newJoinerEmailId,
+        name: targetUser.newJoinerName,
+        role: targetUser.position || 'fse',
+        phone: targetUser.newJoinerPhone
+      },
+      adminUser: {
+        email: req.user.email,
+        name: req.user.name || 'Admin'
+      }
+    });
+    
+  } catch (err) {
+    console.error('Impersonation verification error:', err);
+    res.status(500).json({ 
+      allowed: false, 
+      error: err.message 
+    });
+  }
+});
+
+// POST /api/auth/generate-impersonation-token - Generate temporary admin token for impersonation
+router.post('/generate-impersonation-token', async (req, res) => {
+  try {
+    const { adminEmail, targetEmail } = req.body;
+    
+    if (!adminEmail || !targetEmail) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing adminEmail or targetEmail' 
+      });
+    }
+    
+    // Security check: Verify admin email is in allowed list
+    const allowedAdmins = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
+    if (!allowedAdmins.includes(adminEmail.toLowerCase())) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Unauthorized: Not an admin email' 
+      });
+    }
+    
+    // Find target user to verify they exist
+    const targetUser = await Employee.findOne({ 
+      newJoinerEmailId: targetEmail 
+    }).select('_id newJoinerName newJoinerEmailId position');
+    
+    if (!targetUser) {
+      return res.status(404).json({ 
+        success: false, 
+        error: `Target user not found: ${targetEmail}` 
+      });
+    }
+    
+    // Generate temporary impersonation token (valid for 1 hour)
+    const impersonationToken = jwt.sign(
+      { 
+        id: 'admin-impersonation',
+        email: adminEmail,
+        role: 'admin',
+        isAdmin: true,
+        impersonating: true,
+        targetEmail: targetEmail
+      }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '1h' }
+    );
+    
+    console.log(`✅ Generated impersonation token for admin ${adminEmail} to view ${targetEmail}`);
+    
+    res.json({
+      success: true,
+      token: impersonationToken,
+      targetUser: {
+        name: targetUser.newJoinerName,
+        email: targetUser.newJoinerEmailId,
+        role: targetUser.position || 'fse'
+      }
+    });
+    
+  } catch (err) {
+    console.error('Generate impersonation token error:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
   }
 });
 

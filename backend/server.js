@@ -6,6 +6,8 @@ const fs = require('fs');
 
 // Import the enhanced connection manager
 const ConnectionManager = require('./utils/ConnectionManager');
+const meetingsRoutes = require('./routes/meetings');
+
 
 const app = express();
 
@@ -23,7 +25,8 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-app.use(cors());
+// app.use(cors());
+if (process.env.NODE_ENV !== 'production'){app.use(cors());}
 app.use(express.json());
 // app.use('/uploads', express.static(uploadsDir));
 
@@ -120,7 +123,8 @@ function registerRoutes() {
   app.use('/api/tasks', require('./routes/tasks'));
   app.use('/api/manual-verification', require('./routes/manualVerification'));
   app.use('/api/points-activity', require('./routes/pointsActivity'));
-  
+  app.use('/api/meetings', meetingsRoutes);
+
   console.log('✅ Routes registered successfully');
 }
 
@@ -195,7 +199,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Start server for local development
-if (process.env.NODE_ENV !== 'production') {
+
   const PORT = process.env.PORT || 4000;
 
   app.listen(PORT, () => {
@@ -204,7 +208,7 @@ if (process.env.NODE_ENV !== 'production') {
     console.log(`📊 Detailed health: http://localhost:${PORT}/api/health/detailed`);
     console.log(`📈 Metrics: http://localhost:${PORT}/api/health/metrics`);
   });
-}
+
 
 // Export app for Vercel (must be default export)
 module.exports = app;

@@ -172,10 +172,25 @@ router.delete('/admin/delete/:id', async (req, res) => {
   }
 });
 
-// GET /api/forms/my  — get logged-in employee's submissions
+// GET /api/forms/my  — get logged-in employee's submissions (supports impersonation)
 router.get('/my', verifyToken, async (req, res) => {
   try {
-    const forms = await FormResponse.find({ submittedBy: req.user.id }).sort({ createdAt: -1 });
+    const { viewAs } = req.query;
+    
+    let userId = req.user.id;
+    
+    // If admin is impersonating, fetch forms for the target user
+    if (viewAs && (req.user.isAdmin || req.user.role === 'admin')) {
+      const Employee = require('../models/Employee');
+      const targetUser = await Employee.findOne({ newJoinerEmailId: viewAs });
+      if (!targetUser) {
+        return res.status(404).json({ message: 'Target user not found' });
+      }
+      userId = targetUser._id;
+      console.log(`🔐 Admin impersonation: Fetching forms for ${viewAs} (ID: ${userId})`);
+    }
+    
+    const forms = await FormResponse.find({ submittedBy: userId }).sort({ createdAt: -1 });
     res.json(forms);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -763,17 +778,32 @@ router.post('/admin/init-employee-points', async (req, res) => {
 });
 
 // ── GET /api/forms/my-points ────────────────────────────────────
-// Employee views their own points
+// Employee views their own points (supports impersonation)
 router.get('/my-points', verifyToken, async (req, res) => {
   try {
     const EmployeePoints = require('../models/EmployeePoints');
     const Employee = require('../models/Employee');
-    const emp = await Employee.findById(req.user.id).select('newJoinerName');
-    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+    
+    const { viewAs } = req.query;
+    let empName;
+    
+    // If admin is impersonating, fetch points for the target user
+    if (viewAs && (req.user.isAdmin || req.user.role === 'admin')) {
+      const targetUser = await Employee.findOne({ newJoinerEmailId: viewAs }).select('newJoinerName');
+      if (!targetUser) {
+        return res.status(404).json({ message: 'Target user not found' });
+      }
+      empName = targetUser.newJoinerName;
+      console.log(`🔐 Admin impersonation: Fetching points for ${viewAs} (${empName})`);
+    } else {
+      const emp = await Employee.findById(req.user.id).select('newJoinerName');
+      if (!emp) return res.status(404).json({ message: 'Employee not found' });
+      empName = emp.newJoinerName;
+    }
 
-    const doc = await EmployeePoints.findOne({ newJoinerName: emp.newJoinerName });
+    const doc = await EmployeePoints.findOne({ newJoinerName: empName });
     res.json({
-      newJoinerName:    emp.newJoinerName,
+      newJoinerName:    empName,
       verifiedPoints:   doc?.verifiedPoints   || 0,
       pointsAdjustment: doc?.pointsAdjustment || 0,
       totalPoints:      Math.round(((doc?.verifiedPoints || 0) + (doc?.pointsAdjustment || 0)) * 10) / 10,

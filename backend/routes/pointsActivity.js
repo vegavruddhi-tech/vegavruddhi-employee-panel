@@ -111,7 +111,7 @@ router.post('/create', async (req, res) => {
 // ---------- BULK CREATE POINTS ACTIVITIES ----------
 router.post('/bulk-create', async (req, res) => {
   try {
-    const { employeeName, employeeId, activities } = req.body;
+    const { employeeName, employeeId, activities, preSaveTotal } = req.body;
     
     console.log('📝 Bulk create activities request:', { 
       employeeName, 
@@ -130,24 +130,27 @@ router.post('/bulk-create', async (req, res) => {
     });
 
     // ── Pre-calculate current total for before/after display ─────────────
-    let currentTotal = 0;
-    try {
-      const EmployeePoints = require('../models/EmployeePoints');
-      const empPts = await EmployeePoints.findOne({
-        newJoinerName: { $regex: new RegExp(`^${employeeName.trim()}\\s*$`, 'i') }
-      }).lean();
-      if (empPts) {
-        const autoPoints = empPts.verifiedPoints || 0;
-        let slabBonus = 0;
-        if (empPts.productSlabs) {
-          Object.values(empPts.productSlabs).forEach(ps => {
-            const tiers = ps?.slabTiers || (Array.isArray(ps) ? ps : []);
-            tiers.forEach(t => { slabBonus += (parseFloat(t.forms) || 0) * (parseFloat(t.multiplier) || 0); });
-          });
+    let currentTotal = preSaveTotal !== undefined ? preSaveTotal : 0;
+    if (preSaveTotal === undefined) {
+      try {
+        const EmployeePoints = require('../models/EmployeePoints');
+        const empPtsDocs = await EmployeePoints.find({
+          newJoinerName: { $regex: new RegExp(`^${employeeName.trim()}\\s*$`, 'i') }
+        }).lean();
+        const empPts = empPtsDocs.find(d => d.productSlabs && Object.keys(d.productSlabs).length > 0) || empPtsDocs[0];
+        if (empPts) {
+          const autoPoints = empPts.verifiedPoints || 0;
+          let slabBonus = 0;
+          if (empPts.productSlabs) {
+            Object.values(empPts.productSlabs).forEach(ps => {
+              const tiers = ps?.slabTiers || (Array.isArray(ps) ? ps : []);
+              tiers.forEach(t => { slabBonus += (parseFloat(t.forms) || 0) * (parseFloat(t.multiplier) || 0); });
+            });
+          }
+          currentTotal = Math.round((autoPoints + slabBonus + (empPts.pointsAdjustment || 0)) * 100) / 100;
         }
-        currentTotal = Math.round((autoPoints + slabBonus + (empPts.pointsAdjustment || 0)) * 100) / 100;
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
     
     if (!employee) {
       console.warn('⚠️ Employee not found for notifications:', employeeName);

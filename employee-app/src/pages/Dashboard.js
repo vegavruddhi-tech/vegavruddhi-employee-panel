@@ -47,6 +47,9 @@ export default function Dashboard() {
   const [dateFilter,   setDateFilter]   = useState('all');
   const [fromDate,     setFromDate]     = useState('');
   const [toDate,       setToDate]       = useState('');
+  const [selYear,      setSelYear]      = useState('');
+  const [selMonth,     setSelMonth]     = useState('');
+  const [selProduct,   setSelProduct]   = useState('');
   const [adjustment,   setAdjustment]   = useState(0);
   const [taskCounts,   setTaskCounts]   = useState({ pending: 0, completed: 0, total: 0 });
 
@@ -202,6 +205,29 @@ export default function Dashboard() {
       });
     }
 
+    // Year / Month filter
+    if (selYear)  list = list.filter(f => new Date(f.createdAt).getFullYear() === parseInt(selYear));
+    if (selMonth) list = list.filter(f => new Date(f.createdAt).getMonth()    === parseInt(selMonth));
+
+    // Product filter
+    if (selProduct) {
+      const sp = selProduct.toLowerCase().trim();
+      list = list.filter(f => {
+        const p1 = (f.formFillingFor || '').toLowerCase().trim();
+        const p2 = (f.tideProduct || '').toLowerCase().trim();
+        const p3 = (f.brand || '').toLowerCase().trim();
+        const allP = [p1, p2, p3].join(' ');
+        if (sp === 'tide msme') return allP.includes('msme');
+        if (sp === 'tide insurance') return allP.includes('insurance');
+        if (sp === 'tide credit card') return allP.includes('credit');
+        if (sp === 'tide') {
+          const hasTide = p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt';
+          return hasTide && !allP.includes('msme') && !allP.includes('insurance') && !allP.includes('credit');
+        }
+        return p1 === sp || p2 === sp || p3 === sp;
+      });
+    }
+
     if (activeKPI === 'onboard')  list = list.filter(f => f.status === 'Ready for Onboarding');
     if (activeKPI === 'notint')   list = list.filter(f => f.status === 'Not Interested');
     if (activeKPI === 'error')    list = list.filter(f => f.status === 'Try but not done due to error');
@@ -212,8 +238,9 @@ export default function Dashboard() {
     if (activeKPI === 'phmatch')  list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
     if (activeKPI === 'phnomatch')list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
     return list;
-  }, [allForms, dateFilter, fromDate, toDate, activeKPI, verifiedMap]);
+  }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap]);
 
+<<<<<<< Updated upstream
   // Exit impersonation handler
   const handleExitImpersonation = () => {
     // Clear session storage
@@ -225,21 +252,22 @@ export default function Dashboard() {
   };
 
   // Fetch verification for filtered forms (using Redis cache)
+=======
+  // Fetch verification for ALL forms (not filtered — so counts stay accurate)
+>>>>>>> Stashed changes
   useEffect(() => {
-    if (!filtered.length) {
-      console.log('⚠️ No filtered forms to verify');
+    if (!allForms.length) {
+      console.log('⚠️ No forms to verify');
       return;
     }
     
-    const phones   = filtered.map(f => f.customerNumber).join(',');
-    const names    = filtered.map(f => encodeURIComponent(f.customerName)).join(',');
-    const products = filtered.map(f => {
-      // ✅ MATCH BACKEND PRIORITY: formFillingFor → tideProduct → brand
+    const phones   = allForms.map(f => f.customerNumber).join(',');
+    const names    = allForms.map(f => encodeURIComponent(f.customerName)).join(',');
+    const products = allForms.map(f => {
       const p = f.formFillingFor || f.tideProduct || f.brand || '';
-      // ✅ NORMALIZE: Convert to lowercase to match cache keys
       return encodeURIComponent(p.toLowerCase().trim());
     }).join(',');
-    const months = filtered.map(f => 
+    const months = allForms.map(f => 
       encodeURIComponent(new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }))
     ).join(',');
 
@@ -320,7 +348,7 @@ export default function Dashboard() {
         console.error('❌ Verification fetch error:', err);
         setVerifiedMap({});
       });
-  }, [filtered.length, token]); // eslint-disable-line
+  }, [allForms.length, token]); // eslint-disable-line
   const normalizeProduct = (product) => {
     const p = (product || '').toLowerCase().trim();
     if (p === 'tide insurance' || p === 'insurance') return 'Tide Insurance';
@@ -483,13 +511,13 @@ export default function Dashboard() {
         </div>
 
         {/* Merchants header + filters */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 28, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginTop: 28, marginBottom: 8 }}>
           <div className="section-title" style={{ margin: 0 }}>My Merchants</div>
           <div className="date-filter-bar">
-            {['all', 'today', 'week', 'month'].map(f => (
+            {['all', 'today', 'week'].map(f => (
               <button key={f} className={`date-filter-btn${dateFilter === f ? ' active' : ''}`}
                 onClick={() => { setDateFilter(f); setFromDate(''); setToDate(''); }}>
-                {f === 'all' ? 'All' : f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'This Month'}
+                {f === 'all' ? 'All' : f === 'today' ? 'Today' : 'This Week'}
               </button>
             ))}
             <div className="date-filter-custom">
@@ -498,7 +526,81 @@ export default function Dashboard() {
               <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} />
               <button className="date-filter-btn" onClick={() => setDateFilter('custom')}>Apply</button>
             </div>
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <span style={{ position: 'absolute', top: -9, left: 10, fontSize: 11, color: '#40916c', background: '#fff', padding: '0 4px', fontWeight: 600, zIndex: 1, pointerEvents: 'none' }}>Year</span>
+              <select value={selYear} onChange={e => setSelYear(e.target.value)}
+                style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selYear ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 100, outline: 'none' }}>
+                <option value=""></option>
+                {[2026,2025,2024,2023,2022,2021].map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#40916c', fontSize: 12 }}>▼</span>
+            </div>
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <span style={{ position: 'absolute', top: -9, left: 10, fontSize: 11, color: '#40916c', background: '#fff', padding: '0 4px', fontWeight: 600, zIndex: 1, pointerEvents: 'none' }}>Month</span>
+              <select value={selMonth} onChange={e => setSelMonth(e.target.value)}
+                style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selMonth !== '' ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 130, outline: 'none' }}>
+                <option value="">All Months</option>
+                {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i) => (
+                  <option key={i} value={i}>{m}</option>
+                ))}
+              </select>
+              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#40916c', fontSize: 12 }}>▼</span>
+            </div>
           </div>
+        </div>
+
+        {/* Product filter chips */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, marginTop: 4 }}>
+          {(() => {
+            const products = ['Tide', 'Tide Insurance', 'Tide MSME', 'Tide Credit Card'];
+            const counts = {};
+            products.forEach(p => {
+              const sp = p.toLowerCase().trim();
+              counts[p] = allForms.filter(f => {
+                const p1 = (f.formFillingFor || '').toLowerCase().trim();
+                const p2 = (f.tideProduct || '').toLowerCase().trim();
+                const p3 = (f.brand || '').toLowerCase().trim();
+                const allP = [p1, p2, p3].join(' ');
+                let match = false;
+                if (sp === 'tide msme') match = allP.includes('msme');
+                else if (sp === 'tide insurance') match = allP.includes('insurance');
+                else if (sp === 'tide credit card') match = allP.includes('credit');
+                else if (sp === 'tide') {
+                  const hasTide = p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt';
+                  match = hasTide && !allP.includes('msme') && !allP.includes('insurance') && !allP.includes('credit');
+                } else match = p1 === sp || p2 === sp || p3 === sp;
+                return match && verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified';
+              }).length;
+            });
+            return (
+              <>
+                <button
+                  onClick={() => setSelProduct('')}
+                  style={{
+                    padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: selProduct === '' ? '2px solid #1a4731' : '1.5px solid #c8e6c9',
+                    background: selProduct === '' ? '#1a4731' : '#fff',
+                    color: selProduct === '' ? '#fff' : '#1a4731',
+                    transition: 'all 0.15s'
+                  }}>
+                  All Products
+                </button>
+                {products.map(p => (
+                  <button key={p}
+                    onClick={() => setSelProduct(p)}
+                    style={{
+                      padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: selProduct === p ? '2px solid #1a4731' : '1.5px solid #c8e6c9',
+                      background: selProduct === p ? '#1a4731' : '#fff',
+                      color: selProduct === p ? '#fff' : '#1a4731',
+                      transition: 'all 0.15s'
+                    }}>
+                    {p}: {counts[p]} ✓
+                  </button>
+                ))}
+              </>
+            );
+          })()}
         </div>
 
         {/* Merchant count */}

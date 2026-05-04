@@ -418,20 +418,20 @@ router.delete('/admin/adjust-points/:employeeId/history/:historyId', async (req,
     const ChangeRequest = require('../models/ChangeRequest');
     const { deleteReason } = req.body;
 
-    const doc = await EmployeePoints.findOne({ employeeId: req.params.employeeId });
+    // Try EmployeePoints._id first, then employeeId field, then Employee lookup
+    let doc = await EmployeePoints.findById(req.params.employeeId).catch(() => null);
+    if (!doc) doc = await EmployeePoints.findOne({ employeeId: req.params.employeeId });
     if (!doc) {
-      // Try by newJoinerName via Employee
       const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
       if (!emp) return res.status(404).json({ message: 'Employee not found' });
-      const docByName = await EmployeePoints.findOne({ newJoinerName: emp.newJoinerName });
-      if (!docByName) return res.status(404).json({ message: 'Points record not found' });
-      req._empDoc = docByName;
+      doc = await EmployeePoints.findOne({
+        newJoinerName: { $regex: new RegExp(`^${emp.newJoinerName.trim()}\\s*$`, 'i') }
+      });
+      if (!doc) return res.status(404).json({ message: 'Points record not found' });
       req._empName = emp.newJoinerName;
-    } else {
-      req._empDoc = doc;
-      const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
-      req._empName = emp?.newJoinerName || doc.newJoinerName;
     }
+    req._empDoc  = doc;
+    req._empName = req._empName || doc.newJoinerName;
 
     const empDoc = req._empDoc;
     const entry = empDoc.adjustmentHistory.id(req.params.historyId);
@@ -715,6 +715,12 @@ router.put('/admin/adjust-points/:id', async (req, res) => {
       return res.status(404).json({ message: 'Employee points record not found' });
     }
 
+    // Normalize name to prevent duplicates
+    const normalizedName = doc.newJoinerName.trim();
+    if (doc.newJoinerName !== normalizedName) {
+      doc.newJoinerName = normalizedName;
+    }
+
     console.log('✅ Found employee points record BEFORE update:', { 
       newJoinerName: doc.newJoinerName, 
       currentAdjustment: doc.pointsAdjustment,
@@ -730,13 +736,16 @@ router.put('/admin/adjust-points/:id', async (req, res) => {
       doc.productSlabs = productSlabs;
       doc.markModified('productSlabs');
     }
-    
-    doc.adjustmentHistory.push({ 
-      delta, 
-      reason: reason || '', 
-      updatedBy: 'admin', 
-      updatedAt: new Date() 
-    });
+
+    // Only record history if there was an actual adjustment
+    if (delta !== 0) {
+      doc.adjustmentHistory.push({ 
+        delta, 
+        reason: reason || '', 
+        updatedBy: 'admin', 
+        updatedAt: new Date() 
+      });
+    }
     doc.updatedAt = new Date();
     
     // Save and wait for it to complete
@@ -753,6 +762,80 @@ router.put('/admin/adjust-points/:id', async (req, res) => {
     });
 
     res.json({ message: 'Points updated', doc: freshDoc });
+
+    // ── Notify FSE + TL for manual adjustment ────────────────────────────
+    if (delta !== 0) {
+      try {
+        const ChangeRequest  = require('../models/ChangeRequest');
+        const TLNotification = require('../models/TLNotification');
+
+        const empName = freshDoc.newJoinerName.trim();
+        const emp = await Employee.findOne({
+          newJoinerName: { $regex: new RegExp(`^${empName}\\s*$`, 'i') }
+        }).select('_id reportingManager');
+
+        // Calculate slab bonus from productSlabs
+        let slabBonus = 0;
+        if (freshDoc.productSlabs) {
+          Object.values(freshDoc.productSlabs).forEach(ps => {
+            const tiers = ps?.slabTiers || (Array.isArray(ps) ? ps : []);
+            tiers.forEach(t => { slabBonus += (parseFloat(t.forms) || 0) * (parseFloat(t.multiplier) || 0); });
+          });
+        }
+        slabBonus = Math.round(slabBonus * 100) / 100;
+
+        const verifiedPts = freshDoc.verifiedPoints || 0;
+        const newTotal    = Math.round((verifiedPts + slabBonus + freshDoc.pointsAdjustment) * 100) / 100;
+        const beforeTotal = Math.round((newTotal - delta) * 100) / 100;
+        const adjReason   = reason || (delta >= 0 ? 'Manual points added by admin' : 'Manual points deducted by admin');
+
+        if (emp) {
+          await ChangeRequest.create({
+            type:         'points_adjustment',
+            employeeId:   emp._id,
+            employeeName: freshDoc.newJoinerName,
+            profileChanges: {
+              product:    'Manual Adjustment',
+              slabDetails: { forms: 1, multiplier: Math.abs(delta), points: Math.abs(delta) },
+              reason:     adjReason,
+              actionType: delta >= 0 ? 'added' : 'removed',
+              beforeTotal,
+              newTotal
+            },
+            status:       'approved',
+            reason:       adjReason,
+            acknowledged: false,
+            createdAt:    new Date()
+          });
+
+          // TL notification
+          if (emp.reportingManager) {
+            const allTLs = await TeamLead.find({}).select('_id name email').lean();
+            const rmLower = emp.reportingManager.trim().toLowerCase();
+            const tl = allTLs.find(t =>
+              (t.name || '').trim().toLowerCase() === rmLower ||
+              (t.email || '').trim().toLowerCase() === rmLower
+            );
+            if (tl) {
+              await TLNotification.create({
+                tlId:         tl._id,
+                tlName:       tl.name,
+                type:         'fse_points_update',
+                fseName:      freshDoc.newJoinerName,
+                adjustment:   delta,
+                beforeTotal,
+                newTotal,
+                reason:       adjReason,
+                acknowledged: false,
+                createdAt:    new Date()
+              });
+            }
+          }
+        }
+      } catch (notifErr) {
+        console.error('⚠️ Manual adjustment notification failed:', notifErr.message);
+      }
+    }
   } catch (err) {
     console.error('❌ Error in adjust-points:', err);
     res.status(500).json({ message: err.message, error: err.toString(), stack: err.stack });
@@ -767,9 +850,12 @@ router.post('/admin/init-employee-points', async (req, res) => {
     const { newJoinerName, employeeId } = req.body;
     if (!newJoinerName) return res.status(400).json({ message: 'newJoinerName required' });
 
-    let doc = await EmployeePoints.findOne({ newJoinerName });
+    const trimmedName = newJoinerName.trim();
+    let doc = await EmployeePoints.findOne({
+      newJoinerName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') }
+    });
     if (!doc) {
-      doc = await EmployeePoints.create({ newJoinerName, employeeId: employeeId || null });
+      doc = await EmployeePoints.create({ newJoinerName: trimmedName, employeeId: employeeId || null });
     }
     res.json(doc);
   } catch (err) {
@@ -801,12 +887,42 @@ router.get('/my-points', verifyToken, async (req, res) => {
       empName = emp.newJoinerName;
     }
 
+<<<<<<< Updated upstream
     const doc = await EmployeePoints.findOne({ newJoinerName: empName });
     res.json({
       newJoinerName:    empName,
       verifiedPoints:   doc?.verifiedPoints   || 0,
       pointsAdjustment: doc?.pointsAdjustment || 0,
       totalPoints:      Math.round(((doc?.verifiedPoints || 0) + (doc?.pointsAdjustment || 0)) * 10) / 10,
+=======
+    const empName = emp.newJoinerName.trim();
+    // Find the record with slabs if multiple exist
+    const docs = await EmployeePoints.find({
+      newJoinerName: { $regex: new RegExp(`^${empName}\\s*$`, 'i') }
+    }).lean();
+    const doc = docs.find(d => d.productSlabs && Object.keys(d.productSlabs).length > 0) || docs[0];
+
+    // Calculate slab bonus
+    let slabBonus = 0;
+    if (doc?.productSlabs) {
+      Object.values(doc.productSlabs).forEach(ps => {
+        const tiers = ps?.slabTiers || (Array.isArray(ps) ? ps : []);
+        tiers.forEach(t => { slabBonus += (parseFloat(t.forms) || 0) * (parseFloat(t.multiplier) || 0); });
+      });
+    }
+    slabBonus = Math.round(slabBonus * 100) / 100;
+
+    const verifiedPoints   = doc?.verifiedPoints   || 0;
+    const pointsAdjustment = doc?.pointsAdjustment || 0;
+    const totalPoints      = Math.round((verifiedPoints + slabBonus + pointsAdjustment) * 10) / 10;
+
+    res.json({
+      newJoinerName:    emp.newJoinerName,
+      verifiedPoints,
+      slabBonus,
+      pointsAdjustment,
+      totalPoints,
+>>>>>>> Stashed changes
       adjustmentHistory: doc?.adjustmentHistory || []
     });
   } catch (err) {

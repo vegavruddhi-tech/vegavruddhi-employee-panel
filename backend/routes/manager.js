@@ -177,6 +177,18 @@ router.get('/tl/:id/fses', verifyToken, async (req, res) => {
   }
 });
 
+// ── Admin: GET /api/manager/approved-list ──────────────────────
+router.get('/approved-list', async (req, res) => {
+  try {
+    const managers = await Manager.find({ approvalStatus: 'approved' })
+      .select('_id name email phone location image status createdAt')
+      .sort({ name: 1 });
+    res.json(managers);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ── Admin: GET /api/manager/pending ────────────────────────────
 router.get('/pending', async (req, res) => {
   try {

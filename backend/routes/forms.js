@@ -887,18 +887,10 @@ router.get('/my-points', verifyToken, async (req, res) => {
       empName = emp.newJoinerName;
     }
 
-<<<<<<< Updated upstream
-    const doc = await EmployeePoints.findOne({ newJoinerName: empName });
-    res.json({
-      newJoinerName:    empName,
-      verifiedPoints:   doc?.verifiedPoints   || 0,
-      pointsAdjustment: doc?.pointsAdjustment || 0,
-      totalPoints:      Math.round(((doc?.verifiedPoints || 0) + (doc?.pointsAdjustment || 0)) * 10) / 10,
-=======
-    const empName = emp.newJoinerName.trim();
+    const trimmedName = empName.trim();
     // Find the record with slabs if multiple exist
     const docs = await EmployeePoints.find({
-      newJoinerName: { $regex: new RegExp(`^${empName}\\s*$`, 'i') }
+      newJoinerName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') }
     }).lean();
     const doc = docs.find(d => d.productSlabs && Object.keys(d.productSlabs).length > 0) || docs[0];
 
@@ -917,12 +909,11 @@ router.get('/my-points', verifyToken, async (req, res) => {
     const totalPoints      = Math.round((verifiedPoints + slabBonus + pointsAdjustment) * 10) / 10;
 
     res.json({
-      newJoinerName:    emp.newJoinerName,
+      newJoinerName:    empName,
       verifiedPoints,
       slabBonus,
       pointsAdjustment,
       totalPoints,
->>>>>>> Stashed changes
       adjustmentHistory: doc?.adjustmentHistory || []
     });
   } catch (err) {

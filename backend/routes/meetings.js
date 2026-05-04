@@ -7,10 +7,12 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 
-// Load service account credentials
-const serviceAccount = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '../google_credentials.json'), 'utf8')
-);
+// Load service account credentials (lazy — only if file exists)
+let serviceAccount = null;
+const credPath = path.join(__dirname, '../google_credentials.json');
+if (fs.existsSync(credPath)) {
+  try { serviceAccount = JSON.parse(fs.readFileSync(credPath, 'utf8')); } catch (_) {}
+}
 
 // Google Calendar setup with Domain-Wide Delegation
 const calendar = google.calendar('v3');

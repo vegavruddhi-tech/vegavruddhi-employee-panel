@@ -240,21 +240,14 @@ export default function Dashboard() {
     return list;
   }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap]);
 
-<<<<<<< Updated upstream
   // Exit impersonation handler
   const handleExitImpersonation = () => {
-    // Clear session storage
     sessionStorage.removeItem('impersonationToken');
     sessionStorage.removeItem('viewAsEmail');
-    
-    // Redirect back to admin panel
     window.location.href = 'http://localhost:3002/merchant-forms';
   };
 
-  // Fetch verification for filtered forms (using Redis cache)
-=======
   // Fetch verification for ALL forms (not filtered — so counts stay accurate)
->>>>>>> Stashed changes
   useEffect(() => {
     if (!allForms.length) {
       console.log('⚠️ No forms to verify');

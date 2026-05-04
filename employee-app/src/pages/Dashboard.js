@@ -240,6 +240,7 @@ export default function Dashboard() {
     return list;
   }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap]);
 
+<<<<<<< Updated upstream
   // Exit impersonation handler
   const handleExitImpersonation = () => {
     sessionStorage.removeItem('impersonationToken');
@@ -248,6 +249,22 @@ export default function Dashboard() {
   };
 
   // Fetch verification for ALL forms (not filtered — so counts stay accurate)
+=======
+// <<<<<<< Updated upstream
+//   // Exit impersonation handler
+//   const handleExitImpersonation = () => {
+//     // Clear session storage
+//     sessionStorage.removeItem('impersonationToken');
+//     sessionStorage.removeItem('viewAsEmail');
+    
+//     // Redirect back to admin panel
+//     window.location.href = 'http://localhost:3002/merchant-forms';
+//   };
+
+//   // Fetch verification for filtered forms (using Redis cache)
+// =======
+  // Fetch verification for ALL forms (not filtered — so counts stay accurate)Stashed changes
+>>>>>>> Stashed changes
   useEffect(() => {
     if (!allForms.length) {
       console.log('⚠️ No forms to verify');
@@ -427,14 +444,6 @@ export default function Dashboard() {
       <Navbar emp={emp} taskCount={taskCounts.pending} token={token} />
       <div className="main-content">
         
-        {/* Admin Impersonation Banner */}
-        <ImpersonationBanner 
-          isImpersonating={isImpersonating}
-          targetName={emp?.newJoinerName}
-          targetEmail={viewAsEmail}
-          onExit={handleExitImpersonation}
-        />
-
         {/* Welcome card - Compact horizontal layout */}
         <div className="welcome-card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div className="welcome-avatar" style={{ width: 60, height: 60, fontSize: 24 }}>

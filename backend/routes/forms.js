@@ -887,7 +887,10 @@ router.get('/my-points', verifyToken, async (req, res) => {
       empName = emp.newJoinerName;
     }
 
+<<<<<<< Updated upstream
     const trimmedName = empName.trim();
+=======
+>>>>>>> Stashed changes
     // Find the record with slabs if multiple exist
     const docs = await EmployeePoints.find({
       newJoinerName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') }

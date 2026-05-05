@@ -124,6 +124,7 @@ function registerRoutes() {
   app.use('/api/manual-verification', require('./routes/manualVerification'));
   app.use('/api/points-activity', require('./routes/pointsActivity'));
   app.use('/api/meetings', meetingsRoutes);
+  app.use('/api/tide', require('./routes/tide')(connectionManager, connectDB));
 
   console.log('✅ Routes registered successfully');
 }

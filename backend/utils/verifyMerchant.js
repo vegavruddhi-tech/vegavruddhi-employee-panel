@@ -153,13 +153,19 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     : allRulesRaw;
 
   // ✅ Filter rules by product (flexible matching - if rule has no product types, it applies to all)
+  // Case-insensitive and partial matching: "msme" matches "Tide MSME", "tide msme", etc.
   const hinted = product
     ? allRules.filter(r =>
         !r.productTypes || 
         r.productTypes.length === 0 ||
-        r.productTypes.some(p =>
-          normalizeProduct(product) === normalizeProduct(p)
-        )
+        r.productTypes.some(p => {
+          const ruleProduct = normalizeProduct(p);
+          const searchProduct = normalizeProduct(product);
+          // Exact match OR rule product contains search product OR search product contains rule product
+          return ruleProduct === searchProduct || 
+                 ruleProduct.includes(searchProduct) || 
+                 searchProduct.includes(ruleProduct);
+        })
       )
     : allRules;
 
@@ -226,13 +232,19 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
     : allRulesRaw;
 
   // ✅ Filter rules by product (flexible matching - if rule has no product types, it applies to all)
+  // Case-insensitive and partial matching: "msme" matches "Tide MSME", "tide msme", etc.
   const hinted = product
     ? allRules.filter(r =>
         !r.productTypes || 
         r.productTypes.length === 0 ||
-        r.productTypes.some(p =>
-          normalizeProduct(product) === normalizeProduct(p)
-        )
+        r.productTypes.some(p => {
+          const ruleProduct = normalizeProduct(p);
+          const searchProduct = normalizeProduct(product);
+          // Exact match OR rule product contains search product OR search product contains rule product
+          return ruleProduct === searchProduct || 
+                 ruleProduct.includes(searchProduct) || 
+                 searchProduct.includes(ruleProduct);
+        })
       )
     : allRules;
 

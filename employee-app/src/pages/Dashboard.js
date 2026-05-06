@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import ImpersonationBanner from '../components/ImpersonationBanner';
+import TideMerchantTimeline from '../components/TideMerchantTimeline';
 
 const POINTS_MAP = { 
   'Tide': 2, 
@@ -216,13 +217,23 @@ export default function Dashboard() {
         const p1 = (f.formFillingFor || '').toLowerCase().trim();
         const p2 = (f.tideProduct || '').toLowerCase().trim();
         const p3 = (f.brand || '').toLowerCase().trim();
-        const allP = [p1, p2, p3].join(' ');
-        if (sp === 'tide msme') return allP.includes('msme');
-        if (sp === 'tide insurance') return allP.includes('insurance');
-        if (sp === 'tide credit card') return allP.includes('credit');
+        
+        if (sp === 'tide msme') {
+          return p1.includes('msme') || p2.includes('msme') || p3.includes('msme');
+        }
+        if (sp === 'tide insurance') {
+          return p1.includes('insurance') || p2.includes('insurance') || p3.includes('insurance');
+        }
+        if (sp === 'tide credit card') {
+          return p1.includes('credit') || p2.includes('credit') || p3.includes('credit');
+        }
         if (sp === 'tide') {
-          const hasTide = p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt';
-          return hasTide && !allP.includes('msme') && !allP.includes('insurance') && !allP.includes('credit');
+          // Must be exactly "tide" and NOT contain msme, insurance, or credit in ANY field
+          const isTide = (p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt');
+          const notMSME = !p1.includes('msme') && !p2.includes('msme') && !p3.includes('msme');
+          const notInsurance = !p1.includes('insurance') && !p2.includes('insurance') && !p3.includes('insurance');
+          const notCredit = !p1.includes('credit') && !p2.includes('credit') && !p3.includes('credit');
+          return isTide && notMSME && notInsurance && notCredit;
         }
         return p1 === sp || p2 === sp || p3 === sp;
       });
@@ -549,18 +560,38 @@ export default function Dashboard() {
             products.forEach(p => {
               const sp = p.toLowerCase().trim();
               counts[p] = allForms.filter(f => {
+                // Filter by Month dropdown (selMonth) if selected
+                if (selMonth !== '') {
+                  const formDate = new Date(f.createdAt);
+                  if (formDate.getMonth() !== parseInt(selMonth)) return false;
+                }
+                
+                // Filter by Year dropdown (selYear) if selected
+                if (selYear) {
+                  const formDate = new Date(f.createdAt);
+                  if (formDate.getFullYear() !== parseInt(selYear)) return false;
+                }
+                
                 const p1 = (f.formFillingFor || '').toLowerCase().trim();
                 const p2 = (f.tideProduct || '').toLowerCase().trim();
                 const p3 = (f.brand || '').toLowerCase().trim();
-                const allP = [p1, p2, p3].join(' ');
+                
                 let match = false;
-                if (sp === 'tide msme') match = allP.includes('msme');
-                else if (sp === 'tide insurance') match = allP.includes('insurance');
-                else if (sp === 'tide credit card') match = allP.includes('credit');
-                else if (sp === 'tide') {
-                  const hasTide = p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt';
-                  match = hasTide && !allP.includes('msme') && !allP.includes('insurance') && !allP.includes('credit');
-                } else match = p1 === sp || p2 === sp || p3 === sp;
+                if (sp === 'tide msme') {
+                  match = p1.includes('msme') || p2.includes('msme') || p3.includes('msme');
+                } else if (sp === 'tide insurance') {
+                  match = p1.includes('insurance') || p2.includes('insurance') || p3.includes('insurance');
+                } else if (sp === 'tide credit card') {
+                  match = p1.includes('credit') || p2.includes('credit') || p3.includes('credit');
+                } else if (sp === 'tide') {
+                  const isTide = (p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt');
+                  const notMSME = !p1.includes('msme') && !p2.includes('msme') && !p3.includes('msme');
+                  const notInsurance = !p1.includes('insurance') && !p2.includes('insurance') && !p3.includes('insurance');
+                  const notCredit = !p1.includes('credit') && !p2.includes('credit') && !p3.includes('credit');
+                  match = isTide && notMSME && notInsurance && notCredit;
+                } else {
+                  match = p1 === sp || p2 === sp || p3 === sp;
+                }
                 return match && verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified';
               }).length;
             });
@@ -622,42 +653,50 @@ export default function Dashboard() {
 
 
             return (
-              <Link key={f._id} to={`/merchant/${f._id}`} className="merchant-row">
-                <div className="mr-avatar">{f.customerName.charAt(0).toUpperCase()}</div>
-                <div className="mr-info">
-                  <div className="mr-name">{f.customerName}</div>
-                  <div className="mr-badges">
-                    {info.inSheet === true && (
-                      <span className={`phone-match-badge ${info.phoneMatch ? 'match' : 'mismatch'}`}>
-                        📞 {info.phoneMatch ? 'Number Matched' : 'Number Mismatch'}
-                      </span>
-                    )}
-                    {info.inSheet === false && <span className="phone-match-badge notfound">📞 Not in Sheet</span>}
-                    <span className="verify-badge" style={{ background: b.bg, color: b.color, borderColor: b.bg }}>
-                      {b.icon} {vstatus}
-                    </span>
-                      {pts !== null && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
-                          ⭐ {pts} pts
+              <div key={f._id} style={{ marginBottom: '12px', position: 'relative' }}>
+                <Link to={`/merchant/${f._id}`} className="merchant-row" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div className="mr-avatar">{f.customerName.charAt(0).toUpperCase()}</div>
+                  <div className="mr-info" style={{ flex: 1 }}>
+                    <div className="mr-name">{f.customerName}</div>
+                    <div className="mr-badges">
+                      {info.inSheet === true && (
+                        <span className={`phone-match-badge ${info.phoneMatch ? 'match' : 'mismatch'}`}>
+                          📞 {info.phoneMatch ? 'Number Matched' : 'Number Mismatch'}
                         </span>
                       )}
-                  </div>
-                  <div className="mr-meta">
-                    <span>📍 {f.location}</span>
-                    <span>📄 {product}</span>
-                    <span>📞 {f.customerNumber}</span>
-                  </div>
-                </div>
-                <div className="mr-right">
-                  <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
-                  {pts !== null && (
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800, marginTop: 4 }}>
-                      ⭐ {pts} pts
+                      {info.inSheet === false && <span className="phone-match-badge notfound">📞 Not in Sheet</span>}
+                      <span className="verify-badge" style={{ background: b.bg, color: b.color, borderColor: b.bg }}>
+                        {b.icon} {vstatus}
+                      </span>
+                        {pts !== null && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
+                            ⭐ {pts} pts
+                          </span>
+                        )}
                     </div>
-                  )}
-                  <div className="mr-date">{date}</div>
-                </div>
-              </Link>
+                    <div className="mr-meta">
+                      <span>📍 {f.location}</span>
+                      <span>📄 {product}</span>
+                      <span>📞 {f.customerNumber}</span>
+                    </div>
+                  </div>
+                  <div className="mr-right">
+                    <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
+                    {pts !== null && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800, marginTop: 4 }}>
+                        ⭐ {pts} pts
+                      </div>
+                    )}
+                    <div className="mr-date">{date}</div>
+                  </div>
+                </Link>
+                {/* Timeline button - only show for Tide product */}
+                {(f.brand === 'Tide' && f.tideProduct === 'Tide') && (
+                  <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 8, right: 180, zIndex: 100, pointerEvents: 'auto' }}>
+                    <TideMerchantTimeline phone={f.customerNumber} customerName={f.customerName} />
+                  </div>
+                )}
+              </div>
             );
           })
         )}

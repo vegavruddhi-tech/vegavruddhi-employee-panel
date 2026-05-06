@@ -6,6 +6,7 @@ const upload   = require('../middleware/multer');
 const Manager  = require('../models/Manager');
 const TeamLead = require('../models/TeamLead');
 const Employee = require('../models/Employee');
+const ManagerChangeRequest = require('../models/ManagerChangeRequest');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -214,6 +215,115 @@ router.put('/reject/:id', async (req, res) => {
   try {
     await Manager.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
     res.json({ message: 'Manager rejected' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /api/manager/request-edit ─────────────────────────────
+router.post('/request-edit', verifyToken, async (req, res) => {
+  try {
+    const { changes, reason } = req.body;
+    if (!reason?.trim()) {
+      return res.status(400).json({ message: 'Reason is required' });
+    }
+
+    const manager = await Manager.findById(req.user.id).select('name');
+    if (!manager) {
+      return res.status(404).json({ message: 'Manager not found' });
+    }
+
+    // Check if there's already a pending request
+    const existing = await ManagerChangeRequest.findOne({
+      managerId: req.user.id,
+      status: 'pending'
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: 'You already have a pending request' });
+    }
+
+    await ManagerChangeRequest.create({
+      managerId: req.user.id,
+      managerName: manager.name,
+      changes,
+      reason: reason.trim()
+    });
+
+    res.json({ message: 'Request submitted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /api/manager/my-request ────────────────────────────────
+router.get('/my-request', verifyToken, async (req, res) => {
+  try {
+    const request = await ManagerChangeRequest.findOne({
+      managerId: req.user.id
+    }).sort({ createdAt: -1 });
+
+    if (!request) {
+      return res.json(null);
+    }
+
+    res.json(request);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── Admin: GET /api/manager/change-requests ────────────────────
+router.get('/change-requests', async (req, res) => {
+  try {
+    const requests = await ManagerChangeRequest.find({})
+      .sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── Admin: PUT /api/manager/change-requests/:id/approve ────────
+router.put('/change-requests/:id/approve', async (req, res) => {
+  try {
+    const request = await ManagerChangeRequest.findByIdAndUpdate(
+      req.params.id,
+      { status: 'approved' },
+      { new: true }
+    );
+
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    // Apply the changes to the manager profile
+    if (request.changes) {
+      await Manager.findByIdAndUpdate(request.managerId, {
+        $set: request.changes
+      });
+    }
+
+    res.json({ message: 'Manager profile updated successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── Admin: PUT /api/manager/change-requests/:id/reject ─────────
+router.put('/change-requests/:id/reject', async (req, res) => {
+  try {
+    const request = await ManagerChangeRequest.findByIdAndUpdate(
+      req.params.id,
+      { status: 'rejected' },
+      { new: true }
+    );
+
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    res.json({ message: 'Request rejected' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

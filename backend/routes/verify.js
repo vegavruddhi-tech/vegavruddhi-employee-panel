@@ -786,6 +786,24 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
+  // GET /api/verify/rules-timestamp - Get last update timestamp for cache invalidation
+  router.get('/rules-timestamp', async (req, res) => {
+    try {
+      const redis = getRedisClient();
+      if (!redis) {
+        return res.json({ timestamp: Date.now() }); // Fallback to current time
+      }
+      
+      const timestamp = await redis.get('verification_rules_updated_at');
+      res.json({ timestamp: timestamp || Date.now() });
+    } catch (err) {
+      res.status(500).json({ 
+        message: err.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   router.put('/rules/:id', async (req, res) => {
     try {
       const rule = await VerificationRule.findByIdAndUpdate(
@@ -793,6 +811,14 @@ module.exports = (connectionManager, connectDB) => {
         { ...req.body, updatedAt: new Date() },
         { new: true }
       );
+      
+      // Update timestamp in Redis to invalidate frontend cache
+      const redis = getRedisClient();
+      if (redis) {
+        await redis.set('verification_rules_updated_at', Date.now().toString());
+        console.log('✅ Verification rules updated - cache invalidation timestamp set');
+      }
+      
       res.json(rule);
     } catch (err) {
       res.status(500).json({ 
@@ -808,6 +834,14 @@ module.exports = (connectionManager, connectDB) => {
         ...req.body,
         updatedAt: new Date()
       });
+      
+      // Update timestamp in Redis to invalidate frontend cache
+      const redis = getRedisClient();
+      if (redis) {
+        await redis.set('verification_rules_updated_at', Date.now().toString());
+        console.log('✅ New verification rule created - cache invalidation timestamp set');
+      }
+      
       res.status(201).json(rule);
     } catch (err) {
       res.status(500).json({ 
@@ -821,6 +855,14 @@ module.exports = (connectionManager, connectDB) => {
   router.delete('/rules/:id', async (req, res) => {
     try {
       await VerificationRule.findByIdAndDelete(req.params.id);
+      
+      // Update timestamp in Redis to invalidate frontend cache
+      const redis = getRedisClient();
+      if (redis) {
+        await redis.set('verification_rules_updated_at', Date.now().toString());
+        console.log('✅ Verification rule deleted - cache invalidation timestamp set');
+      }
+      
       res.json({ 
         message: 'Rule deleted',
         timestamp: new Date().toISOString()

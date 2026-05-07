@@ -816,7 +816,16 @@ module.exports = (connectionManager, connectDB) => {
       const redis = getRedisClient();
       if (redis) {
         await redis.set('verification_rules_updated_at', Date.now().toString());
-        console.log('✅ Verification rules updated - cache invalidation timestamp set');
+        
+        // ✅ CLEAR ALL REDIS VERIFICATION CACHES
+        const pattern = 'verification:*';
+        const keys = await redis.keys(pattern);
+        if (keys.length > 0) {
+          await redis.del(...keys);
+          console.log(`✅ Cleared ${keys.length} Redis verification caches`);
+        }
+        
+        console.log('✅ Verification rules updated - all caches invalidated');
       }
       
       res.json(rule);
@@ -839,7 +848,16 @@ module.exports = (connectionManager, connectDB) => {
       const redis = getRedisClient();
       if (redis) {
         await redis.set('verification_rules_updated_at', Date.now().toString());
-        console.log('✅ New verification rule created - cache invalidation timestamp set');
+        
+        // ✅ CLEAR ALL REDIS VERIFICATION CACHES
+        const pattern = 'verification:*';
+        const keys = await redis.keys(pattern);
+        if (keys.length > 0) {
+          await redis.del(...keys);
+          console.log(`✅ Cleared ${keys.length} Redis verification caches`);
+        }
+        
+        console.log('✅ New verification rule created - all caches invalidated');
       }
       
       res.status(201).json(rule);
@@ -860,7 +878,16 @@ module.exports = (connectionManager, connectDB) => {
       const redis = getRedisClient();
       if (redis) {
         await redis.set('verification_rules_updated_at', Date.now().toString());
-        console.log('✅ Verification rule deleted - cache invalidation timestamp set');
+        
+        // ✅ CLEAR ALL REDIS VERIFICATION CACHES
+        const pattern = 'verification:*';
+        const keys = await redis.keys(pattern);
+        if (keys.length > 0) {
+          await redis.del(...keys);
+          console.log(`✅ Cleared ${keys.length} Redis verification caches`);
+        }
+        
+        console.log('✅ Verification rule deleted - all caches invalidated');
       }
       
       res.json({ 

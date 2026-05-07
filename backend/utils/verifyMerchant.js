@@ -1,5 +1,5 @@
 /**
- * verifyMerchant.js (WITH MANUAL VERIFICATION SUPPORT AND STRICT PRODUCT MATCHING)
+ * verifyMerchant.js (WITH EXACT PRODUCT MATCHING ONLY)
  */
 
 const PHONE_COLS = [
@@ -134,7 +134,7 @@ async function checkManualVerification(phone, product, month) {
   }
 }
 
-// ---------- VERIFY (OPTIMIZED WITH MANUAL VERIFICATION SUPPORT) ----------
+// ---------- VERIFY (WITH EXACT PRODUCT MATCHING ONLY) ----------
 async function verifyMerchant(db, phone, name, VerificationRule, product, month, ruleCache = null) {
 
   // ✅ FIRST: Check for manual verification override
@@ -152,8 +152,10 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
     : allRulesRaw;
 
-  // ✅ Filter rules by product (flexible matching - if rule has no product types, it applies to all)
-  // Case-insensitive and partial matching: "msme" matches "Tide MSME", "tide msme", etc.
+  // ✅ Filter rules by product with EXACT matching (case-insensitive)
+  // - Only exact matches work: "tide" = "Tide", "tide msme" = "Tide MSME"
+  // - No partial matching: "tide" does NOT match "Tide BT" or "Tide Credit Card"
+  // - To match variations, add them explicitly to productTypes in the rule
   const hinted = product
     ? allRules.filter(r =>
         !r.productTypes || 
@@ -161,10 +163,9 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
         r.productTypes.some(p => {
           const ruleProduct = normalizeProduct(p);
           const searchProduct = normalizeProduct(product);
-          // Exact match OR rule product contains search product OR search product contains rule product
-          return ruleProduct === searchProduct || 
-                 ruleProduct.includes(searchProduct) || 
-                 searchProduct.includes(ruleProduct);
+          
+          // EXACT match only (case-insensitive)
+          return ruleProduct === searchProduct;
         })
       )
     : allRules;
@@ -213,7 +214,7 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
   return { status: 'Not Found', verified: false };
 }
 
-// ---------- CROSS CHECK (WITH MANUAL VERIFICATION SUPPORT) ----------
+// ---------- CROSS CHECK (WITH EXACT PRODUCT MATCHING ONLY) ----------
 async function crossCheckPhone(db, phone, name, VerificationRule, product, month, ruleCache = null) {
 
   // ✅ FIRST: Check for manual verification override
@@ -231,8 +232,10 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
     ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
     : allRulesRaw;
 
-  // ✅ Filter rules by product (flexible matching - if rule has no product types, it applies to all)
-  // Case-insensitive and partial matching: "msme" matches "Tide MSME", "tide msme", etc.
+  // ✅ Filter rules by product with EXACT matching (case-insensitive)
+  // - Only exact matches work: "tide" = "Tide", "tide msme" = "Tide MSME"
+  // - No partial matching: "tide" does NOT match "Tide BT" or "Tide Credit Card"
+  // - To match variations, add them explicitly to productTypes in the rule
   const hinted = product
     ? allRules.filter(r =>
         !r.productTypes || 
@@ -240,10 +243,9 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
         r.productTypes.some(p => {
           const ruleProduct = normalizeProduct(p);
           const searchProduct = normalizeProduct(product);
-          // Exact match OR rule product contains search product OR search product contains rule product
-          return ruleProduct === searchProduct || 
-                 ruleProduct.includes(searchProduct) || 
-                 searchProduct.includes(ruleProduct);
+          
+          // EXACT match only (case-insensitive)
+          return ruleProduct === searchProduct;
         })
       )
     : allRules;

@@ -921,16 +921,21 @@ module.exports = (connectionManager, connectDB) => {
     try {
       // Use connection from middleware
       const db = req.db;
-      const docs = await db.collection(req.params.name).find({}).limit(10).toArray();
-
-      const fields = new Set();
-      docs.forEach(doc =>
-        Object.keys(doc).forEach(k => {
-          if (!k.startsWith('_')) fields.add(k);
-        })
-      );
-
-      res.json([...fields].sort());
+      
+      // Use aggregation to get ALL unique field names across ALL documents
+      // This ensures new columns are always visible in the verification rules dropdown
+      const result = await db.collection(req.params.name).aggregate([
+        { $project: { fields: { $objectToArray: "$$ROOT" } } },
+        { $unwind: "$fields" },
+        { $group: { _id: null, allFields: { $addToSet: "$fields.k" } } }
+      ]).toArray();
+      
+      const fields = result[0]?.allFields || [];
+      
+      // Filter out internal fields (starting with _) and sort alphabetically
+      const filtered = fields.filter(f => !f.startsWith('_')).sort();
+      
+      res.json(filtered);
     } catch (err) {
       res.status(500).json({ 
         message: err.message,

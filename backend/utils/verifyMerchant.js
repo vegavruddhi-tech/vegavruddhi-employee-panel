@@ -195,19 +195,32 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     const passed = checks.filter(c => c.pass).length;
     const total  = checks.length;
 
+    // ✅ Check for critical condition failures
+    const criticalConditions = rule.conditions.filter(c => c.isCritical);
+    const criticalChecks = checks.filter((c, i) => rule.conditions[i].isCritical);
+    const criticalFailed = criticalChecks.filter(c => !c.pass);
+    const hasCriticalFailure = criticalFailed.length > 0;
+
     const status =
-      passed === total ? 'Fully Verified' :
-      passed > 0       ? 'Partially Done' :
-                         'Not Verified';
+      hasCriticalFailure ? 'Critical Failure' :
+      passed === total   ? 'Fully Verified' :
+      passed > 0         ? 'Partially Done' :
+                           'Not Verified';
 
     return {
       status,
-      verified: passed === total,
+      verified: passed === total && !hasCriticalFailure,
       passed,
       total,
       checks,
       collection: rule.collectionName,
-      matchType
+      matchType,
+      hasCriticalFailure,
+      criticalFailed: criticalFailed.map((c, i) => ({
+        ...c,
+        field: criticalConditions[criticalChecks.indexOf(c)]?.field,
+        label: c.label
+      }))
     };
   }
 

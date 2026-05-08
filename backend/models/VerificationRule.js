@@ -19,11 +19,12 @@ const mongoose = require('mongoose');
  * }
  */
 const conditionSchema = new mongoose.Schema({
-  field:    { type: String, required: true },
-  operator: { type: String, required: true, enum: ['equals', 'not_equals', 'gte', 'lte', 'contains', 'exists', 'in'] },
-  value:    { type: String, default: '' },       // single value (for backward compat)
-  values:   { type: [String], default: [] },     // multiple values for OR logic (used with 'in' or 'equals')
-  label:    { type: String, default: '' }
+  field:      { type: String, required: true },
+  operator:   { type: String, required: true, enum: ['equals', 'not_equals', 'gte', 'lte', 'contains', 'exists', 'in'] },
+  value:      { type: String, default: '' },       // single value (for backward compat)
+  values:     { type: [String], default: [] },     // multiple values for OR logic (used with 'in' or 'equals')
+  label:      { type: String, default: '' },
+  isCritical: { type: Boolean, default: false }    // if true, failure of this condition = critical failure
 }, { _id: false });
 
 const verificationRuleSchema = new mongoose.Schema({

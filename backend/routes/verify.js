@@ -359,6 +359,12 @@ module.exports = (connectionManager, connectDB) => {
       // Update last sync time
       await redis.set('last_sync_time', new Date().toISOString());
 
+      // ✅ UPDATE TIMESTAMP TO TRIGGER FRONTEND CACHE REFRESH
+      // This ensures all users get fresh data after pre-compute
+      const timestamp = Date.now();
+      await redis.set('verification_rules_updated_at', timestamp.toString());
+      console.log(`🔄 Updated verification timestamp: ${timestamp} (triggers frontend refresh)`);
+
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`✅ Pre-computation complete in ${elapsed}s`);
       console.log(`   Total: ${forms.length} | Verified: ${cached} | Skipped: ${skipped}`);

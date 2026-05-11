@@ -125,6 +125,7 @@ function registerRoutes() {
   app.use('/api/points-activity', require('./routes/pointsActivity'));
   app.use('/api/meetings', meetingsRoutes);
   app.use('/api/tide', require('./routes/tide')(connectionManager, connectDB));
+  app.use('/api/attendance', require('./routes/attendance'));
 
   console.log('✅ Routes registered successfully');
 }
@@ -158,6 +159,67 @@ function setupErrorHandlers() {
 // Register routes and error handlers immediately (synchronously)
 registerRoutes();
 setupErrorHandlers();
+
+const cron = require('node-cron');
+const Attendance = require('./models/Attendance');
+
+// Set timezone to IST
+process.env.TZ = 'Asia/Kolkata';
+
+// Auto logout cron job - runs at 11:59 PM IST every day
+cron.schedule('59 23 * * *', async () => {
+  console.log('\n' + '='.repeat(70));
+  console.log('🕐 AUTO LOGOUT CRON JOB - 11:59 PM IST');
+  console.log('='.repeat(70));
+  
+  const now = new Date();
+  const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const today = istTime.toISOString().split('T')[0];
+  
+  console.log(`📅 Date: ${today}`);
+  console.log(`🕐 Time: ${istTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\n`);
+  
+  try {
+    const pendingAttendance = await Attendance.find({
+      date: today,
+      lastLogoutTime: null
+    });
+    
+    console.log(`👥 Found ${pendingAttendance.length} users to auto logout\n`);
+    
+    if (pendingAttendance.length === 0) {
+      console.log('✅ No pending logouts');
+      return;
+    }
+    
+    for (const attendance of pendingAttendance) {
+      const durationMs = now - attendance.firstLoginTime;
+      const durationHours = durationMs / (1000 * 60 * 60);
+      
+      attendance.lastLogoutTime = now;
+      attendance.lastActivityTime = now;
+      attendance.duration = parseFloat(durationHours.toFixed(2));
+      attendance.autoCheckOut = true;
+      await attendance.save();
+      
+      console.log(`✅ ${attendance.userEmail}`);
+      console.log(`   Attendance: ${new Date(attendance.firstLoginTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      console.log(`   Duration: ${durationHours.toFixed(2)}h`);
+      console.log(`   Re-logins: ${attendance.reloginCount}x\n`);
+    }
+    
+    console.log('='.repeat(70));
+    console.log('✅ AUTO LOGOUT COMPLETED');
+    console.log('='.repeat(70) + '\n');
+    
+  } catch (error) {
+    console.error('❌ Cron job error:', error);
+  }
+}, {
+  timezone: "Asia/Kolkata"
+});
+
+console.log('✅ Cron job scheduled: Auto logout at 11:59 PM IST daily');
 
 /**
  * Graceful shutdown handler

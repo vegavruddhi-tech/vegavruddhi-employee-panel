@@ -6,6 +6,7 @@ const jwt      = require('jsonwebtoken');
 // const multer   = require('multer');
 // const path     = require('path');
 const Employee = require('../models/Employee');
+const Attendance = require('../models/Attendance');
 const { OAuth2Client } = require('google-auth-library');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -189,6 +190,53 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign({ id: employee._id, email: employee.email }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    
+    // ✅ MARK ATTENDANCE
+    try {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const today = istTime.toISOString().split('T')[0];
+      
+      let attendance = await Attendance.findOne({
+        userId: employee._id,
+        date: today
+      });
+      
+      if (!attendance) {
+        // Normalize userType to match enum
+        const pos = (employee.position || '').toLowerCase();
+        let userType = 'employee';
+        if (pos.includes('manager')) userType = 'manager';
+        else if (pos.includes('tl') || pos.includes('teamlead') || pos.includes('team lead') || pos.includes('team_lead')) userType = 'teamlead';
+
+        // First login today - mark attendance
+        attendance = await Attendance.create({
+          userId: employee._id,
+          userEmail: employee.email,
+          userName: employee.newJoinerName,
+          userType: userType,
+          date: today,
+          firstLoginTime: now,
+          lastActivityTime: now,
+          attendanceMarked: true,
+          reloginCount: 0,
+          status: 'present'
+        });
+        console.log(`✅ Attendance marked: ${employee.email} at ${istTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      } else {
+        // Re-login - update last activity
+        attendance.reloginCount += 1;
+        attendance.lastActivityTime = now;
+        attendance.lastLogoutTime = null;
+        attendance.duration = null;
+        await attendance.save();
+        console.log(`✅ Re-login: ${employee.email} - Activity updated (Re-login #${attendance.reloginCount})`);
+      }
+    } catch (attErr) {
+      console.error('Attendance marking error:', attErr.message);
+      // Don't block login if attendance fails
+    }
+    
     res.json({ token, employee: { newJoinerName: employee.newJoinerName, email: employee.email, position: employee.position, status: employee.status } });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -234,6 +282,52 @@ router.post('/google-login', async (req, res) => {
       role: employee.position || 'fse',
       isAdmin: employee.position === 'admin' || employee.email === process.env.ADMIN_EMAIL || false
     }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    
+    // ✅ MARK ATTENDANCE (same as password login)
+    try {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const today = istTime.toISOString().split('T')[0];
+      
+      let attendance = await Attendance.findOne({
+        userId: employee._id,
+        date: today
+      });
+      
+      if (!attendance) {
+        // Normalize userType to match enum
+        const pos = (employee.position || '').toLowerCase();
+        let userType = 'employee';
+        if (pos.includes('manager')) userType = 'manager';
+        else if (pos.includes('tl') || pos.includes('teamlead') || pos.includes('team lead') || pos.includes('team_lead')) userType = 'teamlead';
+
+        // First login today - mark attendance
+        attendance = await Attendance.create({
+          userId: employee._id,
+          userEmail: employee.email,
+          userName: employee.newJoinerName,
+          userType: userType,
+          date: today,
+          firstLoginTime: now,
+          lastActivityTime: now,
+          attendanceMarked: true,
+          reloginCount: 0,
+          status: 'present'
+        });
+        console.log(`✅ Attendance marked (Google): ${employee.email} at ${istTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      } else {
+        // Re-login - update last activity
+        attendance.reloginCount += 1;
+        attendance.lastActivityTime = now;
+        attendance.lastLogoutTime = null;
+        attendance.duration = null;
+        await attendance.save();
+        console.log(`✅ Re-login (Google): ${employee.email} - Activity updated (Re-login #${attendance.reloginCount})`);
+      }
+    } catch (attErr) {
+      console.error('Attendance marking error (Google):', attErr.message);
+      // Don't block login if attendance fails
+    }
     
     res.json({
       token,
@@ -574,6 +668,74 @@ router.put('/reject/:id', async (req, res) => {
     ).select('-password');
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
     res.json({ message: 'Employee rejected', employee: emp });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/auth/logout - Manual logout with attendance update
+router.post('/logout', verifyToken, async (req, res) => {
+  try {
+    const now = new Date();
+    const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const today = istTime.toISOString().split('T')[0];
+    
+    const attendance = await Attendance.findOne({
+      userId: req.user.id,
+      date: today
+    });
+    
+    if (attendance) {
+      const durationMs = now - attendance.firstLoginTime;
+      const durationHours = durationMs / (1000 * 60 * 60);
+      
+      attendance.lastLogoutTime = now;
+      attendance.lastActivityTime = now;
+      attendance.duration = parseFloat(durationHours.toFixed(2));
+      await attendance.save();
+      
+      console.log(`✅ Logout: ${req.user.email} - Duration: ${durationHours.toFixed(2)}h`);
+    }
+    
+    res.json({ 
+      success: true,
+      message: 'Logged out successfully',
+      note: 'You can login again before 11:59 PM'
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/auth/auto-logout - Auto logout at 11:59 PM
+router.post('/auto-logout', verifyToken, async (req, res) => {
+  try {
+    const now = new Date();
+    const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const today = istTime.toISOString().split('T')[0];
+    
+    const attendance = await Attendance.findOne({
+      userId: req.user.id,
+      date: today
+    });
+    
+    if (attendance && !attendance.lastLogoutTime) {
+      const durationMs = now - attendance.firstLoginTime;
+      const durationHours = durationMs / (1000 * 60 * 60);
+      
+      attendance.lastLogoutTime = now;
+      attendance.lastActivityTime = now;
+      attendance.duration = parseFloat(durationHours.toFixed(2));
+      attendance.autoCheckOut = true;
+      await attendance.save();
+      
+      console.log(`✅ Auto logout: ${req.user.email} - Duration: ${durationHours.toFixed(2)}h`);
+    }
+    
+    res.json({ 
+      success: true,
+      message: 'Auto logged out at 11:59 PM'
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

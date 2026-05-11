@@ -6,6 +6,7 @@ const upload   = require('../middleware/multer');
 const Manager  = require('../models/Manager');
 const TeamLead = require('../models/TeamLead');
 const Employee = require('../models/Employee');
+const Attendance = require('../models/Attendance');
 const ManagerChangeRequest = require('../models/ManagerChangeRequest');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -66,6 +67,43 @@ router.post('/google-login', async (req, res) => {
     if (manager.approvalStatus === 'rejected') return res.status(403).json({ message: 'Your account was rejected. Contact admin.' });
 
     const token = jwt.sign({ id: manager._id, email: manager.email, role: 'manager' }, process.env.JWT_SECRET, { expiresIn: '8h' });
+
+    // ✅ MARK ATTENDANCE
+    try {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const today = istTime.toISOString().split('T')[0];
+
+      let attendance = await Attendance.findOne({ userId: manager._id, date: today });
+      if (!attendance) {
+        attendance = await Attendance.create({
+          userId: manager._id,
+          userEmail: manager.email,
+          userName: manager.name,
+          userType: 'manager',
+          position: 'Manager',
+          location: manager.location || '',
+          reportingManager: '',
+          date: today,
+          firstLoginTime: now,
+          lastActivityTime: now,
+          attendanceMarked: true,
+          reloginCount: 0,
+          status: 'present'
+        });
+        console.log(`✅ Attendance marked (Manager): ${manager.email} at ${istTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      } else {
+        attendance.reloginCount += 1;
+        attendance.lastActivityTime = now;
+        attendance.lastLogoutTime = null;
+        attendance.duration = null;
+        await attendance.save();
+        console.log(`✅ Re-login (Manager): ${manager.email} - Re-login #${attendance.reloginCount}`);
+      }
+    } catch (attErr) {
+      console.error('Attendance marking error (Manager):', attErr.message);
+    }
+
     res.json({ token, manager: { name: manager.name, email: manager.email, image: manager.image, location: manager.location } });
   } catch (err) {
     res.status(401).json({ message: 'Google sign-in failed. Please try again.' });

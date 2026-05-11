@@ -5,6 +5,7 @@ const { OAuth2Client } = require('google-auth-library');
 const upload         = require('../middleware/multer');
 const TeamLead       = require('../models/TeamLead');
 const Employee       = require('../models/Employee');
+const Attendance     = require('../models/Attendance');
 const TLChangeRequest = require('../models/TLChangeRequest');
 
 /**
@@ -165,6 +166,43 @@ router.post('/google-login', async (req, res) => {
 
 
     const token = jwt.sign({ id: tl._id, email: tl.email, role: 'tl' }, process.env.JWT_SECRET, { expiresIn: '8h' });
+
+    // ✅ MARK ATTENDANCE
+    try {
+      const now = new Date();
+      const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const today = istTime.toISOString().split('T')[0];
+
+      let attendance = await Attendance.findOne({ userId: tl._id, date: today });
+      if (!attendance) {
+        attendance = await Attendance.create({
+          userId: tl._id,
+          userEmail: tl.email,
+          userName: tl.name,
+          userType: 'teamlead',
+          position: tl.position || 'Team Lead',
+          location: tl.location || '',
+          reportingManager: tl.reportingManager || '',
+          date: today,
+          firstLoginTime: now,
+          lastActivityTime: now,
+          attendanceMarked: true,
+          reloginCount: 0,
+          status: 'present'
+        });
+        console.log(`✅ Attendance marked (TL): ${tl.email} at ${istTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+      } else {
+        attendance.reloginCount += 1;
+        attendance.lastActivityTime = now;
+        attendance.lastLogoutTime = null;
+        attendance.duration = null;
+        await attendance.save();
+        console.log(`✅ Re-login (TL): ${tl.email} - Re-login #${attendance.reloginCount}`);
+      }
+    } catch (attErr) {
+      console.error('Attendance marking error (TL):', attErr.message);
+    }
+
     res.json({ token, tl: { name: tl.name, email: tl.email, image: tl.image, location: tl.location } });
   } catch (err) {
     console.error('TL google-login error:', err.message);

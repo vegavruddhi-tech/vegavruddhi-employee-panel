@@ -9,12 +9,23 @@ let LOGO_BUFFER = null;
 function getLogoBuffer() {
   if (LOGO_BUFFER) return LOGO_BUFFER;
   try {
-    const logoPath = path.join(__dirname, '../../../vegavruddhi-admin-panel/fse-dashboard/public/vegavruddhi-logo.svg');
-    if (fs.existsSync(logoPath)) {
-      LOGO_BUFFER = fs.readFileSync(logoPath);
-      console.log('✅ Logo loaded, size:', LOGO_BUFFER.length);
-    } else {
-      console.warn('⚠️ Logo not found at:', logoPath);
+    // Try multiple possible logo paths
+    const logoPaths = [
+      path.join(__dirname, '../../../vegavruddhi-admin-panel/fse-dashboard/public/vegavruddhi-logo.svg'),
+      path.join(__dirname, '../../employee-app/public/vegavruddhi-logo.svg'),
+      path.join(__dirname, '../public/vegavruddhi-logo.svg'),
+    ];
+    
+    for (const logoPath of logoPaths) {
+      if (fs.existsSync(logoPath)) {
+        LOGO_BUFFER = fs.readFileSync(logoPath);
+        console.log('✅ Logo loaded from:', logoPath, 'size:', LOGO_BUFFER.length);
+        break;
+      }
+    }
+    
+    if (!LOGO_BUFFER) {
+      console.warn('⚠️ Logo not found in any path');
     }
   } catch (e) {
     console.warn('⚠️ Logo load error:', e.message);

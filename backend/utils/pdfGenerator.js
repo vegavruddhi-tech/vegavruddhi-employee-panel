@@ -206,19 +206,19 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       // Earnings table header
       const tableLeft = 50;
       const tableWidth = 495;
-      const col1Width = isAdmin ? 280 : 370;
-      const col2Width = isAdmin ? 90 : 0;
-      const col3Width = isAdmin ? 125 : 125;
+      const col1Width = isAdmin ? 250 : 345;
+      const col2Width = isAdmin ? 80 : 0;
+      const col3Width = isAdmin ? 165 : 150;
 
       doc.rect(tableLeft, yPos, tableWidth, 22).fill(primaryGreen);
       doc.fontSize(10).fillColor('white').font('Helvetica-Bold')
-        .text('Component', tableLeft + 10, yPos + 7, { width: col1Width - 10 });
+        .text('Component', tableLeft + 10, yPos + 7, { width: col1Width - 20 });
       
       if (isAdmin) {
-        doc.text('%', tableLeft + col1Width + 10, yPos + 7, { width: col2Width - 20, align: 'center' });
+        doc.text('%', tableLeft + col1Width, yPos + 7, { width: col2Width, align: 'center' });
       }
       
-      doc.text('Amount (₹)', tableLeft + col1Width + col2Width + 10, yPos + 7, { width: col3Width - 10, align: 'right' });
+      doc.text('Amount (₹)', tableLeft + col1Width + col2Width, yPos + 7, { width: col3Width, align: 'right' });
       yPos += 22;
 
       // Earnings rows
@@ -237,13 +237,13 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
         rowBg = !rowBg;
 
         doc.fontSize(9).fillColor(darkGray).font('Helvetica')
-          .text(row.label, tableLeft + 10, yPos + 6, { width: col1Width - 10 });
+          .text(row.label, tableLeft + 10, yPos + 6, { width: col1Width - 20, lineBreak: false });
         
         if (isAdmin) {
-          doc.text(`${row.pct}%`, tableLeft + col1Width + 10, yPos + 6, { width: col2Width - 20, align: 'center' });
+          doc.text(`${row.pct}%`, tableLeft + col1Width, yPos + 6, { width: col2Width, align: 'center' });
         }
         
-        doc.font('Helvetica-Bold').text(fmt(row.amt), tableLeft + col1Width + col2Width + 10, yPos + 6, { width: col3Width - 10, align: 'right' });
+        doc.font('Helvetica-Bold').text(fmt(row.amt), tableLeft + col1Width + col2Width, yPos + 6, { width: col3Width, align: 'right' });
         yPos += 20;
       });
 
@@ -253,13 +253,13 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
           doc.rect(tableLeft, yPos, tableWidth, 20).fill('#fafafa');
         }
         doc.fontSize(9).fillColor(orange).font('Helvetica-Bold')
-          .text(`Incentive (${fmt(calc.pointsSalary)} − ${fmt(calc.FIXED_GROSS)})`, tableLeft + 10, yPos + 6, { width: col1Width - 10 });
+          .text(`Incentive (${fmt(calc.pointsSalary)} − ${fmt(calc.FIXED_GROSS)})`, tableLeft + 10, yPos + 6, { width: col1Width - 20, lineBreak: false });
         
         if (isAdmin) {
-          doc.fillColor(orange).text('Variable', tableLeft + col1Width + 10, yPos + 6, { width: col2Width - 20, align: 'center' });
+          doc.fillColor(orange).text('Variable', tableLeft + col1Width, yPos + 6, { width: col2Width, align: 'center' });
         }
         
-        doc.fillColor(orange).text(fmt(calc.incentive), tableLeft + col1Width + col2Width + 10, yPos + 6, { width: col3Width - 10, align: 'right' });
+        doc.fillColor(orange).text(fmt(calc.incentive), tableLeft + col1Width + col2Width, yPos + 6, { width: col3Width, align: 'right' });
         yPos += 20;
       }
 
@@ -267,8 +267,8 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       doc.rect(tableLeft, yPos, tableWidth, 24).fill('#f0f7f2');
       doc.strokeColor(primaryGreen).lineWidth(2).moveTo(tableLeft, yPos).lineTo(tableLeft + tableWidth, yPos).stroke();
       doc.fontSize(11).fillColor(darkGray).font('Helvetica-Bold')
-        .text('Gross Salary', tableLeft + 10, yPos + 7, { width: col1Width + col2Width - 10 });
-      doc.text(fmt(calc.grossSalary), tableLeft + col1Width + col2Width + 10, yPos + 7, { width: col3Width - 10, align: 'right' });
+        .text('Gross Salary', tableLeft + 10, yPos + 7, { width: col1Width + col2Width - 20 });
+      doc.text(fmt(calc.grossSalary), tableLeft + col1Width + col2Width, yPos + 7, { width: col3Width, align: 'right' });
       yPos += 30;
 
       // ===== DEDUCTIONS SECTION =====
@@ -278,13 +278,13 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       yPos += 15;
 
       // Deductions table header
-      const dedCol1Width = 370;
-      const dedCol2Width = 125;
+      const dedCol1Width = 345;
+      const dedCol2Width = 150;
 
       doc.rect(tableLeft, yPos, tableWidth, 22).fill(primaryGreen);
       doc.fontSize(10).fillColor('white').font('Helvetica-Bold')
-        .text('Component', tableLeft + 10, yPos + 7, { width: dedCol1Width - 10 });
-      doc.text('Amount (₹)', tableLeft + dedCol1Width + 10, yPos + 7, { width: dedCol2Width - 10, align: 'right' });
+        .text('Component', tableLeft + 10, yPos + 7, { width: dedCol1Width - 20 });
+      doc.text('Amount (₹)', tableLeft + dedCol1Width, yPos + 7, { width: dedCol2Width, align: 'right' });
       yPos += 22;
 
       // Deduction rows
@@ -303,12 +303,12 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
         rowBg = !rowBg;
 
         doc.fontSize(9).fillColor(darkGray).font('Helvetica')
-          .text(item.label, tableLeft + 10, yPos + 6, { width: dedCol1Width - 10 });
+          .text(item.label, tableLeft + 10, yPos + 6, { width: dedCol1Width - 20, lineBreak: false });
         
         if (item.val > 0) {
-          doc.font('Helvetica-Bold').fillColor(darkGray).text(fmt(item.val), tableLeft + dedCol1Width + 10, yPos + 6, { width: dedCol2Width - 10, align: 'right' });
+          doc.font('Helvetica-Bold').fillColor(darkGray).text(fmt(item.val), tableLeft + dedCol1Width, yPos + 6, { width: dedCol2Width, align: 'right' });
         } else {
-          doc.font('Helvetica-Oblique').fillColor('#bbb').text('—', tableLeft + dedCol1Width + 10, yPos + 6, { width: dedCol2Width - 10, align: 'right' });
+          doc.font('Helvetica-Oblique').fillColor('#bbb').text('—', tableLeft + dedCol1Width, yPos + 6, { width: dedCol2Width, align: 'right' });
         }
         yPos += 20;
       });
@@ -317,8 +317,8 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       doc.rect(tableLeft, yPos, tableWidth, 24).fill('#f0f7f2');
       doc.strokeColor(primaryGreen).lineWidth(2).moveTo(tableLeft, yPos).lineTo(tableLeft + tableWidth, yPos).stroke();
       doc.fontSize(11).fillColor(darkGray).font('Helvetica-Bold')
-        .text('Total Deductions', tableLeft + 10, yPos + 7, { width: dedCol1Width - 10 });
-      doc.text(fmt(calc.totalDeductions), tableLeft + dedCol1Width + 10, yPos + 7, { width: dedCol2Width - 10, align: 'right' });
+        .text('Total Deductions', tableLeft + 10, yPos + 7, { width: dedCol1Width - 20 });
+      doc.text(fmt(calc.totalDeductions), tableLeft + dedCol1Width, yPos + 7, { width: dedCol2Width, align: 'right' });
       yPos += 30;
 
       // ===== NET SALARY BOX =====

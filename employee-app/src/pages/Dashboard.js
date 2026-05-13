@@ -24,10 +24,11 @@ const STATUS_COLOR = {
 };
 
 const BADGE_MAP = {
-  'Fully Verified': { bg: '#e6f4ea', color: '#2e7d32', icon: '✓' },
-  'Partially Done': { bg: '#fff8e1', color: '#f57f17', icon: '◑' },
-  'Not Verified':   { bg: '#fdecea', color: '#c62828', icon: '✗' },
-  'Not Found':      { bg: '#f5f5f5', color: '#888',    icon: '–' },
+  'Fully Verified':   { bg: '#e6f4ea', color: '#2e7d32', icon: '✓' },
+  'Critical Failure': { bg: '#ffebee', color: '#c62828', icon: '⚠' },
+  'Partially Done':   { bg: '#fff8e1', color: '#f57f17', icon: '◑' },
+  'Not Verified':     { bg: '#fdecea', color: '#c62828', icon: '✗' },
+  'Not Found':        { bg: '#f5f5f5', color: '#888',    icon: '–' },
 };
 
 export default function Dashboard() {
@@ -244,6 +245,7 @@ export default function Dashboard() {
     if (activeKPI === 'error')    list = list.filter(f => f.status === 'Try but not done due to error');
     if (activeKPI === 'revisit')  list = list.filter(f => f.status === 'Need to visit again');
     if (activeKPI === 'verified') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified');
+    if (activeKPI === 'critical') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure');
     if (activeKPI === 'partial')  list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done');
     if (activeKPI === 'notver')   list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified');
     if (activeKPI === 'phmatch')  list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
@@ -408,6 +410,7 @@ export default function Dashboard() {
 
   const verifyKpis = [
     { key: 'verified',  label: 'Fully Verified',       value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length,  cls: 'kpi-verified' },
+    { key: 'critical',  label: 'Critical Failure',     value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure').length, cls: 'kpi-critical' },
     { key: 'partial',   label: 'Partially Verified',   value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length,   cls: 'kpi-error' },
     { key: 'notver',    label: 'Not Verified',          value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length,     cls: 'kpi-notint' },
     { key: 'phmatch',   label: 'Phone Matched',         value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length,           cls: 'kpi-onboard' },
@@ -455,6 +458,11 @@ export default function Dashboard() {
           <div className="welcome-text" style={{ flex: 1, minWidth: 150 }}>
             <h2 style={{ fontSize: 20, marginBottom: 4 }}>Welcome, {emp?.newJoinerName?.split(' ')[0] || ''}!</h2>
             <p style={{ fontSize: 13, margin: 0 }}>{emp?.position} · {emp?.location}</p>
+            {emp?.employeeId && (
+              <div style={{ marginTop: 4, display: 'inline-block', background: 'rgba(255,255,255,0.2)', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', border: '1px solid rgba(255,255,255,0.3)' }}>
+                🪪 {emp.employeeId}
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px', color: '#fff', textAlign: 'center', border: '1px solid rgba(255,255,255,0.25)' }}>

@@ -8,7 +8,7 @@
     "backup": "mongodump --uri=\"mongodb+srv://dataanalyst_db_user:Mm7zy0KE8T1GLImq@cluster0.qtvqyxk.mongodb.net/CompanyDB?retryWrites=true&w=majority&appName=Cluster0\" --db=CompanyDB --out=./backup"
   },
   "dependencies": {
-    "axios": "^1.14.0",
+    "axios": "^1.16.0",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^1.41.3",
     "cors": "^2.8.5",
@@ -24,6 +24,7 @@
     "multer-storage-cloudinary": "^4.0.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.7",
+    "puppeteer": "^24.43.1",
     "serverless-http": "^4.0.0",
     "xlsx": "^0.18.5"
   },

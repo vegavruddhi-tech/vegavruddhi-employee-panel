@@ -82,6 +82,12 @@ const hashed = await bcrypt.hash(rawPassword, 10);
         cv: req.files?.cv?.[0]?.path || ''
       });
 
+      // ✅ Auto-assign employee ID
+      const { generateNextEmployeeId } = require('../utils/employeeIdGenerator');
+      const empId = await generateNextEmployeeId();
+      await Employee.findByIdAndUpdate(employee._id, { employeeId: empId });
+      console.log(`✅ New employee ${newJoinerName} assigned ID: ${empId}`);
+
       res.status(201).json({
         message: 'Registered successfully',
         id: employee._id

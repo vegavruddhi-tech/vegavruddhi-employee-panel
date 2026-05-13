@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const employeeSchema = new mongoose.Schema({
+  employeeId:         { type: String, unique: true, sparse: true }, // VV0001, VV0002...
   email:              { type: String, required: true, unique: true },
   newJoinerName:      { type: String, required: true },
   newJoinerPhone:     { type: String, required: true },

@@ -102,6 +102,12 @@ async function connectDB() {
 // Start MongoDB connection immediately
 connectDB();
 
+// Assign employee IDs to existing employees (runs once, skips already assigned)
+connectDB().then(() => {
+  const { assignMissingEmployeeIds } = require('./utils/employeeIdGenerator');
+  assignMissingEmployeeIds().catch(console.error);
+});
+
 /**
  * Register all application routes
  */
@@ -124,6 +130,7 @@ function registerRoutes() {
   app.use('/api/manual-verification', require('./routes/manualVerification'));
   app.use('/api/points-activity', require('./routes/pointsActivity'));
   app.use('/api/meetings', meetingsRoutes);
+  app.use('/api/salary', require('./routes/salary'));
   app.use('/api/tide', require('./routes/tide')(connectionManager, connectDB));
   app.use('/api/attendance', require('./routes/attendance'));
 

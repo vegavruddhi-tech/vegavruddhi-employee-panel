@@ -434,6 +434,7 @@ export default function Navbar({ emp, taskCount, token }) {
               </div>
               <a href="/dashboard" onClick={e => { e.preventDefault(); navigate('/dashboard'); }}>🏠&nbsp; Dashboard</a>
               <a href="/tasks" onClick={e => { e.preventDefault(); navigate('/tasks'); }}>📋&nbsp; My Tasks</a>
+              <a href="/my-salary" onClick={e => { e.preventDefault(); navigate('/my-salary'); }}>💰&nbsp; My Salary</a>
               <a href="/profile" onClick={e => { e.preventDefault(); navigate('/profile'); }}>👤&nbsp; My Profile</a>
               <a href="#logout" className="logout" onClick={logout}>🚪&nbsp; Logout</a>
             </div>

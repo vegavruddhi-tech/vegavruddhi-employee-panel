@@ -776,6 +776,7 @@ body { padding-bottom: 52px; }
 .kpi-error    { border-top-color: #e65100; }
 .kpi-revisit  { border-top-color: #1565c0; }
 .kpi-verified { border-top-color: #6a1b9a; }
+.kpi-critical { border-top-color: #c62828; }
 
 .kpi-label {
   font-size: 10px;
@@ -800,6 +801,7 @@ body { padding-bottom: 52px; }
 .kpi-error    .kpi-value { color: #e65100; }
 .kpi-revisit  .kpi-value { color: #1565c0; }
 .kpi-verified .kpi-value { color: #6a1b9a; }
+.kpi-critical .kpi-value { color: #c62828; }
 
 @media (max-width: 900px) {
   .kpi-row { grid-template-columns: repeat(3, 1fr); }
@@ -824,6 +826,7 @@ body { padding-bottom: 52px; }
 .kpi-error.kpi-active    { box-shadow: 0 0 0 2.5px #e65100, var(--shadow); }
 .kpi-revisit.kpi-active  { box-shadow: 0 0 0 2.5px #1565c0, var(--shadow); }
 .kpi-verified.kpi-active { box-shadow: 0 0 0 2.5px #6a1b9a, var(--shadow); }
+.kpi-critical.kpi-active { box-shadow: 0 0 0 2.5px #c62828, var(--shadow); }
 
 /* ── PROFILE PAGE ── */
 .profile-page { max-width: 900px; margin: 0 auto; padding: 32px 24px; font-family: var(--font); }

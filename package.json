@@ -25,6 +25,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.7",
     "pdfkit": "^0.18.0",
+    "pdfmake": "^0.3.8",
     "serverless-http": "^4.0.0",
     "xlsx": "^0.18.5"
   },

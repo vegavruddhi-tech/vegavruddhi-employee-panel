@@ -130,16 +130,26 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
           // Logo on the left side - positioned higher
           doc.image(logoPath, 40, y, { width: 120, height: 50, fit: [120, 50] });
           console.log('✅ Logo added to PDF');
+          
+          // GST Number under the logo (left side)
+          doc.fontSize(7).fillColor('#999999')
+             .text('GSTIN: 08AAKCV8538R1Z5', 40, y + 55);
         } catch (e) {
           console.warn('⚠️ Logo load failed:', e.message);
           // Fallback to text if logo fails
           doc.fontSize(18).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
              .text('VEGAVRUDDHI', 40, y + 10);
+          // GST Number under company name
+          doc.fontSize(7).fillColor('#999999')
+             .text('GSTIN: 08AAKCV8538R1Z5', 40, y + 35);
         }
       } else {
         // Fallback: Company name text if no logo found
         doc.fontSize(18).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
            .text('VEGAVRUDDHI', 40, y + 10);
+        // GST Number under company name
+        doc.fontSize(7).fillColor('#999999')
+           .text('GSTIN: 08AAKCV8538R1Z5', 40, y + 35);
       }
       
       // Salary Slip title (right side)
@@ -232,9 +242,14 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       // Row 5: Total Points (full width, highlighted)
       doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
          .text('Total Points:', col1X, infoY);
+      
+      // Admin sees calculation, Employee sees only points (no amount)
+      const totalPointsText = isAdmin 
+        ? `${slipData.totalPoints || slipData.pointsEarned || 0} pts × Rs.${slipData.pointValue || 250} = ${fmt(calc.pointsSalary)}`
+        : `${slipData.totalPoints || slipData.pointsEarned || 0} pts`;
+      
       doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
-         .text(`${slipData.totalPoints || slipData.pointsEarned || 0} pts × Rs.${slipData.pointValue || 250} = ${fmt(calc.pointsSalary)}`, 
-               col2X, infoY, { width: 350 });
+         .text(totalPointsText, col2X, infoY, { width: 350 });
       
       // ==================== EARNINGS SECTION ====================
       y = hasSlabBonus ? 228 : 214;  // Adjust based on whether slab bonus was shown
@@ -278,8 +293,13 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       ];
       
       if (calc.hasIncentive) {
+        // Admin sees calculation, Employee sees only "Incentive"
+        const incentiveLabel = isAdmin
+          ? `Incentive (${fmt(calc.pointsSalary)} − ${fmt(calc.FIXED_GROSS)})`
+          : 'Incentive';
+        
         earningsData.push([
-          `Incentive (${fmt(calc.pointsSalary)} − ${fmt(calc.FIXED_GROSS)})`,
+          incentiveLabel,
           'Variable',
           calc.incentive
         ]);
@@ -377,11 +397,11 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
          .fillAndStroke(GREEN_PRIMARY, GREEN_PRIMARY);
       
       doc.fontSize(15).fillColor('#ffffff').font('Helvetica-Bold')
-         .text('Net Salary (Take Home)', tableX + 15, y + 17);
+         .text('Net Salary', tableX + 15, y + 17);
       
-      // Shift amount left to fit inside box properly
-      doc.fontSize(20).fillColor('#ffffff').font('Helvetica-Bold')
-         .text(fmt(calc.netSalary), tableX + 300, y + 15, { width: 200, align: 'right' });
+      // Smaller font for amount
+      doc.fontSize(17).fillColor('#ffffff').font('Helvetica-Bold')
+         .text(fmt(calc.netSalary), tableX + 300, y + 16, { width: 200, align: 'right' });
       
       // ==================== FOOTER ====================
       y += netBoxHeight + 30;

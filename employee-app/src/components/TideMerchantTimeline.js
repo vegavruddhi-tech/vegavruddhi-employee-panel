@@ -7,6 +7,15 @@ import { BRAND } from '../theme';
 
 const EMP_API = process.env.REACT_APP_EMPLOYEE_API_URL || 'http://localhost:4000/api';
 
+// Global state to track if ANY timeline is expanded
+let globalTimelineExpanded = false;
+const timelineListeners = new Set();
+
+const notifyTimelineChange = (isExpanded) => {
+  globalTimelineExpanded = isExpanded;
+  timelineListeners.forEach(listener => listener(isExpanded));
+};
+
 // Month names for display
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -37,7 +46,24 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
   const [loading, setLoading] = useState(false);
   const [timeline, setTimeline] = useState(null);
   const [error, setError] = useState(null);
-  const [selectedMonth, setSelectedMonth] = useState(null); // Track which month is selected
+  const [selectedMonth, setSelectedMonth] = useState(null);
+  const [anyTimelineOpen, setAnyTimelineOpen] = useState(false);
+
+  // Listen to global timeline state changes
+  useEffect(() => {
+    const listener = (isExpanded) => {
+      setAnyTimelineOpen(isExpanded);
+    };
+    timelineListeners.add(listener);
+    return () => {
+      timelineListeners.delete(listener);
+    };
+  }, []);
+
+  // Cleanup body class on unmount
+  useEffect(() => {
+    return () => { document.body.classList.remove('timeline-open'); };
+  }, []);
 
   const fetchTimeline = async () => {
     if (timeline) return; // Already loaded
@@ -69,8 +95,14 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
     const newExpanded = !expanded;
     setExpanded(newExpanded);
     
-    if (newExpanded && !timeline) {
-      fetchTimeline();
+    // Notify all timeline instances about the state change
+    notifyTimelineChange(newExpanded);
+    
+    if (newExpanded) {
+      document.body.classList.add('timeline-open');
+      if (!timeline) fetchTimeline();
+    } else {
+      document.body.classList.remove('timeline-open');
     }
   };
 
@@ -82,8 +114,13 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
 
   return (
     <>
-      {/* Timeline Toggle Button - Hide when any modal is expanded */}
-      {!expanded && (
+      <Box className="timeline-btn-wrapper" sx={{ 
+        position: 'relative',
+        visibility: anyTimelineOpen ? 'hidden' : 'visible',
+        pointerEvents: anyTimelineOpen ? 'none' : 'auto',
+        display: 'inline-flex'
+      }}>
+        {/* Timeline Toggle Button */}
         <Tooltip title="Show Month-by-Month Timeline" placement="left">
           <IconButton
             size="small"
@@ -105,7 +142,7 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
             📊
           </IconButton>
         </Tooltip>
-      )}
+      </Box>
 
       {/* Backdrop */}
       {expanded && (
@@ -118,7 +155,7 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
             right: 0,
             bottom: 0,
             bgcolor: 'rgba(0, 0, 0, 0.7)',
-            zIndex: 999998,
+            zIndex: 99999,
             backdropFilter: 'blur(2px)',
             pointerEvents: 'all'
           }}
@@ -134,15 +171,16 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
             top: '50%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
-            width: '90%',
-            maxWidth: 900,
-            maxHeight: '90vh',
+            width: { xs: '100%', sm: '90%' },
+            maxWidth: { xs: '100%', sm: 900 },
+            height: { xs: '100vh', sm: 'auto' },
+            maxHeight: { xs: '100vh', sm: '90vh' },
             overflow: 'auto',
             border: `3px solid ${BRAND.primary}`,
-            borderRadius: 3,
+            borderRadius: { xs: 0, sm: 3 },
             bgcolor: '#ffffff',
             boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-            zIndex: 999999
+            zIndex: 100000
           }}>
           {/* Close Button */}
           <IconButton
@@ -153,7 +191,7 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
               right: 8,
               color: '#fff',
               bgcolor: 'rgba(0,0,0,0.2)',
-              zIndex: 10,
+              zIndex: 1,
               '&:hover': { bgcolor: 'rgba(0,0,0,0.3)' }
             }}
           >
@@ -162,19 +200,33 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
           
           <Box sx={{
             background: `linear-gradient(135deg, ${BRAND.primary}dd, ${BRAND.primary}88)`,
-            px: 2.5,
-            py: 1.5,
+            px: { xs: 2, sm: 2.5 },
+            py: { xs: 2, sm: 1.5 },
             color: '#fff'
           }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1, color: '#fff' }}>
+            <Typography variant="subtitle1" sx={{ 
+              fontWeight: 800, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 1, 
+              color: '#fff',
+              fontSize: { xs: '0.95rem', sm: '1rem' },
+              pr: 4
+            }}>
               📅 Merchant Timeline — {customerName}
             </Typography>
-            <Typography variant="caption" sx={{ opacity: 0.9, color: '#fff' }}>
+            <Typography variant="caption" sx={{ 
+              opacity: 0.9, 
+              color: '#fff',
+              fontSize: { xs: '0.7rem', sm: '0.75rem' },
+              display: 'block',
+              mt: 0.5
+            }}>
               Phone: {phone} · Verification & Priority Pass Pro Status (2026)
             </Typography>
           </Box>
 
-          <CardContent sx={{ p: 2.5 }}>
+          <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
             {loading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4, gap: 2 }}>
                 <CircularProgress size={24} sx={{ color: BRAND.primary }} />
@@ -195,10 +247,22 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
               <Box>
                 {/* Month Buttons */}
                 <Box sx={{ mb: 3 }}>
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', mb: 1.5, display: 'block', textTransform: 'uppercase', letterSpacing: 1 }}>
-                    � Select Month to View Details
+                  <Typography variant="caption" sx={{ 
+                    fontWeight: 700, 
+                    color: 'text.secondary', 
+                    mb: 1.5, 
+                    display: 'block', 
+                    textTransform: 'uppercase', 
+                    letterSpacing: 1,
+                    fontSize: { xs: '0.65rem', sm: '0.75rem' }
+                  }}>
+                    📅 Select Month to View Details
                   </Typography>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 0.8 }}>
+                  <Box sx={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: { xs: 'repeat(6, 1fr)', sm: 'repeat(12, 1fr)' }, 
+                    gap: { xs: 0.5, sm: 0.8 }
+                  }}>
                     {timeline.timeline.map((month, idx) => {
                       const isCurrentMonth = idx === currentMonthIndex;
                       const isSelected = selectedMonth === month.month;
@@ -230,13 +294,13 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                           variant={isSelected ? 'contained' : 'outlined'}
                           sx={{
                             minWidth: 0,
-                            p: 1.5,
+                            p: { xs: 1, sm: 1.5 },
                             borderRadius: 2,
                             border: `2px solid ${isSelected ? BRAND.primary : buttonColor}`,
                             bgcolor: isSelected ? BRAND.primary : buttonBg,
                             color: isSelected ? '#fff' : buttonColor,
                             fontWeight: 800,
-                            fontSize: 11,
+                            fontSize: { xs: 9, sm: 11 },
                             textTransform: 'uppercase',
                             outline: isCurrentMonth ? `3px solid ${BRAND.primary}40` : 'none',
                             outlineOffset: 2,
@@ -254,7 +318,7 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                         >
                           <Typography variant="caption" sx={{ 
                             fontWeight: 800, 
-                            fontSize: 10,
+                            fontSize: { xs: 8, sm: 10 },
                             lineHeight: 1,
                             color: 'inherit'
                           }}>
@@ -262,7 +326,7 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                           </Typography>
                           {isCurrentMonth && (
                             <Typography variant="caption" sx={{ 
-                              fontSize: 7, 
+                              fontSize: { xs: 6, sm: 7 }, 
                               opacity: 0.8,
                               lineHeight: 1,
                               color: 'inherit'
@@ -279,18 +343,34 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                 {/* Selected Month Details */}
                 {selectedMonthData && (
                   <Box sx={{ 
-                    p: 2.5, 
+                    p: { xs: 1.5, sm: 2.5 }, 
                     bgcolor: '#f9fffe', 
                     borderRadius: 2, 
                     border: `2px solid ${BRAND.primary}`,
                     boxShadow: '0 2px 8px rgba(26,71,49,0.1)'
                   }}>
                     {/* Month Header */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, pb: 1.5, borderBottom: '2px solid #e0e0e0' }}>
-                      <Typography variant="h6" sx={{ fontWeight: 800, color: BRAND.primary, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between', 
+                      mb: 2, 
+                      pb: 1.5, 
+                      borderBottom: '2px solid #e0e0e0',
+                      flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                      gap: 1
+                    }}>
+                      <Typography variant="h6" sx={{ 
+                        fontWeight: 800, 
+                        color: BRAND.primary, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 1,
+                        fontSize: { xs: '1rem', sm: '1.25rem' }
+                      }}>
                         📊 {selectedMonthData.month} 2026
                       </Typography>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                         {/* Verification Status Badge */}
                         <Chip
                           label={selectedMonthData.status}
@@ -299,7 +379,7 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                             bgcolor: STATUS_COLORS[selectedMonthData.status]?.bg || '#f5f5f5',
                             color: STATUS_COLORS[selectedMonthData.status]?.color || '#888',
                             fontWeight: 700,
-                            fontSize: 11,
+                            fontSize: { xs: 9, sm: 11 },
                             border: `1.5px solid ${STATUS_COLORS[selectedMonthData.status]?.color || '#888'}`,
                           }}
                         />
@@ -312,7 +392,7 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                               bgcolor: selectedMonthData.priorityPass === 'Active' ? '#e3f2fd' : '#fdecea',
                               color: selectedMonthData.priorityPass === 'Active' ? '#1565c0' : '#c62828',
                               fontWeight: 700,
-                              fontSize: 11,
+                              fontSize: { xs: 9, sm: 11 },
                               border: `1.5px solid ${selectedMonthData.priorityPass === 'Active' ? '#1565c0' : '#c62828'}`,
                             }}
                           />
@@ -322,14 +402,28 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
 
                     {/* Details Grid */}
                     {selectedMonthData.hasData ? (
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                      <Box sx={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, 
+                        gap: 2,
+                        overflow: 'hidden'
+                      }}>
                         {/* Merchant Info */}
                         {selectedMonthData.merchantName && (
                           <Box>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mb: 0.5 }}>
+                            <Typography variant="caption" sx={{ 
+                              color: 'text.secondary', 
+                              fontWeight: 600, 
+                              display: 'block', 
+                              mb: 0.5,
+                              fontSize: { xs: '0.65rem', sm: '0.75rem' }
+                            }}>
                               Merchant Name
                             </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            <Typography variant="body2" sx={{ 
+                              fontWeight: 700,
+                              fontSize: { xs: '0.8rem', sm: '0.875rem' }
+                            }}>
                               {selectedMonthData.merchantName}
                             </Typography>
                           </Box>
@@ -338,10 +432,19 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                         {/* Location */}
                         {selectedMonthData.location && (
                           <Box>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mb: 0.5 }}>
+                            <Typography variant="caption" sx={{ 
+                              color: 'text.secondary', 
+                              fontWeight: 600, 
+                              display: 'block', 
+                              mb: 0.5,
+                              fontSize: { xs: '0.65rem', sm: '0.75rem' }
+                            }}>
                               Location
                             </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            <Typography variant="body2" sx={{ 
+                              fontWeight: 700,
+                              fontSize: { xs: '0.8rem', sm: '0.875rem' }
+                            }}>
                               📍 {selectedMonthData.location}
                             </Typography>
                           </Box>
@@ -349,10 +452,20 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
 
                         {/* Priority Pass Status */}
                         <Box>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mb: 0.5 }}>
+                          <Typography variant="caption" sx={{ 
+                            color: 'text.secondary', 
+                            fontWeight: 600, 
+                            display: 'block', 
+                            mb: 0.5,
+                            fontSize: { xs: '0.65rem', sm: '0.75rem' }
+                          }}>
                             Priority Pass Pro
                           </Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 700, color: selectedMonthData.priorityPass === 'Active' ? '#2e7d32' : '#c62828' }}>
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 700, 
+                            color: selectedMonthData.priorityPass === 'Active' ? '#2e7d32' : '#c62828',
+                            fontSize: { xs: '0.8rem', sm: '0.875rem' }
+                          }}>
                             {selectedMonthData.priorityPass === 'Active' ? '✅ Active' : selectedMonthData.priorityPass || '❌ Not Active'}
                           </Typography>
                         </Box>
@@ -360,10 +473,19 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                         {/* Last Updated */}
                         {selectedMonthData.lastUpdated && (
                           <Box>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mb: 0.5 }}>
+                            <Typography variant="caption" sx={{ 
+                              color: 'text.secondary', 
+                              fontWeight: 600, 
+                              display: 'block', 
+                              mb: 0.5,
+                              fontSize: { xs: '0.65rem', sm: '0.75rem' }
+                            }}>
                               Last Updated
                             </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            <Typography variant="body2" sx={{ 
+                              fontWeight: 700,
+                              fontSize: { xs: '0.8rem', sm: '0.875rem' }
+                            }}>
                               {new Date(selectedMonthData.lastUpdated).toLocaleDateString('en-IN', { 
                                 day: 'numeric', 
                                 month: 'short', 
@@ -377,8 +499,14 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
 
                         {/* Verification Checks */}
                         {selectedMonthData.verification?.checks && selectedMonthData.verification.checks.length > 0 && (
-                          <Box sx={{ gridColumn: '1 / -1' }}>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mb: 1 }}>
+                          <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+                            <Typography variant="caption" sx={{ 
+                              color: 'text.secondary', 
+                              fontWeight: 600, 
+                              display: 'block', 
+                              mb: 1,
+                              fontSize: { xs: '0.65rem', sm: '0.75rem' }
+                            }}>
                               Verification Checks
                             </Typography>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8 }}>
@@ -387,14 +515,16 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                                   display: 'flex', 
                                   alignItems: 'center', 
                                   gap: 1,
-                                  p: 1,
+                                  p: { xs: 0.8, sm: 1 },
                                   bgcolor: check.pass ? '#e6f4ea' : '#fdecea',
                                   borderRadius: 1,
-                                  border: `1px solid ${check.pass ? '#2e7d32' : '#c62828'}30`
+                                  border: `1px solid ${check.pass ? '#2e7d32' : '#c62828'}30`,
+                                  overflow: 'hidden',
+                                  position: 'relative'
                                 }}>
                                   <Box sx={{ 
-                                    width: 20, 
-                                    height: 20, 
+                                    width: { xs: 18, sm: 20 }, 
+                                    height: { xs: 18, sm: 20 }, 
                                     borderRadius: '50%', 
                                     bgcolor: check.pass ? '#2e7d32' : '#c62828',
                                     color: '#fff',
@@ -402,17 +532,22 @@ function TideMerchantTimeline({ phone, customerName, inline = false }) {
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     fontWeight: 700,
-                                    fontSize: 12,
+                                    fontSize: { xs: 10, sm: 12 },
                                     flexShrink: 0
                                   }}>
                                     {check.pass ? '✓' : '✗'}
                                   </Box>
                                   <Box sx={{ flex: 1 }}>
-                                    <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
+                                    <Typography variant="body2" sx={{ 
+                                      fontWeight: 600, 
+                                      fontSize: { xs: 11, sm: 12 }
+                                    }}>
                                       {check.label}
                                     </Typography>
                                     {check.actual && (
-                                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
+                                      <Typography variant="caption" color="text.secondary" sx={{ 
+                                        fontSize: { xs: 9, sm: 10 }
+                                      }}>
                                         Value: {check.actual}
                                       </Typography>
                                     )}

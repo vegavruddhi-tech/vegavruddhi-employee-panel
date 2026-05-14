@@ -558,6 +558,11 @@ module.exports = (connectionManager, connectDB) => {
         if (cached) {
           try {
             const cachedData = JSON.parse(cached);
+            
+            // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
+            const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
+            const inSheet = cachedData.status !== 'Not Found' ? true : (cachedData.matched || false);
+            
             result[key] = {
               status:     cachedData.status,
               verified:   cachedData.verified,
@@ -566,8 +571,8 @@ module.exports = (connectionManager, connectDB) => {
               checks:     cachedData.checks || [],
               collection: cachedData.collection,
               matchType:  cachedData.matchType,
-              phoneMatch: cachedData.phoneMatch || false,
-              inSheet:    cachedData.matched || false,
+              phoneMatch: phoneMatch,
+              inSheet:    inSheet,
               monthLabel: month
             };
             cacheHits++;
@@ -600,6 +605,10 @@ module.exports = (connectionManager, connectDB) => {
               crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
             ]);
 
+            // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
+            const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
+            const inSheet = v.status !== 'Not Found' ? true : pc.matched;
+
             result[key] = {
               status:     v.status,
               verified:   v.verified,
@@ -608,8 +617,8 @@ module.exports = (connectionManager, connectDB) => {
               checks:     v.checks || [],
               collection: v.collection,
               matchType:  v.matchType,
-              phoneMatch: pc.phoneMatch,
-              inSheet:    pc.matched,
+              phoneMatch: phoneMatch,
+              inSheet:    inSheet,
               monthLabel: month
             };
             
@@ -697,6 +706,11 @@ module.exports = (connectionManager, connectDB) => {
           // Cache hit - use cached data
           try {
             const cachedData = JSON.parse(cached);
+            
+            // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
+            const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
+            const inSheet = cachedData.status !== 'Not Found' ? true : (cachedData.matched || false);
+            
             result[key] = {
               status:     cachedData.status,
               verified:   cachedData.verified,
@@ -705,8 +719,8 @@ module.exports = (connectionManager, connectDB) => {
               checks:     cachedData.checks || [],
               collection: cachedData.collection,
               matchType:  cachedData.matchType,
-              phoneMatch: cachedData.phoneMatch || false,
-              inSheet:    cachedData.matched || false,
+              phoneMatch: phoneMatch,
+              inSheet:    inSheet,
               monthLabel: month
             };
             cacheHits++;
@@ -740,6 +754,10 @@ module.exports = (connectionManager, connectDB) => {
               crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
             ]);
 
+            // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
+            const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
+            const inSheet = v.status !== 'Not Found' ? true : pc.matched;
+
             result[key] = {
               status:     v.status,
               verified:   v.verified,
@@ -748,8 +766,8 @@ module.exports = (connectionManager, connectDB) => {
               checks:     v.checks || [],
               collection: v.collection,
               matchType:  v.matchType,
-              phoneMatch: pc.phoneMatch,
-              inSheet:    pc.matched,
+              phoneMatch: phoneMatch,
+              inSheet:    inSheet,
               monthLabel: month
             };
             

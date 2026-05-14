@@ -667,12 +667,13 @@ export default function Dashboard() {
                   <div className="mr-info" style={{ flex: 1 }}>
                     <div className="mr-name">{f.customerName}</div>
                     <div className="mr-badges">
-                      {info.inSheet === true && (
+                      {vstatus === 'Not Found' ? (
+                        <span className="phone-match-badge notfound">📞 Not in Sheet</span>
+                      ) : (
                         <span className={`phone-match-badge ${info.phoneMatch ? 'match' : 'mismatch'}`}>
                           📞 {info.phoneMatch ? 'Number Matched' : 'Number Mismatch'}
                         </span>
                       )}
-                      {info.inSheet === false && <span className="phone-match-badge notfound">📞 Not in Sheet</span>}
                       <span className="verify-badge" style={{ background: b.bg, color: b.color, borderColor: b.bg }}>
                         {b.icon} {vstatus}
                       </span>
@@ -688,19 +689,27 @@ export default function Dashboard() {
                       <span>📞 {f.customerNumber}</span>
                     </div>
                   </div>
-                  <div className="mr-right">
+                  <div className="mr-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                     <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
                     {pts !== null && (
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800, marginTop: 4 }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800 }}>
                         ⭐ {pts} pts
                       </div>
                     )}
                     <div className="mr-date">{date}</div>
                   </div>
                 </Link>
-                {/* Timeline button - only show for Tide product */}
+                {/* Timeline icon - outside Link, positioned absolutely on the right */}
                 {(f.brand === 'Tide' && f.tideProduct === 'Tide') && (
-                  <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 8, right: 180, zIndex: 100, pointerEvents: 'auto' }}>
+                  <div 
+                    onClick={(e) => e.stopPropagation()} 
+                    style={{ 
+                      position: 'absolute', 
+                      top: '12px',
+                      right: '12px',
+                      zIndex: 10
+                    }}
+                  >
                     <TideMerchantTimeline phone={f.customerNumber} customerName={f.customerName} />
                   </div>
                 )}

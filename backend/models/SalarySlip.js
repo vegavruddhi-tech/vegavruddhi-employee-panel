@@ -35,7 +35,7 @@ const salarySlipSchema = new mongoose.Schema({
     required: true
   },
   
-  // Salary Calculation (Points Based)
+  // Salary Calculation (Points Based for FSE, Fixed + Incentive for TL/Manager)
   pointsEarned: {
     type: Number,
     required: true,
@@ -53,6 +53,14 @@ const salarySlipSchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 250
+  },
+  incentiveAmount: {
+    type: Number,
+    default: 0  // 🔥 NEW: For TL/Manager incentive (not points-based)
+  },
+  baseSalary: {
+    type: Number,
+    default: 0  // 🔥 NEW: Fixed base salary for TL (35000) / Manager (60000)
   },
   totalSalary: {
     type: Number,
@@ -137,10 +145,21 @@ salarySlipSchema.index({ year: 1, month: 1 });
 
 // Calculate total salary before saving
 salarySlipSchema.pre('save', function(next) {
-  if (this.isModified('pointsEarned') || this.isModified('slabPoints') || this.isModified('pointValue')) {
-    this.totalPoints = (this.pointsEarned || 0) + (this.slabPoints || 0);
-    this.totalSalary = this.totalPoints * this.pointValue;
+  const empRole = this.role || 'FSE';
+  
+  if (empRole === 'TL' || empRole === 'Manager') {
+    // TL/Manager: totalSalary = baseSalary + incentiveAmount
+    const baseSal = this.baseSalary || (empRole === 'TL' ? 35000 : 60000);
+    const incentive = this.incentiveAmount || 0;
+    this.totalSalary = baseSal + incentive;
+  } else {
+    // FSE: totalSalary = totalPoints * pointValue
+    if (this.isModified('pointsEarned') || this.isModified('slabPoints') || this.isModified('pointValue')) {
+      this.totalPoints = (this.pointsEarned || 0) + (this.slabPoints || 0);
+      this.totalSalary = this.totalPoints * this.pointValue;
+    }
   }
+  
   next();
 });
 

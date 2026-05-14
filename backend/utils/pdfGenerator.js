@@ -37,6 +37,52 @@ function getWorkingDaysInMonth(month, year) {
 }
 
 function calculateSalaryBreakdown(slip) {
+  const empRole = slip.role || 'FSE';
+  
+  // 🔥 Role-based salary calculation
+  if (empRole === 'TL' || empRole === 'Manager') {
+    // TL/Manager: Fixed base salary + incentive
+    const baseSalary = slip.baseSalary || (empRole === 'TL' ? 35000 : 60000);
+    const incentiveAmount = slip.incentiveAmount || 0;
+    const totalSalary = baseSalary + incentiveAmount;
+    const TOTAL_DAYS = getWorkingDaysInMonth(slip.month, slip.year);
+    
+    const pctBasic = slip.pctBasic || 50;
+    const pctHRA   = slip.pctHRA   || 25;
+    const pctConv  = slip.pctConv  || 5;
+    const pctSpec  = slip.pctSpec  || 20;
+    
+    // Breakdown is based on total salary (base + incentive)
+    const basic            = Math.round(totalSalary * pctBasic / 100);
+    const hra              = Math.round(totalSalary * pctHRA   / 100);
+    const conveyance       = Math.round(totalSalary * pctConv  / 100);
+    const specialAllowance = Math.round(totalSalary * pctSpec  / 100);
+    
+    const employeePF      = slip.deductionPF   || 0;
+    const professionalTax = slip.deductionPT   || 0;
+    const esic            = slip.deductionESIC || 0;
+    const tds             = slip.deductionTDS  || 0;
+    const totalDeductions = employeePF + professionalTax + esic + tds;
+    
+    const grossSalary = totalSalary;
+    const netSalary   = grossSalary - totalDeductions;
+    
+    return {
+      empRole,
+      baseSalary,
+      incentiveAmount,
+      hasIncentive: incentiveAmount > 0,
+      basic, hra, conveyance, specialAllowance,
+      pctBasic, pctHRA, pctConv, pctSpec,
+      pointsSalary: totalSalary,
+      workingDays: TOTAL_DAYS,
+      TOTAL_DAYS,
+      employeePF, professionalTax, esic, tds,
+      totalDeductions, grossSalary, netSalary
+    };
+  }
+  
+  // FSE: Points-based (existing logic)
   const FIXED_GROSS  = 25000;
   const TOTAL_DAYS   = getWorkingDaysInMonth(slip.month, slip.year);
   const totalPts     = (slip.totalPoints || 0) > 0 ? slip.totalPoints : (slip.pointsEarned || 0);
@@ -66,6 +112,7 @@ function calculateSalaryBreakdown(slip) {
   const netSalary   = grossSalary - totalDeductions;
 
   return {
+    empRole: 'FSE',
     FIXED_GROSS, basic, hra, conveyance, specialAllowance,
     pctBasic, pctHRA, pctConv, pctSpec,
     pointsSalary, incentive, hasIncentive, workingDays,
@@ -169,7 +216,16 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       // ==================== EMPLOYEE INFO BOX ====================
       y = 120;
       const hasSlabBonus = (slipData.slabPoints || 0) > 0;
-      const boxHeight = hasSlabBonus ? 88 : 74;  // Smaller box if no slab bonus
+      const empRole = calc.empRole || 'FSE';
+      
+      // Calculate box height based on role and content
+      let boxHeight;
+      if (empRole === 'FSE') {
+        boxHeight = hasSlabBonus ? 82 : 68;  // 🔥 Reduced from 88/74 to 82/68
+      } else {
+        // TL/Manager: Base info (3 rows) + Base Salary row + Total Salary row = 5 rows
+        boxHeight = calc.hasIncentive ? 82 : 68;  // 🔥 Reduced from 88/74 to 82/68
+      }
       
       // Background box with rounded corners
       doc.roundedRect(40, y, 515, boxHeight, 3)
@@ -180,8 +236,8 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       const col2X = 170;  // Value column 1 (moved from 210 - closer to label)
       const col3X = 330;  // Label column 2
       const col4X = 440;  // Value column 2 (moved from 470 - closer to label)
-      let infoY = y + 12;
-      const lineHeight = 14;
+      let infoY = y + 10;  // 🔥 Reduced from 12 to 10
+      const lineHeight = 13;  // 🔥 Reduced from 14 to 13
       
       // Row 1: Employee Name & Employee ID
       doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
@@ -222,37 +278,48 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       
       infoY += lineHeight;
       
-      // Row 4: Base Points & Slab Bonus (only show if slab bonus exists)
+      // Row 4: Base Points & Slab Bonus (FSE only) OR Base Salary & Incentive (TL/Manager)
       
-      if (hasSlabBonus) {
-        // Show both Base Points and Slab Bonus
+      if (calc.empRole === 'FSE') {
+        // FSE: Show points
+        if (hasSlabBonus) {
+          // Show both Base Points and Slab Bonus
+          doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
+             .text('Base Points:', col1X, infoY);
+          doc.fontSize(10).fillColor(TEXT_PRIMARY).font('Helvetica')
+             .text(`${slipData.pointsEarned || 0} pts`, col2X, infoY);
+          
+          doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
+             .text('Slab Bonus:', col3X, infoY);
+          doc.fontSize(10).fillColor(TEXT_PRIMARY).font('Helvetica')
+             .text(`+${slipData.slabPoints} pts`, col4X, infoY);
+          
+          infoY += lineHeight;
+        }
+        
+        // Row 5: Total Points (full width, highlighted)
         doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
-           .text('Base Points:', col1X, infoY);
-        doc.fontSize(10).fillColor(TEXT_PRIMARY).font('Helvetica')
-           .text(`${slipData.pointsEarned || 0} pts`, col2X, infoY);
+           .text('Total Points:', col1X, infoY);
+        
+        // Admin sees calculation, Employee sees only points (no amount)
+        const totalPointsText = isAdmin 
+          ? `${slipData.totalPoints || slipData.pointsEarned || 0} pts × Rs.${slipData.pointValue || 250} = ${fmt(calc.pointsSalary)}`
+          : `${slipData.totalPoints || slipData.pointsEarned || 0} pts`;
         
         doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
-           .text('Slab Bonus:', col3X, infoY);
-        doc.fontSize(10).fillColor(TEXT_PRIMARY).font('Helvetica')
-           .text(`+${slipData.slabPoints} pts`, col4X, infoY);
-        
-        infoY += lineHeight;
+           .text(totalPointsText, col2X, infoY, { width: 350 });
+      } else {
+        // TL/Manager: Don't show salary amounts in employee info (only in Earnings section)
+        // Just skip to next section - no salary rows here
       }
       
-      // Row 5: Total Points (full width, highlighted)
-      doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
-         .text('Total Points:', col1X, infoY);
-      
-      // Admin sees calculation, Employee sees only points (no amount)
-      const totalPointsText = isAdmin 
-        ? `${slipData.totalPoints || slipData.pointsEarned || 0} pts × Rs.${slipData.pointValue || 250} = ${fmt(calc.pointsSalary)}`
-        : `${slipData.totalPoints || slipData.pointsEarned || 0} pts`;
-      
-      doc.fontSize(10).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
-         .text(totalPointsText, col2X, infoY, { width: 350 });
-      
       // ==================== EARNINGS SECTION ====================
-      y = hasSlabBonus ? 228 : 214;  // Adjust based on whether slab bonus was shown
+      // Adjust Y position based on role and content
+      if (empRole === 'FSE') {
+        y = hasSlabBonus ? 217 : 203;  // 🔥 Reduced from 228/214 to 217/203
+      } else {
+        y = calc.hasIncentive ? 217 : 203;  // 🔥 Reduced from 228/214 to 217/203
+      }
       
       doc.fontSize(12).fillColor(GREEN_PRIMARY).font('Helvetica-Bold')
          .text('Earnings', 40, y);
@@ -286,22 +353,29 @@ async function generateSalarySlipPDF(slipData, isAdmin = false) {
       
       // Earnings rows
       const earningsData = [
-        ['Basic', '50%', calc.basic],
-        ['HRA', '25%', calc.hra],
-        ['Conveyance / Fuel', '5%', calc.conveyance],
-        ['Special Allowance', '20%', calc.specialAllowance]
+        ['Basic', `${calc.pctBasic}%`, calc.basic],
+        ['HRA', `${calc.pctHRA}%`, calc.hra],
+        ['Conveyance / Fuel', `${calc.pctConv}%`, calc.conveyance],
+        ['Special Allowance', `${calc.pctSpec}%`, calc.specialAllowance]
       ];
       
       if (calc.hasIncentive) {
-        // Admin sees calculation, Employee sees only "Incentive"
-        const incentiveLabel = isAdmin
-          ? `Incentive (${fmt(calc.pointsSalary)} − ${fmt(calc.FIXED_GROSS)})`
-          : 'Incentive';
+        // Different incentive display for FSE vs TL/Manager
+        let incentiveLabel;
+        if (calc.empRole === 'FSE') {
+          // FSE: Show calculation (admin) or just "Incentive" (employee)
+          incentiveLabel = isAdmin
+            ? `Incentive (${fmt(calc.pointsSalary)} − ${fmt(calc.FIXED_GROSS)})`
+            : 'Incentive';
+        } else {
+          // TL/Manager: Just show "Incentive (Additional)"
+          incentiveLabel = 'Incentive (Additional)';
+        }
         
         earningsData.push([
           incentiveLabel,
           'Variable',
-          calc.incentive
+          calc.empRole === 'FSE' ? calc.incentive : calc.incentiveAmount
         ]);
       }
       

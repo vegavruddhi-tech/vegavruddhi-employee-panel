@@ -28,7 +28,7 @@ if (!fs.existsSync(uploadsDir)) {
 // app.use(cors());
 if (process.env.NODE_ENV !== 'production'){app.use(cors());}
 app.use(express.json());
-// app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', express.static(uploadsDir));
 
 // MongoDB cached connection for Vercel
 let cached = global.mongoose;

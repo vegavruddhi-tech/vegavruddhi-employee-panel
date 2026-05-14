@@ -9,6 +9,7 @@ const employeeSchema = new mongoose.Schema({
   reportingManager:   { type: String, required: true },
   position:           { type: String, required: true },
   location:           { type: String, required: true },
+  role:               { type: String, default: 'FSE', enum: ['FSE', 'TL', 'Manager'] }, // 🔥 NEW: Employee role
   dob: { type: String, default: '' },
 
   // 🔥 NEW FIELDS (Cloudinary URLs)

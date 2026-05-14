@@ -101,6 +101,7 @@ router.get('/employees', async (req, res) => {
     console.log(`📋 GET /api/salary/employees - Month: ${month}, Year: ${year}`);
 
     const Employee = require('../models/Employee');
+    const TeamLead = require('../models/TeamLead');
     const { getRedisClient } = require('../utils/redisClient');
     const redis = getRedisClient();
     const pv = parseInt(pointValue);
@@ -114,12 +115,27 @@ router.get('/employees', async (req, res) => {
     if (savedPoints && savedPoints.length > 0) {
       console.log(`✅ LAYER 2: Found ${savedPoints.length} employees in EmployeeMonthlyPoints`);
 
-      // Get employee details for email/phone/role
+      // Get employee details for email/phone/role from BOTH Users and TeamLeads collections
       const allEmployees = await Employee.find({ status: 'Active' }).lean();
+      const allTeamLeads = await TeamLead.find({ status: 'Active' }).lean();
+      
       const empDbMap = {};
+      
+      // Add FSE employees
       allEmployees.forEach(emp => {
         const key = (emp.newJoinerName || '').trim().toLowerCase();
-        empDbMap[key] = emp;
+        empDbMap[key] = { ...emp, role: emp.role || 'FSE' };
+      });
+      
+      // Add TL employees
+      allTeamLeads.forEach(tl => {
+        const key = (tl.name || '').trim().toLowerCase();
+        empDbMap[key] = {
+          newJoinerEmailId: tl.email || tl.emailId,
+          newJoinerPhone: tl.phone,
+          employeeId: tl.employeeId || null,  // 🔥 FIX: Include TL employee ID (VVT0001, etc.)
+          role: 'TL'
+        };
       });
 
       // Check existing slips
@@ -131,24 +147,74 @@ router.get('/employees', async (req, res) => {
         const empKey = emp.employeeName.trim().toLowerCase();
         const empDb  = empDbMap[empKey];
         const email  = emp.employeeEmail || empDb?.newJoinerEmailId || empDb?.email || '';
-        const totalPts = emp.totalPoints || emp.basePoints || 0;
+        const role   = empDb?.role || 'FSE';
+        
+        // 🔥 Role-based salary calculation
+        let totalSalary;
+        let totalPts = emp.totalPoints || emp.basePoints || 0;
+        
+        if (role === 'TL') {
+          // TL: Fixed ₹35,000 base (no points)
+          totalSalary = 35000;
+          totalPts = 0; // Don't show points for TL
+        } else if (role === 'Manager') {
+          // Manager: Fixed ₹60,000 base (no points)
+          totalSalary = 60000;
+          totalPts = 0; // Don't show points for Manager
+        } else {
+          // FSE: Points-based (existing logic)
+          totalSalary = Math.round(totalPts * pv * 10) / 10;
+        }
 
         return {
           employeeId:    empDb?.employeeId || null,  // VV0001 format
           employeeName:  emp.employeeName,
           employeeEmail: email,
           employeePhone: empDb?.newJoinerPhone || empDb?.phone || '',
-          role:          empDb?.role || 'FSE',
-          pointsEarned:  emp.basePoints || 0,
-          slabPoints:    emp.slabPoints || 0,
-          totalPoints:   totalPts,
+          role:          role,
+          pointsEarned:  role === 'FSE' ? (emp.basePoints || 0) : 0,
+          slabPoints:    role === 'FSE' ? (emp.slabPoints || 0) : 0,
+          totalPoints:   role === 'FSE' ? totalPts : 0,
           pointValue:    pv,
-          totalSalary:   Math.round(totalPts * pv * 10) / 10,
+          totalSalary:   totalSalary,
           hasSlip:       !!slipMap[email],
           slipId:        slipMap[email]?._id || null,
           slipStatus:    slipMap[email]?.status || null,
           dataSource:    'mongodb'
         };
+      });
+      
+      // 🔥 ADD TLs who don't have points data (they get fixed salary anyway)
+      // IMPORTANT: Only add TLs that are NOT already in employeeList to avoid duplicates
+      allTeamLeads.forEach(tl => {
+        const tlKey = (tl.name || '').trim().toLowerCase();
+        const tlEmail = (tl.email || tl.emailId || '').trim().toLowerCase();
+        
+        // Check if TL already exists by name OR email
+        const alreadyExists = employeeList.some(e => 
+          e.employeeName.toLowerCase() === tlKey || 
+          (e.employeeEmail && e.employeeEmail.toLowerCase() === tlEmail)
+        );
+        
+        if (!alreadyExists) {
+          const email = tl.email || tl.emailId || '';
+          employeeList.push({
+            employeeId: tl.employeeId || null,  // 🔥 FIX: Include TL employee ID
+            employeeName: tl.name,
+            employeeEmail: email,
+            employeePhone: tl.phone || '',
+            role: 'TL',
+            pointsEarned: 0,
+            slabPoints: 0,
+            totalPoints: 0,
+            pointValue: pv,
+            totalSalary: 35000, // Fixed TL salary
+            hasSlip: !!slipMap[email],
+            slipId: slipMap[email]?._id || null,
+            slipStatus: slipMap[email]?.status || null,
+            dataSource: 'teamleads'
+          });
+        }
       });
 
       // Sort by totalPoints descending
@@ -271,18 +337,36 @@ router.get('/employees', async (req, res) => {
 
       const totalPoints = Math.round((basePoints + slabPoints) * 10) / 10;
       const email       = empDb?.newJoinerEmailId || empDb?.email || '';
+      const role        = empDb?.role || 'FSE';
+      
+      // 🔥 Role-based salary calculation
+      let totalSalary;
+      let displayPoints = totalPoints;
+      
+      if (role === 'TL') {
+        // TL: Fixed ₹35,000 base (no points)
+        totalSalary = 35000;
+        displayPoints = 0;
+      } else if (role === 'Manager') {
+        // Manager: Fixed ₹60,000 base (no points)
+        totalSalary = 60000;
+        displayPoints = 0;
+      } else {
+        // FSE: Points-based (existing logic)
+        totalSalary = Math.round(totalPoints * pv * 10) / 10;
+      }
 
       employeeList.push({
         employeeId:    empDb?.employeeId || null,  // VV0001 format
         employeeName:  data.displayName,
         employeeEmail: email,
         employeePhone: empDb?.newJoinerPhone || empDb?.phone || '',
-        role:          empDb?.role || 'FSE',
-        pointsEarned:  basePoints,
-        slabPoints,
-        totalPoints,
+        role:          role,
+        pointsEarned:  role === 'FSE' ? basePoints : 0,
+        slabPoints:    role === 'FSE' ? slabPoints : 0,
+        totalPoints:   role === 'FSE' ? displayPoints : 0,
         pointValue:    pv,
-        totalSalary:   Math.round(totalPoints * pv * 10) / 10,
+        totalSalary:   totalSalary,
         hasSlip:       false,
         slipId:        null,
         slipStatus:    null,
@@ -334,6 +418,7 @@ router.post('/generate', async (req, res) => {
       pointsEarned,
       slabPoints = 0,
       pointValue = 250,
+      incentiveAmount = 0,  // 🔥 NEW: For TL/Manager
       generatedBy,
       pctBasic = 50,
       pctHRA = 25,
@@ -345,6 +430,12 @@ router.post('/generate', async (req, res) => {
       deductionTDS = 0,
       remarks = ''
     } = req.body;
+
+    // 🔥 DEBUG: Log what we received
+    console.log('📋 Generate Salary Slip Request:');
+    console.log('   Employee ID:', employeeId);
+    console.log('   Employee Name:', employeeName);
+    console.log('   Role:', role);
 
     // Validation
     if (!employeeEmail || !month || !year) {
@@ -365,9 +456,26 @@ router.post('/generate', async (req, res) => {
       });
     }
 
-    // Calculate total points and salary
-    const totalPoints = (parseFloat(pointsEarned) || 0) + (parseFloat(slabPoints) || 0);
-    const totalSalary = totalPoints * pointValue;
+    // Calculate total points and salary based on role
+    const empRole = role || 'FSE';
+    let totalPoints, totalSalary, baseSalary;
+    
+    if (empRole === 'TL') {
+      // TL: Fixed ₹35,000 base + incentive
+      baseSalary = 35000;
+      totalPoints = 0;
+      totalSalary = baseSalary + (parseFloat(incentiveAmount) || 0);
+    } else if (empRole === 'Manager') {
+      // Manager: Fixed ₹60,000 base + incentive
+      baseSalary = 60000;
+      totalPoints = 0;
+      totalSalary = baseSalary + (parseFloat(incentiveAmount) || 0);
+    } else {
+      // FSE: Points-based (existing logic)
+      baseSalary = 0;
+      totalPoints = (parseFloat(pointsEarned) || 0) + (parseFloat(slabPoints) || 0);
+      totalSalary = totalPoints * pointValue;
+    }
 
     // Create salary slip
     const salarySlip = new SalarySlip({
@@ -375,13 +483,15 @@ router.post('/generate', async (req, res) => {
       employeeName,
       employeeEmail,
       employeePhone,
-      role: role || 'FSE',
+      role: empRole,
       month,
       year: parseInt(year),
-      pointsEarned: parseFloat(pointsEarned) || 0,
-      slabPoints: parseFloat(slabPoints) || 0,
+      pointsEarned: empRole === 'FSE' ? (parseFloat(pointsEarned) || 0) : 0,
+      slabPoints: empRole === 'FSE' ? (parseFloat(slabPoints) || 0) : 0,
       totalPoints,
       pointValue,
+      incentiveAmount: (empRole === 'TL' || empRole === 'Manager') ? (parseFloat(incentiveAmount) || 0) : 0,
+      baseSalary,
       totalSalary,
       status: 'generated',
       generatedBy: generatedBy || 'admin',
@@ -390,6 +500,8 @@ router.post('/generate', async (req, res) => {
       pctBasic, pctHRA, pctConv, pctSpec,
       deductionPF, deductionPT, deductionESIC, deductionTDS
     });
+
+    console.log('💾 Saving salary slip with employeeId:', salarySlip.employeeId);
 
     await salarySlip.save();
 
@@ -730,18 +842,32 @@ router.post('/bulk-generate', async (req, res) => {
           continue;
         }
 
+        // Calculate salary based on role
+        const empRole = emp.role || 'FSE';
+        let totalSalary;
+        
+        if (empRole === 'TL') {
+          totalSalary = 35000;
+        } else if (empRole === 'Manager') {
+          totalSalary = 60000;
+        } else {
+          totalSalary = emp.pointsEarned * pointValue;
+        }
+
         // Create salary slip
         const salarySlip = new SalarySlip({
           employeeId: emp.employeeId,
           employeeName: emp.employeeName,
           employeeEmail: emp.employeeEmail,
           employeePhone: emp.employeePhone,
-          role: emp.role || 'FSE',
+          role: empRole,
           month,
           year: parseInt(year),
-          pointsEarned: emp.pointsEarned,
+          pointsEarned: empRole === 'FSE' ? emp.pointsEarned : 0,
+          slabPoints: empRole === 'FSE' ? (emp.slabPoints || 0) : 0,
+          totalPoints: empRole === 'FSE' ? (emp.pointsEarned + (emp.slabPoints || 0)) : 0,
           pointValue,
-          totalSalary: emp.pointsEarned * pointValue,
+          totalSalary,
           status: 'generated',
           generatedBy: generatedBy || 'admin'
         });

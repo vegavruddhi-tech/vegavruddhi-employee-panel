@@ -49,8 +49,8 @@ export default function Dashboard() {
   const [dateFilter,   setDateFilter]   = useState('all');
   const [fromDate,     setFromDate]     = useState('');
   const [toDate,       setToDate]       = useState('');
-  const [selYear,      setSelYear]      = useState('');
-  const [selMonth,     setSelMonth]     = useState('');
+  const [selYear,      setSelYear]      = useState(new Date().getFullYear().toString());
+  const [selMonth,     setSelMonth]     = useState(new Date().getMonth().toString());
   const [selProduct,   setSelProduct]   = useState('');
   const [adjustment,   setAdjustment]   = useState(0);
   const [taskCounts,   setTaskCounts]   = useState({ pending: 0, completed: 0, total: 0 });
@@ -552,7 +552,7 @@ export default function Dashboard() {
                 style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selMonth !== '' ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 130, outline: 'none' }}>
                 <option value="">All Months</option>
                 {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i) => (
-                  <option key={i} value={i}>{m}</option>
+                  <option key={i} value={i.toString()}>{m}</option>
                 ))}
               </select>
               <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#40916c', fontSize: 12 }}>▼</span>

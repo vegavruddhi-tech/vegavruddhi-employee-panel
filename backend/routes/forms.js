@@ -241,12 +241,49 @@ router.delete('/delete/:id', verifyToken, async (req, res) => {
 
 // ── ADMIN ROUTES (no auth required for admin panel access) ──────────────
 
-// GET /api/forms/admin/all — all forms grouped by employee
+// GET /api/forms/admin/all — all forms grouped by employee (with role filter and caching)
 router.get('/admin/all', async (req, res) => {
   try {
-    const forms = await FormResponse.find({}).sort({ createdAt: -1 }).lean();
+    const { role = 'FSE' } = req.query; // Default to FSE for backward compatibility
+    const { getRedisClient } = require('../utils/redisClient');
+    const redis = getRedisClient();
+    
+    // 🔥 Cache key based on role
+    const cacheKey = `admin_forms_all:${role}`;
+    
+    // Try Redis cache first (expires in 5 minutes)
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          console.log(`✅ Cache HIT: ${cacheKey}`);
+          return res.json(JSON.parse(cached));
+        }
+        console.log(`❌ Cache MISS: ${cacheKey}`);
+      } catch (cacheErr) {
+        console.error('Redis get error:', cacheErr.message);
+      }
+    }
+    
+    // 🔥 Fetch from appropriate collection based on role
+    const Model = role === 'TL' ? TLFormResponse : FormResponse;
+    const forms = await Model.find({}).sort({ createdAt: -1 }).lean();
+    
+    console.log(`📋 Fetched ${forms.length} ${role} forms from database`);
+    
+    // Cache the result (5 minutes = 300 seconds)
+    if (redis) {
+      try {
+        await redis.setex(cacheKey, 300, JSON.stringify(forms));
+        console.log(`💾 Cached ${forms.length} forms for ${role}`);
+      } catch (cacheErr) {
+        console.error('Redis set error:', cacheErr.message);
+      }
+    }
+    
     res.json(forms);
   } catch (err) {
+    console.error(`Error fetching ${req.query.role || 'FSE'} forms:`, err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -886,8 +923,6 @@ router.get('/my-points', verifyToken, async (req, res) => {
       if (!emp) return res.status(404).json({ message: 'Employee not found' });
       empName = emp.newJoinerName;
     }
-
-    const trimmedName = empName.trim();
 
     // Find the record with slabs if multiple exist
     const docs = await EmployeePoints.find({

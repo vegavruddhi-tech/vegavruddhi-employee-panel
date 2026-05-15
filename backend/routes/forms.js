@@ -205,7 +205,11 @@ router.get('/detail/:id', verifyToken, async (req, res) => {
     const query = isTL
       ? { _id: req.params.id }
       : { _id: req.params.id, submittedBy: req.user.id };
-    const form = await FormResponse.findOne(query);
+    let form = await FormResponse.findOne(query);
+    // If not found in FSE collection, check TLFormResponse (TL's own forms)
+    if (!form && isTL) {
+      form = await TLFormResponse.findOne({ _id: req.params.id });
+    }
     if (!form) return res.status(404).json({ message: 'Not found' });
     res.json(form);
   } catch (err) {

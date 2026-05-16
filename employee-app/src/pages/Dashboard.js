@@ -49,8 +49,8 @@ export default function Dashboard() {
   const [dateFilter,   setDateFilter]   = useState('all');
   const [fromDate,     setFromDate]     = useState('');
   const [toDate,       setToDate]       = useState('');
-  const [selYear,      setSelYear]      = useState('');
-  const [selMonth,     setSelMonth]     = useState('');
+  const [selYear,      setSelYear]      = useState(new Date().getFullYear().toString());
+  const [selMonth,     setSelMonth]     = useState(new Date().getMonth().toString());
   const [selProduct,   setSelProduct]   = useState('');
   const [adjustment,   setAdjustment]   = useState(0);
   const [taskCounts,   setTaskCounts]   = useState({ pending: 0, completed: 0, total: 0 });
@@ -401,20 +401,20 @@ export default function Dashboard() {
   }, [allForms, verifiedMap, adjustment, backendPoints]);
 
   const kpis = [
-    { key: 'all',      label: 'Total Responses',      value: allForms.length,                                                                    cls: 'kpi-total' },
-    { key: 'onboard',  label: 'Ready for Onboarding', value: allForms.filter(f => f.status === 'Ready for Onboarding').length,                    cls: 'kpi-onboard' },
-    { key: 'notint',   label: 'Not Interested',        value: allForms.filter(f => f.status === 'Not Interested').length,                          cls: 'kpi-notint' },
-    { key: 'error',    label: 'Try but not done',      value: allForms.filter(f => f.status === 'Try but not done due to error').length,            cls: 'kpi-error' },
-    { key: 'revisit',  label: 'Need to visit again',   value: allForms.filter(f => f.status === 'Need to visit again').length,                     cls: 'kpi-revisit' },
+    { key: 'all',      label: 'Total Responses',      value: filtered.length,                                                                    cls: 'kpi-total' },
+    { key: 'onboard',  label: 'Ready for Onboarding', value: filtered.filter(f => f.status === 'Ready for Onboarding').length,                    cls: 'kpi-onboard' },
+    { key: 'notint',   label: 'Not Interested',        value: filtered.filter(f => f.status === 'Not Interested').length,                          cls: 'kpi-notint' },
+    { key: 'error',    label: 'Try but not done',      value: filtered.filter(f => f.status === 'Try but not done due to error').length,            cls: 'kpi-error' },
+    { key: 'revisit',  label: 'Need to visit again',   value: filtered.filter(f => f.status === 'Need to visit again').length,                     cls: 'kpi-revisit' },
   ];
 
   const verifyKpis = [
-    { key: 'verified',  label: 'Fully Verified',       value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length,  cls: 'kpi-verified' },
-    { key: 'critical',  label: 'Critical Failure',     value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure').length, cls: 'kpi-critical' },
-    { key: 'partial',   label: 'Partially Verified',   value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length,   cls: 'kpi-error' },
-    { key: 'notver',    label: 'Not Verified',          value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length,     cls: 'kpi-notint' },
-    { key: 'phmatch',   label: 'Phone Matched',         value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length,           cls: 'kpi-onboard' },
-    { key: 'phnomatch', label: 'Phone Not Matched',     value: allForms.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false).length, cls: 'kpi-revisit' },
+    { key: 'verified',  label: 'Fully Verified',       value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length,  cls: 'kpi-verified' },
+    { key: 'critical',  label: 'Critical Failure',     value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure').length, cls: 'kpi-critical' },
+    { key: 'partial',   label: 'Partially Verified',   value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length,   cls: 'kpi-error' },
+    { key: 'notver',    label: 'Not Verified',          value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length,     cls: 'kpi-notint' },
+    { key: 'phmatch',   label: 'Phone Matched',         value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length,           cls: 'kpi-onboard' },
+    { key: 'phnomatch', label: 'Phone Not Matched',     value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false).length, cls: 'kpi-revisit' },
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
@@ -552,7 +552,7 @@ export default function Dashboard() {
                 style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selMonth !== '' ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 130, outline: 'none' }}>
                 <option value="">All Months</option>
                 {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i) => (
-                  <option key={i} value={i}>{m}</option>
+                  <option key={i} value={i.toString()}>{m}</option>
                 ))}
               </select>
               <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#40916c', fontSize: 12 }}>▼</span>

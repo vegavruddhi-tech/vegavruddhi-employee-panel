@@ -580,6 +580,10 @@ router.put('/admin/update-employee/:id', async (req, res) => {
     const allowed = ['newJoinerName', 'newJoinerPhone', 'newJoinerEmailId', 'location', 'reportingManager', 'position', 'status'];
     const update  = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) update[f] = req.body[f]; });
+    // Keep email and newJoinerEmailId in sync
+    if (update.newJoinerEmailId) {
+      update.email = update.newJoinerEmailId;
+    }
     const emp = await Employee.findByIdAndUpdate(req.params.id, { $set: update }, { new: true }).select('-password');
     if (!emp) return res.status(404).json({ message: 'Employee not found' });
     res.json({ message: 'Employee updated', employee: emp });

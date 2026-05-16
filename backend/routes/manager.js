@@ -7,6 +7,8 @@ const Manager  = require('../models/Manager');
 const TeamLead = require('../models/TeamLead');
 const Employee = require('../models/Employee');
 const Attendance = require('../models/Attendance');
+const FormResponse   = require('../models/FormResponse');
+const TLFormResponse = require('../models/TLFormResponse');
 const ManagerChangeRequest = require('../models/ManagerChangeRequest');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -121,6 +123,279 @@ router.get('/profile', verifyToken, async (req, res) => {
   }
 });
 
+// ── GET /api/manager/kpi-detail ────────────────────────────────
+router.get('/kpi-detail', verifyToken, async (req, res) => {
+  try {
+    const { type } = req.query;
+    const manager = await Manager.findById(req.user.id).select('name email');
+    if (!manager) return res.status(404).json({ message: 'Manager not found' });
+
+    // Get all TLs under this manager
+    const tls = await TeamLead.find({
+      role: { $ne: 'fse' },
+      reportingManager: { $regex: new RegExp(manager.name.trim(), 'i') },
+    }).select('-password');
+
+    const tlNames  = tls.map(t => t.name.trim());
+    const tlEmails = tls.map(t => t.email.trim());
+
+    // Get all FSEs under those TLs
+    const fsesByTL = await TeamLead.find({
+      role: 'fse',
+      $or: [
+        { reportingManager: { $in: tlEmails.map(e => new RegExp(e, 'i')) } },
+        { reportingManager: { $in: tlNames.map(n => new RegExp(n, 'i')) } },
+      ],
+    }).select('-password');
+
+    const fsesByEmployee = await Employee.find({
+      reportingManager: { $in: tlNames.map(n => new RegExp(n, 'i')) },
+    }).select('-password');
+
+    const allFSENames = [
+      ...fsesByTL.map(f => f.name),
+      ...fsesByEmployee.map(f => f.newJoinerName),
+    ];
+
+    // Date helpers
+    const now        = new Date();
+    const todayIST   = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const todayStr   = todayIST.toISOString().split('T')[0];
+    const monthStart = new Date(todayIST.getFullYear(), todayIST.getMonth(), 1);
+
+    if (type === 'totalTLs') {
+      return res.json(tls.map(t => ({
+        name: t.name, email: t.email, phone: t.phone || '—', location: t.location || '—',
+      })));
+    }
+
+    if (type === 'activeTLs') {
+      const [fForms, tForms] = await Promise.all([
+        FormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
+        TLFormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
+      ]);
+      const activeNames = new Set([...fForms, ...tForms].map(f => f.employeeName));
+      const activeTLs = tls.filter(tl => {
+        const myFSEs = [
+          ...fsesByTL.filter(f => (f.reportingManager||'').toLowerCase().includes(tl.name.toLowerCase())).map(f => f.name),
+          ...fsesByEmployee.filter(f => (f.reportingManager||'').toLowerCase().includes(tl.name.toLowerCase())).map(f => f.newJoinerName),
+        ];
+        return myFSEs.some(n => activeNames.has(n));
+      });
+      return res.json(activeTLs.map(t => ({
+        name: t.name, email: t.email, phone: t.phone || '—', location: t.location || '—',
+      })));
+    }
+
+    if (type === 'totalFSEs') {
+      const all = [
+        ...fsesByTL.map(f => ({ name: f.name, email: f.email, phone: f.phone || '—', location: f.location || '—', position: f.position || 'FSE' })),
+        ...fsesByEmployee.map(f => ({ name: f.newJoinerName, email: f.email || f.newJoinerEmailId, phone: f.newJoinerPhone || '—', location: f.location || '—', position: f.position || 'FSE' })),
+      ];
+      return res.json(all);
+    }
+
+    if (type === 'activeFSEs') {
+      const [fForms, tForms] = await Promise.all([
+        FormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
+        TLFormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
+      ]);
+      const activeNames = new Set([...fForms, ...tForms].map(f => f.employeeName));
+      const all = [
+        ...fsesByTL.filter(f => activeNames.has(f.name)).map(f => ({ name: f.name, email: f.email, phone: f.phone || '—', location: f.location || '—', position: f.position || 'FSE' })),
+        ...fsesByEmployee.filter(f => activeNames.has(f.newJoinerName)).map(f => ({ name: f.newJoinerName, email: f.email || f.newJoinerEmailId, phone: f.newJoinerPhone || '—', location: f.location || '—', position: f.position || 'FSE' })),
+      ];
+      return res.json(all);
+    }
+
+    // Forms-based KPIs
+    const [fForms, tForms] = await Promise.all([
+      FormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName customerName customerNumber status verificationStatus formFillingFor createdAt'),
+      TLFormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName customerName customerNumber status formFillingFor createdAt'),
+    ]);
+    let allForms = [...fForms, ...tForms].map(f => ({
+      fse: f.employeeName,
+      customer: f.customerName || '—',
+      phone: f.customerNumber || '—',
+      product: f.formFillingFor || '—',
+      status: f.status,
+      verificationStatus: f.verificationStatus || '—',
+      date: new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+      _date: f.createdAt,
+    }));
+
+    if (type === 'totalForms')        return res.json(allForms);
+    if (type === 'ready')             return res.json(allForms.filter(f => f.status === 'Ready for Onboarding'));
+    if (type === 'fullyVerified')     return res.json(allForms.filter(f => f.verificationStatus === 'Fully Verified'));
+    if (type === 'partiallyDone')     return res.json(allForms.filter(f => f.verificationStatus === 'Partially Done'));
+    if (type === 'notInterested')     return res.json(allForms.filter(f => f.status === 'Not Interested'));
+    if (type === 'today')             return res.json(allForms.filter(f => new Date(f._date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === todayStr));
+
+    return res.status(400).json({ message: 'Invalid type' });
+
+  } catch (err) {
+    console.error('KPI detail error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /api/manager/kpis ───────────────────────────────────────
+router.get('/kpis', verifyToken, async (req, res) => {
+  try {
+    const manager = await Manager.findById(req.user.id).select('name email');
+    if (!manager) return res.status(404).json({ message: 'Manager not found' });
+
+    // Get all TLs under this manager
+    const tls = await TeamLead.find({
+      role: { $ne: 'fse' },
+      reportingManager: { $regex: new RegExp(manager.name.trim(), 'i') },
+    }).select('_id name email');
+
+    const tlNames  = tls.map(t => t.name.trim());
+    const tlEmails = tls.map(t => t.email.trim());
+
+    // Get all FSE names under those TLs
+    const fsesByTL = await TeamLead.find({
+      role: 'fse',
+      $or: [
+        { reportingManager: { $in: tlEmails.map(e => new RegExp(e, 'i')) } },
+        { reportingManager: { $in: tlNames.map(n => new RegExp(n, 'i')) } },
+      ],
+    }).select('name email');
+
+    const fsesByEmployee = await Employee.find({
+      reportingManager: { $in: tlNames.map(n => new RegExp(n, 'i')) },
+    }).select('newJoinerName email');
+
+    const allFSENames = [
+      ...fsesByTL.map(f => f.name),
+      ...fsesByEmployee.map(f => f.newJoinerName),
+    ];
+
+    const totalTLs  = tls.length;
+    const totalFSEs = allFSENames.length;
+
+    // Date helpers
+    const now      = new Date();
+    const todayIST = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const todayStr = todayIST.toISOString().split('T')[0];
+
+    // Apply date filter from query params
+    const { dateFilter, fromDate, toDate, year, month } = req.query;
+    let monthStart = new Date(todayIST.getFullYear(), todayIST.getMonth(), 1);
+
+    if (dateFilter === 'today') {
+      monthStart = new Date(todayIST.getFullYear(), todayIST.getMonth(), todayIST.getDate());
+    } else if (dateFilter === 'week') {
+      const ws = new Date(todayIST);
+      ws.setDate(todayIST.getDate() - todayIST.getDay());
+      ws.setHours(0,0,0,0);
+      monthStart = ws;
+    } else if (dateFilter === 'custom' && fromDate) {
+      monthStart = new Date(fromDate);
+    } else if (year || month !== undefined) {
+      const y = year ? parseInt(year) : todayIST.getFullYear();
+      const m = (month !== undefined && month !== '') ? parseInt(month) : 0;
+      monthStart = new Date(y, m, 1);
+    }
+
+    let dateEnd = null;
+    if (dateFilter === 'custom' && toDate) {
+      dateEnd = new Date(toDate + 'T23:59:59');
+    } else if (year && month !== undefined && month !== '') {
+      dateEnd = new Date(parseInt(year), parseInt(month) + 1, 0, 23, 59, 59);
+    } else if (year && (month === undefined || month === '')) {
+      dateEnd = new Date(parseInt(year), 11, 31, 23, 59, 59);
+    }
+
+    // Forms in selected period by FSEs under this manager
+    const dateQuery = dateEnd
+      ? { $gte: monthStart, $lte: dateEnd }
+      : { $gte: monthStart };
+
+    const [fseFormsMonth, tlFormsMonth] = await Promise.all([
+      FormResponse.find({
+        employeeName: { $in: allFSENames },
+        createdAt: dateQuery,
+      }).select('employeeName status verificationStatus createdAt'),
+      TLFormResponse.find({
+        employeeName: { $in: allFSENames },
+        createdAt: dateQuery,
+      }).select('employeeName status createdAt'),
+    ]);
+
+    const allFormsMonth = [...fseFormsMonth, ...tlFormsMonth];
+
+    // Today's forms
+    const todayForms = allFormsMonth.filter(f => {
+      const d = new Date(f.createdAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      return d === todayStr;
+    });
+
+    // Fully Verified
+    const fullyVerifiedForms = allFormsMonth.filter(f => f.verificationStatus === 'Fully Verified');
+
+    // Partially Done
+    const partiallyDoneForms = allFormsMonth.filter(f => f.verificationStatus === 'Partially Done');
+
+    // Not Interested
+    const notInterestedForms = allFormsMonth.filter(f => f.status === 'Not Interested');
+    // Active TLs — for each TL, directly query forms by FSEs under that TL
+    const activeTLs = await Promise.all(tls.map(async tl => {
+      const [tlFSEsFromTL, tlFSEsFromEmp] = await Promise.all([
+        TeamLead.find({
+          role: 'fse',
+          $or: [
+            { reportingManager: { $regex: new RegExp(tl.email.trim(), 'i') } },
+            { reportingManager: { $regex: new RegExp(tl.name.trim(), 'i') } },
+          ],
+        }).select('name'),
+        Employee.find({
+          reportingManager: { $regex: new RegExp(tl.name.trim(), 'i') },
+        }).select('newJoinerName'),
+      ]);
+
+      const tlFSENames = [
+        ...tlFSEsFromTL.map(f => f.name),
+        ...tlFSEsFromEmp.map(f => f.newJoinerName),
+      ].filter(Boolean);
+
+      if (tlFSENames.length === 0) return null;
+
+      const count = await FormResponse.countDocuments({
+        employeeName: { $in: tlFSENames },
+        createdAt: dateQuery,
+      });
+
+      return count > 0 ? tl : null;
+    }));
+
+    const activeTLsFiltered = activeTLs.filter(Boolean);
+
+    // Active FSEs — case-insensitive match
+    const activeFSENamesLower = new Set([...allFormsMonth].map(f => (f.employeeName || '').toLowerCase().trim()));
+    const activeFSECount = allFSENames.filter(n =>
+      activeFSENamesLower.has((n || '').toLowerCase().trim())
+    ).length;
+
+    res.json({
+      totalTLs,
+      activeTLs: activeTLsFiltered.length,
+      totalFSEs,
+      activeFSEs: activeFSECount,
+      totalForms: allFormsMonth.length,
+      fullyVerified: fullyVerifiedForms.length,
+      partiallyDone: partiallyDoneForms.length,
+      notInterested: notInterestedForms.length,
+      todayForms: todayForms.length,
+    });
+
+  } catch (err) {
+    console.error('Manager KPIs error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ── GET /api/manager/stats ──────────────────────────────────────
 router.get('/stats', verifyToken, async (req, res) => {
   try {
@@ -221,6 +496,18 @@ router.get('/approved-list', async (req, res) => {
   try {
     const managers = await Manager.find({ approvalStatus: 'approved' })
       .select('_id name email phone location image status createdAt')
+      .sort({ name: 1 });
+    res.json(managers);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── Admin: GET /api/manager/rejected-list ──────────────────────
+router.get('/rejected-list', async (req, res) => {
+  try {
+    const managers = await Manager.find({ approvalStatus: 'rejected' })
+      .select('_id name email phone location image status createdAt approvalStatus')
       .sort({ name: 1 });
     res.json(managers);
   } catch (err) {

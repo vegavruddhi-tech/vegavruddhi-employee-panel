@@ -33,31 +33,34 @@ router.post('/sync-points', async (req, res) => {
         const slabPoints  = Math.round((emp.slabPoints || 0) * 10) / 10;
         const totalPoints = Math.round((basePoints + slabPoints) * 10) / 10;
 
-        // Upsert into MongoDB
+        // Normalize employee name to prevent duplicates
+        const normalizedName = emp.employeeName.trim();
+
+        // Upsert into MongoDB (exact match on normalized name)
         await EmployeeMonthlyPoints.findOneAndUpdate(
           {
-            employeeName: { $regex: new RegExp(`^${emp.employeeName.trim()}$`, 'i') },
+            employeeName: normalizedName,
             month,
             year: parseInt(year)
           },
           {
-            employeeName: emp.employeeName,
-            employeeEmail: emp.employeeEmail || '',
-            month,
-            year: parseInt(year),
-            basePoints,
-            slabPoints,
-            totalPoints,
-            updatedAt: new Date()
+            $set: {
+              employeeName: normalizedName,
+              employeeEmail: emp.employeeEmail || '',
+              basePoints,
+              slabPoints,
+              totalPoints,
+              updatedAt: new Date()
+            }
           },
           { upsert: true, new: true }
         );
 
         // Also save to Redis cache (expires in 25 hours)
         if (redis) {
-          const cacheKey = `monthly_points:${emp.employeeName.toLowerCase().trim()}:${month}:${year}`;
+          const cacheKey = `monthly_points:${normalizedName.toLowerCase()}:${month}:${year}`;
           await redis.setex(cacheKey, 90000, JSON.stringify({
-            employeeName: emp.employeeName,
+            employeeName: normalizedName,
             employeeEmail: emp.employeeEmail || '',
             basePoints,
             slabPoints,
@@ -81,6 +84,15 @@ router.post('/sync-points', async (req, res) => {
   }
 });
 
+// ========== ADMIN ENDPOINTS ==========
+
+/**
+ * GET /api/salary/employees
+ * 3-LAYER APPROACH:
+ * Layer 1: Redis cache (fastest)
+ * Layer 2: EmployeeMonthlyPoints MongoDB (fast, pre-saved from Merchant Forms)
+ * Layer 3: Fallback - calculate from verify API (slow but always works)
+ */
 // ========== ADMIN ENDPOINTS ==========
 
 /**

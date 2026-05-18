@@ -93,6 +93,60 @@ router.post('/sync-points', async (req, res) => {
  * Layer 2: EmployeeMonthlyPoints MongoDB (fast, pre-saved from Merchant Forms)
  * Layer 3: Fallback - calculate from verify API (slow but always works)
  */
+router.get('/employees', async (req, res) => {
+  try {
+    const { month, year, pointValue = 250 } = req.query;
+
+    if (!month || !year) {
+      return res.status(400).json({ error: 'Month and year are required' });
+    }
+
+
+$`, 'i') },
+            month,
+            year: parseInt(year)
+          },
+          {
+            employeeName: emp.employeeName,
+            employeeEmail: emp.employeeEmail || '',
+            month,
+            year: parseInt(year),
+            basePoints,
+            slabPoints,
+            totalPoints,
+            updatedAt: new Date()
+          },
+          { upsert: true, new: true }
+        );
+
+        // Also save to Redis cache (expires in 25 hours)
+        if (redis) {
+          const cacheKey = `monthly_points:${emp.employeeName.toLowerCase().trim()}:${month}:${year}`;
+          await redis.setex(cacheKey, 90000, JSON.stringify({
+            employeeName: emp.employeeName,
+            employeeEmail: emp.employeeEmail || '',
+            basePoints,
+            slabPoints,
+            totalPoints
+          }));
+        }
+
+        saved++;
+      } catch (err) {
+        console.error(`Error saving points for ${emp.employeeName}:`, err.message);
+        errors++;
+      }
+    }
+
+    console.log(`✅ Synced ${saved} employees, ${errors} errors`);
+    res.json({ success: true, saved, errors });
+
+  } catch (error) {
+    console.error('❌ Sync points error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ========== ADMIN ENDPOINTS ==========
 
 /**
@@ -131,26 +185,21 @@ router.get('/employees', async (req, res) => {
       const allEmployees = await Employee.find({ status: 'Active' }).lean();
       const allTeamLeads = await TeamLead.find({ status: 'Active' }).lean();
       
-      // 🔥 FIX: Create a Set of TL names for fast lookup
-      const tlNameSet = new Set(allTeamLeads.map(tl => (tl.name || '').trim().toLowerCase()));
-      
       const empDbMap = {};
       
-      // Add FSE employees with dynamic role detection
+      // Add FSE employees
       allEmployees.forEach(emp => {
         const key = (emp.newJoinerName || '').trim().toLowerCase();
-        // 🔥 FIX: Determine role based on TeamLeads collection, not database field
-        const actualRole = tlNameSet.has(key) ? 'TL' : 'FSE';
-        empDbMap[key] = { ...emp, role: actualRole };
+        empDbMap[key] = { ...emp, role: emp.role || 'FSE' };
       });
       
-      // Add TL employees (overwrite if already exists from Employee collection)
+      // Add TL employees
       allTeamLeads.forEach(tl => {
         const key = (tl.name || '').trim().toLowerCase();
         empDbMap[key] = {
           newJoinerEmailId: tl.email || tl.emailId,
           newJoinerPhone: tl.phone,
-          employeeId: tl.employeeId || null,
+          employeeId: tl.employeeId || null,  // 🔥 FIX: Include TL employee ID (VVT0001, etc.)
           role: 'TL'
         };
       });
@@ -215,21 +264,17 @@ router.get('/employees', async (req, res) => {
         
         if (!alreadyExists) {
           const email = tl.email || tl.emailId || '';
-          // 🔥 FIX: Use actual role from empDbMap (which has correct role detection)
-          const empDb = empDbMap[tlKey];
-          const actualRole = empDb?.role || 'TL';  // Use corrected role, not hardcoded
-          
           employeeList.push({
-            employeeId: tl.employeeId || null,
+            employeeId: tl.employeeId || null,  // 🔥 FIX: Include TL employee ID
             employeeName: tl.name,
             employeeEmail: email,
             employeePhone: tl.phone || '',
-            role: actualRole,  // ← Use actual role instead of hardcoded 'TL'
+            role: 'TL',
             pointsEarned: 0,
             slabPoints: 0,
             totalPoints: 0,
             pointValue: pv,
-            totalSalary: actualRole === 'TL' ? 35000 : 0,  // Only TLs get fixed salary
+            totalSalary: 35000, // Fixed TL salary
             hasSlip: !!slipMap[email],
             slipId: slipMap[email]?._id || null,
             slipStatus: slipMap[email]?.status || null,
@@ -238,30 +283,13 @@ router.get('/employees', async (req, res) => {
         }
       });
 
-      // 🔥 DEDUPLICATION: Remove duplicate employees by email (keep first occurrence)
-      const emailSet = new Set();
-      const deduplicatedList = [];
-      
-      employeeList.forEach(emp => {
-        const emailKey = (emp.employeeEmail || '').trim().toLowerCase();
-        if (emailKey && !emailSet.has(emailKey)) {
-          emailSet.add(emailKey);
-          deduplicatedList.push(emp);
-        } else if (!emailKey) {
-          // If no email, keep it (shouldn't happen but safe fallback)
-          deduplicatedList.push(emp);
-        }
-      });
-
-      console.log(`🔧 Deduplication: ${employeeList.length} → ${deduplicatedList.length} employees (removed ${employeeList.length - deduplicatedList.length} duplicates)`);
-
       // Sort by totalPoints descending
-      deduplicatedList.sort((a, b) => b.totalPoints - a.totalPoints);
+      employeeList.sort((a, b) => b.totalPoints - a.totalPoints);
 
       return res.json({
         success: true,
-        employees: deduplicatedList,
-        total: deduplicatedList.length,
+        employees: employeeList,
+        total: employeeList.length,
         dataSource: 'mongodb',
         message: 'Data from pre-saved EmployeeMonthlyPoints. Open Merchant Forms to refresh.'
       });
@@ -297,30 +325,10 @@ router.get('/employees', async (req, res) => {
     console.log(`📊 Found ${allForms.length} forms in ${month} ${year}`);
 
     const allEmployees = await Employee.find({ status: 'Active' }).lean();
-    const allTeamLeads = await TeamLead.find({ status: 'Active' }).lean();
-    
-    // 🔥 FIX: Create a Set of TL names for fast lookup
-    const tlNameSet = new Set(allTeamLeads.map(tl => (tl.name || '').trim().toLowerCase()));
-    
     const empDbMap = {};
-    
-    // Add FSE employees with dynamic role detection
     allEmployees.forEach(emp => {
       const key = (emp.newJoinerName || '').trim().toLowerCase();
-      // 🔥 FIX: Determine role based on TeamLeads collection, not database field
-      const actualRole = tlNameSet.has(key) ? 'TL' : 'FSE';
-      empDbMap[key] = { ...emp, role: actualRole };
-    });
-    
-    // Add TL employees (overwrite if already exists from Employee collection)
-    allTeamLeads.forEach(tl => {
-      const key = (tl.name || '').trim().toLowerCase();
-      empDbMap[key] = {
-        newJoinerEmailId: tl.email || tl.emailId,
-        newJoinerPhone: tl.phone,
-        employeeId: tl.employeeId || null,
-        role: 'TL'
-      };
+      empDbMap[key] = emp;
     });
 
     // Call verify API in batches

@@ -83,3 +83,12 @@ backup_test3/
 *.metadata.json
 
 .vercel
+
+# Documentation files
+HISTORICAL_IMPORT_GUIDE.md
+IMPLEMENTATION_SUMMARY.md
+INSTALL_DEPENDENCIES.md
+TESTING_CHECKLIST.md
+HISTORICAL_IMPORT_COMPLETE.md
+backend/DUPLICATE_FIX_SUMMARY.md
+backend/import_full_log.txt

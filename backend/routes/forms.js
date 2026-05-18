@@ -123,6 +123,43 @@ router.post('/submit', verifyToken, async (req, res) => {
     console.log(data);
     const form = await Model.create(data);
     
+    // ========== CHECK FOR UNFILLED FORM (LATE SUBMISSION DETECTION) ==========
+    if (!isTL && req.body.formFillingFor && req.body.customerNumber) {
+      try {
+        const UnfilledForm = require('../models/UnfilledForm');
+        
+        // Get month and year from form creation date
+        const formDate = new Date(form.createdAt);
+        const month = formDate.toLocaleString('en-US', { month: 'long' });
+        const year = formDate.getFullYear();
+        
+        // Create unique key to match unfilled form
+        const uniqueKey = UnfilledForm.createUniqueKey(
+          req.body.customerNumber,
+          req.body.customerName || '',
+          req.body.formFillingFor,
+          month,
+          year,
+          { matchFields: ['phone', 'name'] }  // Default rule
+        );
+        
+        // Check if this merchant was in unfilled forms
+        const unfilledForm = await UnfilledForm.findOne({
+          uniqueKey,
+          status: 'unfilled'
+        });
+        
+        if (unfilledForm) {
+          // Mark as filled late
+          await unfilledForm.markAsFilledLate(form._id, employeeName);
+          console.log(`⚠️ LATE SUBMISSION DETECTED: ${employeeName} filled form for ${req.body.customerName} (was unfilled)`);
+        }
+      } catch (unfilledError) {
+        // Don't fail form submission if unfilled check fails
+        console.error('Error checking unfilled forms:', unfilledError);
+      }
+    }
+    
     // Update verification status after form creation (async, don't wait)
     if (!isTL) {
       const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');

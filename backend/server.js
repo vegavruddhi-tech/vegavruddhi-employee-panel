@@ -151,6 +151,7 @@ function registerRoutes() {
   app.use('/api/salary', require('./routes/salary'));
   app.use('/api/tide', require('./routes/tide')(connectionManager, connectDB));
   app.use('/api/attendance', require('./routes/attendance'));
+  app.use('/api/unfilled-forms', require('./routes/unfilledForms'));
 
   console.log('✅ Routes registered successfully');
 }

@@ -25,8 +25,26 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// app.use(cors());
-if (process.env.NODE_ENV !== 'production'){app.use(cors());}
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'https://team-leader-gamma.vercel.app',
+  'https://vegavruddhi-admin-panel-tq8t.vercel.app',
+  'https://vegavruddhi-employee-panel-ke56.vercel.app',
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, origin);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+}));
+
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
 

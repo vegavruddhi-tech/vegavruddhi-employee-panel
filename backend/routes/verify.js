@@ -166,16 +166,21 @@ module.exports = (connectionManager, connectDB) => {
       const productCounts = {};
       forms.forEach(form => {
         const product = getProductField(form);
-        if (!productCounts[product]) {
-          productCounts[product] = 0;
+        // Normalize product name: trim whitespace and convert to lowercase for grouping
+        const normalizedProduct = product.trim().toLowerCase();
+        if (!productCounts[normalizedProduct]) {
+          productCounts[normalizedProduct] = 0;
         }
-        productCounts[product]++;
+        productCounts[normalizedProduct]++;
       });
       
-      // Sort by count
+      // Sort by count and capitalize product names for display
       const sorted = Object.entries(productCounts)
         .sort((a, b) => b[1] - a[1])
-        .map(([product, count]) => ({ product, count }));
+        .map(([product, count]) => ({ 
+          product: product.charAt(0).toUpperCase() + product.slice(1), // Capitalize first letter
+          count 
+        }));
       
       res.json({
         totalForms: forms.length,

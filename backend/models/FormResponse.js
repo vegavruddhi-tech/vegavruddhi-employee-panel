@@ -70,6 +70,11 @@ formFillingFor: { type: String, },
   verificationChecks: { type: Object }, // Store detailed check results
   verificationUpdatedAt: { type: Date },
 
+  // Historical import metadata
+  isHistoricalImport: { type: Boolean, default: false },
+  importSource: { type: String },
+  importedAt: { type: Date },
+
   createdAt: { type: Date, default: Date.now }
 }, { collection: 'Forms_respones' });
 

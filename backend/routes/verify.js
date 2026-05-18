@@ -653,12 +653,10 @@ module.exports = (connectionManager, connectDB) => {
     
     try {
       // Set no-cache headers to ensure fresh data
-      res.set({
-        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'Surrogate-Control': 'no-store'
-      });
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
 
       const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
       const names    = (req.query.names    || '').split(',').map(n => n.trim());

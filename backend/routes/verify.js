@@ -267,6 +267,7 @@ module.exports = (connectionManager, connectDB) => {
       let processed = 0;
       let cached = 0;
       let skipped = 0;
+      let redisSaved = 0; // Track successful Redis saves
 
       // Process forms in batches
       const batchSize = 50;
@@ -334,19 +335,28 @@ module.exports = (connectionManager, connectDB) => {
               });
             }
 
-            // ✅ ALWAYS store in Redis, even if "Not Found"
-            // This ensures all forms are cached, not just verified ones
+            // ✅ SAVE VERIFICATION RESULTS TO REDIS (FIX: This was missing!)
+            // Store ALL verification results, including "Not Found" status
             const cacheValue = {
               ...result,
               hash: currentHash,
-              lastVerified: new Date().toISOString()
+              lastVerified: new Date().toISOString(),
+              phoneMatch: result.status !== 'Not Found' ? true : false,
+              matched: result.status !== 'Not Found' ? true : false
             };
             
-            await redis.setex(cacheKey, 86400, JSON.stringify(cacheValue));
-            
-            // Only count as "cached" if verification succeeded
-            if (result.status !== 'Not Found') {
-              cached++;
+            // Save to Redis with 24-hour TTL
+            try {
+              await redis.setex(cacheKey, 86400, JSON.stringify(cacheValue));
+              redisSaved++; // Track successful save
+              
+              // Only count as "cached" if verification succeeded
+              if (result.status !== 'Not Found') {
+                cached++;
+              }
+            } catch (redisErr) {
+              console.error(`❌ Redis save error for ${phone}:`, redisErr.message);
+              // Continue processing even if Redis fails
             }
             
           } catch (err) {
@@ -373,6 +383,7 @@ module.exports = (connectionManager, connectDB) => {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`✅ Pre-computation complete in ${elapsed}s`);
       console.log(`   Total: ${forms.length} | Verified: ${cached} | Skipped: ${skipped}`);
+      console.log(`   💾 Redis: ${redisSaved} results saved to cache`);
       console.log(`   📊 Breakdown:`);
       console.log(`      - Cached (verified): ${cached}`);
       console.log(`      - Skipped (unchanged): ${skipped}`);
@@ -383,6 +394,7 @@ module.exports = (connectionManager, connectDB) => {
         total: forms.length, 
         cached,
         skipped,
+        redisSaved,
         notFound: forms.length - cached - skipped,
         elapsed: `${elapsed}s`,
         message: 'Verification pre-computed successfully' 

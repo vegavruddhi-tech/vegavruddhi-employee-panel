@@ -12,7 +12,7 @@ function getRedisClient() {
       redis = new Redis(process.env.REDIS_URL, {
         maxRetriesPerRequest: 3,
         enableReadyCheck: true,
-        lazyConnect: true,
+        // Removed lazyConnect to allow immediate connection
         retryStrategy(times) {
           const delay = Math.min(times * 50, 2000);
           return delay;
@@ -31,9 +31,12 @@ function getRedisClient() {
         console.log('✅ Redis ready to accept commands');
       });
 
-      // Connect immediately
-      redis.connect().catch(err => {
-        console.error('❌ Redis initial connection failed:', err.message);
+      redis.on('close', () => {
+        console.warn('⚠️ Redis connection closed');
+      });
+
+      redis.on('reconnecting', () => {
+        console.log('🔄 Redis reconnecting...');
       });
     } catch (err) {
       console.error('❌ Redis client creation failed:', err.message);

@@ -211,9 +211,14 @@ router.get('/kpi-detail', verifyToken, async (req, res) => {
     }
 
     // Forms-based KPIs
+    const { dateFilter } = req.query;
+    const dateQuery = dateFilter === 'alltime'
+      ? { employeeName: { $in: allFSENames } }
+      : { employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } };
+
     const [fForms, tForms] = await Promise.all([
-      FormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName customerName customerNumber status verificationStatus formFillingFor createdAt'),
-      TLFormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName customerName customerNumber status formFillingFor createdAt'),
+      FormResponse.find(dateQuery).select('employeeName customerName customerNumber status verificationStatus formFillingFor createdAt'),
+      TLFormResponse.find(dateQuery).select('employeeName customerName customerNumber status formFillingFor createdAt'),
     ]);
     let allForms = [...fForms, ...tForms].map(f => ({
       fse: f.employeeName,

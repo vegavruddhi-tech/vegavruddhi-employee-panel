@@ -32,6 +32,8 @@ const allowedOrigins = [
   'https://team-leader-gamma.vercel.app',
   'https://vegavruddhi-admin-panel-tq8t.vercel.app',
   'https://vegavruddhi-employee-panel-ke56.vercel.app',
+  'http://localhost:3003',
+  'https://vegavruddhi-manager-panel.vercel.app'
 ];
 
 app.use(cors({

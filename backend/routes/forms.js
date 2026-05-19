@@ -167,9 +167,12 @@ router.post('/submit', verifyToken, async (req, res) => {
     }
     
     // Update verification status after form creation (async, don't wait)
-    if (!isTL) {
+    if (!isTL && !isManager) {
       const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
       updateFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
+    } else if (isManager) {
+      const { updateManagerFormVerificationStatus } = require('../utils/updateVerificationStatus');
+      updateManagerFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
     }
     
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });

@@ -14,19 +14,11 @@ async function updateFormVerificationStatus(formId, db = null) {
     const form = await FormResponse.findById(formId);
     if (!form) return;
 
-    // Use provided db connection or fallback to mongoose (for backward compatibility)
     const dbConnection = db || require('mongoose').connection.db;
     const product = form.formFillingFor || (form.brand === 'Tide' && form.tideProduct ? form.tideProduct : form.brand) || '';
     const month = new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-    const verification = await verifyMerchant(
-      dbConnection,
-      form.customerNumber,
-      form.customerName || '',
-      VerificationRule,
-      product,
-      month
-    );
+    const verification = await verifyMerchant(dbConnection, form.customerNumber, form.customerName || '', VerificationRule, product, month);
 
     await FormResponse.findByIdAndUpdate(formId, {
       verificationStatus: verification.status,
@@ -37,6 +29,32 @@ async function updateFormVerificationStatus(formId, db = null) {
     console.log(`✅ Updated verification for form ${formId}: ${verification.status}`);
   } catch (err) {
     console.error(`❌ Error updating verification for form ${formId}:`, err.message);
+  }
+}
+
+async function updateManagerFormVerificationStatus(formId, db = null) {
+  try {
+    const ManagerForm = require('../models/ManagerForm');
+    const VerificationRule = require('../models/VerificationRule');
+
+    const form = await ManagerForm.findById(formId);
+    if (!form) return;
+
+    const dbConnection = db || require('mongoose').connection.db;
+    const product = form.formFillingFor || (form.brand === 'Tide' && form.tideProduct ? form.tideProduct : form.brand) || '';
+    const month = new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+    const verification = await verifyMerchant(dbConnection, form.customerNumber, form.customerName || '', VerificationRule, product, month);
+
+    await ManagerForm.findByIdAndUpdate(formId, {
+      verificationStatus: verification.status,
+      verificationChecks: verification,
+      verificationUpdatedAt: new Date()
+    });
+
+    console.log(`✅ Updated verification for manager form ${formId}: ${verification.status}`);
+  } catch (err) {
+    console.error(`❌ Error updating verification for manager form ${formId}:`, err.message);
   }
 }
 
@@ -68,6 +86,7 @@ async function updateVerificationByPhone(phone, db = null) {
 
 module.exports = {
   updateFormVerificationStatus,
+  updateManagerFormVerificationStatus,
   updateMultipleFormsVerification,
   updateVerificationByPhone
 };

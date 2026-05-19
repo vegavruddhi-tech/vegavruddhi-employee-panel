@@ -28,18 +28,20 @@ function verifyToken(req, res, next) {
 // ── POST /api/manager/register ──────────────────────────────────
 router.post('/register', upload.fields([{ name: 'photo', maxCount: 1 }]), async (req, res) => {
   try {
-    const { name, phone, emailId, location, dob } = req.body;
+    const { name, phone, email, emailId, location, dob } = req.body;
+    const emailValue = email || emailId || '';
     if (!name)              return res.status(400).json({ message: 'Name is required' });
+    if (!emailValue)        return res.status(400).json({ message: 'Email is required' });
     if (!req.files?.photo)  return res.status(400).json({ message: 'Profile photo is required' });
 
-    const exists = await Manager.findOne({ email: emailId });
+    const exists = await Manager.findOne({ email: emailValue });
     if (exists && exists.approvalStatus === 'approved') {
       return res.status(400).json({ message: 'Email already registered and approved' });
     }
     if (exists) await Manager.findByIdAndDelete(exists._id);
 
     await Manager.create({
-      email:    emailId || '',
+      email:    emailValue,
       name,
       phone:    phone    || '',
       location: location || '',

@@ -588,7 +588,16 @@ router.post('/request-edit', verifyToken, async (req, res) => {
   }
 });
 
-// ── GET /api/manager/my-request ────────────────────────────────
+// ── GET /api/manager/my-forms ───────────────────────────────────
+router.get('/my-forms', verifyToken, async (req, res) => {
+  try {
+    const ManagerForm = require('../models/ManagerForm');
+    const forms = await ManagerForm.find({ submittedBy: req.user.id }).sort({ createdAt: -1 });
+    res.json(forms);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 router.get('/my-request', verifyToken, async (req, res) => {
   try {
     const request = await ManagerChangeRequest.findOne({

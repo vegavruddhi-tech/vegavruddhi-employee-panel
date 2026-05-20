@@ -114,6 +114,7 @@ router.get('/employees', async (req, res) => {
 
     const Employee = require('../models/Employee');
     const TeamLead = require('../models/TeamLead');
+    const Manager = require('../models/Manager');  // 🔥 ADD: Manager model
     const { getRedisClient } = require('../utils/redisClient');
     const redis = getRedisClient();
     const pv = parseInt(pointValue);
@@ -130,29 +131,53 @@ router.get('/employees', async (req, res) => {
       // Get employee details for email/phone/role from BOTH Users and TeamLeads collections
       const allEmployees = await Employee.find({ status: 'Active' }).lean();
       const allTeamLeads = await TeamLead.find({ status: 'Active' }).lean();
+      const allManagers = await Manager.find({ status: 'Active' }).lean();  // 🔥 ADD: Fetch managers
+      
+      console.log(`📊 Fetched: ${allEmployees.length} employees, ${allTeamLeads.length} TLs, ${allManagers.length} managers`);
       
       // 🔥 FIX: Create a Set of TL names for fast lookup
       const tlNameSet = new Set(allTeamLeads.map(tl => (tl.name || '').trim().toLowerCase()));
+      const managerNameSet = new Set(allManagers.map(mgr => (mgr.name || '').trim().toLowerCase()));  // 🔥 ADD: Manager name set
       
       const empDbMap = {};
       
-      // Add FSE employees with dynamic role detection
-      allEmployees.forEach(emp => {
-        const key = (emp.newJoinerName || '').trim().toLowerCase();
-        // 🔥 FIX: Determine role based on TeamLeads collection, not database field
-        const actualRole = tlNameSet.has(key) ? 'TL' : 'FSE';
-        empDbMap[key] = { ...emp, role: actualRole };
+      // 🔥 PRIORITY 1: Add Managers first (highest priority)
+      allManagers.forEach(mgr => {
+        const key = (mgr.name || '').trim().toLowerCase();
+        empDbMap[key] = {
+          newJoinerEmailId: mgr.email || mgr.emailId,
+          newJoinerPhone: mgr.phone,
+          employeeId: mgr.employeeId || null,
+          role: 'Manager',
+          source: 'managers'  // Track source
+        };
       });
       
-      // Add TL employees (overwrite if already exists from Employee collection)
+      // 🔥 PRIORITY 2: Add TLs second (overwrite only if not Manager)
       allTeamLeads.forEach(tl => {
         const key = (tl.name || '').trim().toLowerCase();
-        empDbMap[key] = {
-          newJoinerEmailId: tl.email || tl.emailId,
-          newJoinerPhone: tl.phone,
-          employeeId: tl.employeeId || null,
-          role: 'TL'
-        };
+        if (!empDbMap[key] || empDbMap[key].source !== 'managers') {
+          empDbMap[key] = {
+            newJoinerEmailId: tl.email || tl.emailId,
+            newJoinerPhone: tl.phone,
+            employeeId: tl.employeeId || null,
+            role: 'TL',
+            source: 'teamleads'  // Track source
+          };
+        }
+      });
+      
+      // 🔥 PRIORITY 3: Add FSE employees last (only if not TL/Manager)
+      allEmployees.forEach(emp => {
+        const key = (emp.newJoinerName || '').trim().toLowerCase();
+        if (!empDbMap[key]) {
+          // Only add if not already a TL or Manager
+          empDbMap[key] = { 
+            ...emp, 
+            role: 'FSE',
+            source: 'employees'  // Track source
+          };
+        }
       });
 
       // Check existing slips
@@ -160,46 +185,42 @@ router.get('/employees', async (req, res) => {
       const slipMap = {};
       existingSlips.forEach(slip => { slipMap[slip.employeeEmail] = slip; });
 
-      const employeeList = savedPoints.map(emp => {
-        const empKey = emp.employeeName.trim().toLowerCase();
-        const empDb  = empDbMap[empKey];
-        const email  = emp.employeeEmail || empDb?.newJoinerEmailId || empDb?.email || '';
-        const role   = empDb?.role || 'FSE';
-        
-        // 🔥 Role-based salary calculation
-        let totalSalary;
-        let totalPts = emp.totalPoints || emp.basePoints || 0;
-        
-        if (role === 'TL') {
-          // TL: Fixed ₹35,000 base (no points)
-          totalSalary = 35000;
-          totalPts = 0; // Don't show points for TL
-        } else if (role === 'Manager') {
-          // Manager: Fixed ₹60,000 base (no points)
-          totalSalary = 60000;
-          totalPts = 0; // Don't show points for Manager
-        } else {
-          // FSE: Points-based (existing logic)
-          totalSalary = Math.round(totalPts * pv * 10) / 10;
-        }
+      // 🔥 FIX: Build employee list from savedPoints, but EXCLUDE TLs/Managers
+      // (TLs/Managers will be added separately below)
+      const employeeList = savedPoints
+        .filter(emp => {
+          const empKey = emp.employeeName.trim().toLowerCase();
+          const empDb = empDbMap[empKey];
+          // ✅ ONLY include if role is FSE (exclude TLs/Managers from savedPoints)
+          return !empDb || empDb.role === 'FSE';
+        })
+        .map(emp => {
+          const empKey = emp.employeeName.trim().toLowerCase();
+          const empDb  = empDbMap[empKey];
+          const email  = emp.employeeEmail || empDb?.newJoinerEmailId || empDb?.email || '';
+          const role   = 'FSE';  // ✅ Force FSE role (we already filtered out TLs/Managers)
+          
+          // FSE: Points-based salary
+          let totalPts = emp.totalPoints || emp.basePoints || 0;
+          let totalSalary = Math.round(totalPts * pv * 10) / 10;
 
-        return {
-          employeeId:    empDb?.employeeId || null,  // VV0001 format
-          employeeName:  emp.employeeName,
-          employeeEmail: email,
-          employeePhone: empDb?.newJoinerPhone || empDb?.phone || '',
-          role:          role,
-          pointsEarned:  role === 'FSE' ? (emp.basePoints || 0) : 0,
-          slabPoints:    role === 'FSE' ? (emp.slabPoints || 0) : 0,
-          totalPoints:   role === 'FSE' ? totalPts : 0,
-          pointValue:    pv,
-          totalSalary:   totalSalary,
-          hasSlip:       !!slipMap[email],
-          slipId:        slipMap[email]?._id || null,
-          slipStatus:    slipMap[email]?.status || null,
-          dataSource:    'mongodb'
-        };
-      });
+          return {
+            employeeId:    empDb?.employeeId || null,  // VV0001 format
+            employeeName:  emp.employeeName,
+            employeeEmail: email,
+            employeePhone: empDb?.newJoinerPhone || empDb?.phone || '',
+            role:          role,
+            pointsEarned:  emp.basePoints || 0,
+            slabPoints:    emp.slabPoints || 0,
+            totalPoints:   totalPts,
+            pointValue:    pv,
+            totalSalary:   totalSalary,
+            hasSlip:       !!slipMap[email],
+            slipId:        slipMap[email]?._id || null,
+            slipStatus:    slipMap[email]?.status || null,
+            dataSource:    'mongodb'
+          };
+        });
       
       // 🔥 ADD TLs who don't have points data (they get fixed salary anyway)
       // IMPORTANT: Only add TLs that are NOT already in employeeList to avoid duplicates
@@ -237,6 +258,45 @@ router.get('/employees', async (req, res) => {
           });
         }
       });
+      
+      // 🔥 ADD: Add Managers who don't have points data (they get fixed salary anyway)
+      allManagers.forEach(mgr => {
+        const mgrKey = (mgr.name || '').trim().toLowerCase();
+        const mgrEmail = (mgr.email || mgr.emailId || '').trim().toLowerCase();
+        
+        console.log(`🔍 Processing manager: ${mgr.name} (${mgr.email})`);
+        
+        // Check if Manager already exists by name OR email
+        const alreadyExists = employeeList.some(e => 
+          e.employeeName.toLowerCase() === mgrKey || 
+          (e.employeeEmail && e.employeeEmail.toLowerCase() === mgrEmail)
+        );
+        
+        if (!alreadyExists) {
+          const email = mgr.email || mgr.emailId || '';
+          
+          console.log(`✅ Adding manager to list: ${mgr.name}`);
+          
+          employeeList.push({
+            employeeId: mgr.employeeId || null,
+            employeeName: mgr.name,
+            employeeEmail: email,
+            employeePhone: mgr.phone || '',
+            role: 'Manager',
+            pointsEarned: 0,
+            slabPoints: 0,
+            totalPoints: 0,
+            pointValue: pv,
+            totalSalary: 60000,  // Fixed ₹60,000 for Manager
+            hasSlip: !!slipMap[email],
+            slipId: slipMap[email]?._id || null,
+            slipStatus: slipMap[email]?.status || null,
+            dataSource: 'managers'
+          });
+        } else {
+          console.log(`⚠️ Manager already exists, skipping: ${mgr.name}`);
+        }
+      });
 
       // 🔥 DEDUPLICATION: Remove duplicate employees by email (keep first occurrence)
       const emailSet = new Set();
@@ -258,10 +318,19 @@ router.get('/employees', async (req, res) => {
       // Sort by totalPoints descending
       deduplicatedList.sort((a, b) => b.totalPoints - a.totalPoints);
 
+      // 🔥 FILTER BY ROLE (if roleFilter query param provided)
+      const roleFilter = req.query.roleFilter;
+      let finalList = deduplicatedList;
+      
+      if (roleFilter && roleFilter !== 'All') {
+        finalList = deduplicatedList.filter(emp => emp.role === roleFilter);
+        console.log(`🔍 Role filter applied: "${roleFilter}" - ${deduplicatedList.length} → ${finalList.length} employees`);
+      }
+
       return res.json({
         success: true,
-        employees: deduplicatedList,
-        total: deduplicatedList.length,
+        employees: finalList,
+        total: finalList.length,
         dataSource: 'mongodb',
         message: 'Data from pre-saved EmployeeMonthlyPoints. Open Merchant Forms to refresh.'
       });
@@ -298,29 +367,47 @@ router.get('/employees', async (req, res) => {
 
     const allEmployees = await Employee.find({ status: 'Active' }).lean();
     const allTeamLeads = await TeamLead.find({ status: 'Active' }).lean();
-    
-    // 🔥 FIX: Create a Set of TL names for fast lookup
-    const tlNameSet = new Set(allTeamLeads.map(tl => (tl.name || '').trim().toLowerCase()));
+    const allManagers = await Manager.find({ status: 'Active' }).lean();  // 🔥 ADD: Fetch managers
     
     const empDbMap = {};
     
-    // Add FSE employees with dynamic role detection
-    allEmployees.forEach(emp => {
-      const key = (emp.newJoinerName || '').trim().toLowerCase();
-      // 🔥 FIX: Determine role based on TeamLeads collection, not database field
-      const actualRole = tlNameSet.has(key) ? 'TL' : 'FSE';
-      empDbMap[key] = { ...emp, role: actualRole };
+    // 🔥 PRIORITY 1: Add Managers first (highest priority)
+    allManagers.forEach(mgr => {
+      const key = (mgr.name || '').trim().toLowerCase();
+      empDbMap[key] = {
+        newJoinerEmailId: mgr.email || mgr.emailId,
+        newJoinerPhone: mgr.phone,
+        employeeId: mgr.employeeId || null,
+        role: 'Manager',
+        source: 'managers'  // Track source
+      };
     });
     
-    // Add TL employees (overwrite if already exists from Employee collection)
+    // 🔥 PRIORITY 2: Add TLs second (overwrite only if not Manager)
     allTeamLeads.forEach(tl => {
       const key = (tl.name || '').trim().toLowerCase();
-      empDbMap[key] = {
-        newJoinerEmailId: tl.email || tl.emailId,
-        newJoinerPhone: tl.phone,
-        employeeId: tl.employeeId || null,
-        role: 'TL'
-      };
+      if (!empDbMap[key] || empDbMap[key].source !== 'managers') {
+        empDbMap[key] = {
+          newJoinerEmailId: tl.email || tl.emailId,
+          newJoinerPhone: tl.phone,
+          employeeId: tl.employeeId || null,
+          role: 'TL',
+          source: 'teamleads'  // Track source
+        };
+      }
+    });
+    
+    // 🔥 PRIORITY 3: Add FSE employees last (only if not TL/Manager)
+    allEmployees.forEach(emp => {
+      const key = (emp.newJoinerName || '').trim().toLowerCase();
+      if (!empDbMap[key]) {
+        // Only add if not already a TL or Manager
+        empDbMap[key] = { 
+          ...emp, 
+          role: 'FSE',
+          source: 'employees'  // Track source
+        };
+      }
     });
 
     // Call verify API in batches

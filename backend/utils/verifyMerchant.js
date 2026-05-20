@@ -69,7 +69,15 @@ function evaluateCondition(record, condition) {
   const rawVal = record[condition.field];
 
   if (rawVal === undefined || rawVal === null || rawVal === '') {
-    return { pass: false, label: condition.label, actual: 'N/A' };
+    return { 
+      pass: false, 
+      label: condition.label, 
+      actual: 'N/A',
+      field: condition.field,        // ✅ ADD: Exact field name from rule
+      sheetValue: null,              // ✅ ADD: Actual value from sheet (null if missing)
+      operator: condition.operator,  // ✅ ADD: Operator used
+      expected: condition.value      // ✅ ADD: Expected value
+    };
   }
 
   const actual   = normalize(rawVal);
@@ -87,7 +95,15 @@ function evaluateCondition(record, condition) {
     default: pass = false;
   }
 
-  return { pass, label: condition.label, actual: String(rawVal) };
+  return { 
+    pass, 
+    label: condition.label, 
+    actual: String(rawVal),
+    field: condition.field,        // ✅ ADD: Exact field name from rule
+    sheetValue: rawVal,            // ✅ ADD: Actual value from sheet (raw, not normalized)
+    operator: condition.operator,  // ✅ ADD: Operator used
+    expected: condition.value      // ✅ ADD: Expected value
+  };
 }
 
 // ---------- CHECK MANUAL VERIFICATION ----------

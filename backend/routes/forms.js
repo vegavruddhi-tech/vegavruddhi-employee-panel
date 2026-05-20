@@ -81,13 +81,19 @@ module.exports = (connectionManager, connectDB) => {
 // POST /api/forms/submit
 router.post('/submit', verifyToken, async (req, res) => {
   try {
-    const isTL = req.user.role === 'tl';
-    const Model = isTL ? TLFormResponse : FormResponse;
+    const isTL      = req.user.role === 'tl';
+    const isManager = req.user.role === 'manager';
+    const ManagerForm = require('../models/ManagerForm');
+    const Model = isTL ? TLFormResponse : isManager ? ManagerForm : FormResponse;
 
     let employeeName = '';
     if (isTL) {
       const tl = await TeamLead.findById(req.user.id).select('name');
       employeeName = tl?.name || '';
+    } else if (isManager) {
+      const Manager = require('../models/Manager');
+      const mgr = await Manager.findById(req.user.id).select('name');
+      employeeName = mgr?.name || '';
     } else {
       const emp = await Employee.findById(req.user.id).select('newJoinerName');
       employeeName = emp?.newJoinerName || '';
@@ -161,9 +167,12 @@ router.post('/submit', verifyToken, async (req, res) => {
     }
     
     // Update verification status after form creation (async, don't wait)
-    if (!isTL) {
+    if (!isTL && !isManager) {
       const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
       updateFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
+    } else if (isManager) {
+      const { updateManagerFormVerificationStatus } = require('../utils/updateVerificationStatus');
+      updateManagerFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
     }
     
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });
@@ -307,7 +316,8 @@ router.get('/admin/all', async (req, res) => {
     }
     
     // 🔥 Fetch from appropriate collection based on role
-    const Model = role === 'TL' ? TLFormResponse : FormResponse;
+    const ManagerForm = require('../models/ManagerForm');
+    const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
     const forms = await Model.find({}).sort({ createdAt: -1 }).lean();
     
     console.log(`📋 Fetched ${forms.length} ${role} forms from database`);

@@ -28,18 +28,20 @@ function verifyToken(req, res, next) {
 // ── POST /api/manager/register ──────────────────────────────────
 router.post('/register', upload.fields([{ name: 'photo', maxCount: 1 }]), async (req, res) => {
   try {
-    const { name, phone, emailId, location, dob } = req.body;
+    const { name, phone, email, emailId, location, dob } = req.body;
+    const emailValue = email || emailId || '';
     if (!name)              return res.status(400).json({ message: 'Name is required' });
+    if (!emailValue)        return res.status(400).json({ message: 'Email is required' });
     if (!req.files?.photo)  return res.status(400).json({ message: 'Profile photo is required' });
 
-    const exists = await Manager.findOne({ email: emailId });
+    const exists = await Manager.findOne({ email: emailValue });
     if (exists && exists.approvalStatus === 'approved') {
       return res.status(400).json({ message: 'Email already registered and approved' });
     }
     if (exists) await Manager.findByIdAndDelete(exists._id);
 
     await Manager.create({
-      email:    emailId || '',
+      email:    emailValue,
       name,
       phone:    phone    || '',
       location: location || '',
@@ -209,9 +211,14 @@ router.get('/kpi-detail', verifyToken, async (req, res) => {
     }
 
     // Forms-based KPIs
+    const { dateFilter } = req.query;
+    const dateQuery = dateFilter === 'alltime'
+      ? { employeeName: { $in: allFSENames } }
+      : { employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } };
+
     const [fForms, tForms] = await Promise.all([
-      FormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName customerName customerNumber status verificationStatus formFillingFor createdAt'),
-      TLFormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName customerName customerNumber status formFillingFor createdAt'),
+      FormResponse.find(dateQuery).select('employeeName customerName customerNumber status verificationStatus formFillingFor createdAt'),
+      TLFormResponse.find(dateQuery).select('employeeName customerName customerNumber status formFillingFor createdAt'),
     ]);
     let allForms = [...fForms, ...tForms].map(f => ({
       fse: f.employeeName,
@@ -581,7 +588,16 @@ router.post('/request-edit', verifyToken, async (req, res) => {
   }
 });
 
-// ── GET /api/manager/my-request ────────────────────────────────
+// ── GET /api/manager/my-forms ───────────────────────────────────
+router.get('/my-forms', verifyToken, async (req, res) => {
+  try {
+    const ManagerForm = require('../models/ManagerForm');
+    const forms = await ManagerForm.find({ submittedBy: req.user.id }).sort({ createdAt: -1 });
+    res.json(forms);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 router.get('/my-request', verifyToken, async (req, res) => {
   try {
     const request = await ManagerChangeRequest.findOne({

@@ -812,7 +812,95 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
-  // ---------- RULES ----------
+  // ---------- BULK ADMIN POST (avoids 431 for large payloads) ----------
+  router.post('/bulk-admin', async (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+
+      const { phones: phonesArr, names: namesArr, products: productsArr, months: monthsArr } = req.body;
+
+      const phones   = (Array.isArray(phonesArr)   ? phonesArr   : (phonesArr   || '').split(',')).map(p => String(p).trim()).filter(Boolean);
+      const names    = (Array.isArray(namesArr)    ? namesArr    : (namesArr    || '').split(',')).map(n => String(n).trim());
+      const products = (Array.isArray(productsArr) ? productsArr : (productsArr || '').split(',')).map(p => normalizeProduct(p));
+      const months   = (Array.isArray(monthsArr)   ? monthsArr   : (monthsArr   || '').split(',')).map(m => String(m).trim());
+
+      if (!phones.length) return res.json({});
+
+      const redis = getRedisClient();
+      const result = {};
+
+      const cacheKeys = phones.map((phone, i) => {
+        const product = products[i] || '';
+        return `verification:${phone}:${product}`;
+      });
+
+      let cachedValues = [];
+      if (redis) {
+        try {
+          cachedValues = await redis.mget(...cacheKeys);
+        } catch (err) {
+          cachedValues = new Array(cacheKeys.length).fill(null);
+        }
+      } else {
+        cachedValues = new Array(cacheKeys.length).fill(null);
+      }
+
+      const missedIndices = [];
+
+      phones.forEach((phone, i) => {
+        const product = products[i] || '';
+        const month   = months[i]   || '';
+        const key     = product ? `${phone}__${product}` : phone;
+        const cached  = cachedValues[i];
+
+        if (cached) {
+          try {
+            const cachedData = JSON.parse(cached);
+            const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
+            const inSheet    = cachedData.status !== 'Not Found' ? true : (cachedData.matched    || false);
+            result[key] = { status: cachedData.status, verified: cachedData.verified, passed: cachedData.passed, total: cachedData.total, checks: cachedData.checks || [], collection: cachedData.collection, matchType: cachedData.matchType, phoneMatch, inSheet, monthLabel: month };
+          } catch {
+            missedIndices.push(i);
+          }
+        } else {
+          missedIndices.push(i);
+        }
+      });
+
+      if (missedIndices.length > 0) {
+        const db = req.db;
+        const allRules = await VerificationRule.find().lean();
+
+        await Promise.all(missedIndices.map(async (i) => {
+          const phone   = phones[i];
+          const name    = names[i]    || '';
+          const product = products[i] || '';
+          const month   = months[i]   || '';
+          const key     = product ? `${phone}__${product}` : phone;
+
+          try {
+            const [v, pc] = await Promise.all([
+              verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
+              crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
+            ]);
+            const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
+            const inSheet    = v.status !== 'Not Found' ? true : pc.matched;
+            result[key] = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch, inSheet, monthLabel: month };
+          } catch (err) {
+            result[key] = { status: 'Error', verified: false, passed: 0, total: 0, checks: [], error: err.message };
+          }
+        }));
+      }
+
+      res.json(result);
+    } catch (err) {
+      console.error('Bulk-admin POST error:', err);
+      res.status(500).json({ message: err.message });
+    }
+  });
   router.get('/rules', async (req, res) => {
     try {
       const rules = await VerificationRule.find().sort({ monthLabel: -1 });

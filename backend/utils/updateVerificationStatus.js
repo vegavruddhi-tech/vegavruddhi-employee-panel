@@ -58,6 +58,32 @@ async function updateManagerFormVerificationStatus(formId, db = null) {
   }
 }
 
+async function updateTLFormVerificationStatus(formId, db = null) {
+  try {
+    const TLFormResponse = require('../models/TLFormResponse');
+    const VerificationRule = require('../models/VerificationRule');
+
+    const form = await TLFormResponse.findById(formId);
+    if (!form) return;
+
+    const dbConnection = db || require('mongoose').connection.db;
+    const product = form.formFillingFor || (form.brand === 'Tide' && form.tideProduct ? form.tideProduct : form.brand) || '';
+    const month = new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+    const verification = await verifyMerchant(dbConnection, form.customerNumber, form.customerName || '', VerificationRule, product, month);
+
+    await TLFormResponse.findByIdAndUpdate(formId, {
+      verificationStatus: verification.status,
+      verificationChecks: verification,
+      verificationUpdatedAt: new Date()
+    });
+
+    console.log(`✅ Updated verification for TL form ${formId}: ${verification.status}`);
+  } catch (err) {
+    console.error(`❌ Error updating verification for TL form ${formId}:`, err.message);
+  }
+}
+
 /**
  * Update verification status for multiple forms
  * @param {string[]} formIds - Array of form IDs
@@ -87,6 +113,7 @@ async function updateVerificationByPhone(phone, db = null) {
 module.exports = {
   updateFormVerificationStatus,
   updateManagerFormVerificationStatus,
+  updateTLFormVerificationStatus,
   updateMultipleFormsVerification,
   updateVerificationByPhone
 };

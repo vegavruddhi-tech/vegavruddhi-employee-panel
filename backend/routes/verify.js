@@ -229,25 +229,43 @@ module.exports = (connectionManager, connectDB) => {
       const lastSyncTime = forceRefresh ? null : await redis.get('last_sync_time');
       console.log(`📅 Last sync: ${lastSyncTime || 'Never'}`);
 
-      // Get all forms or only new/updated forms
+      // Get all forms from FSE, TL, and Manager collections
       const FormResponse = require('../models/FormResponse');
-      let forms;
+      const TLFormResponse = require('../models/TLFormResponse');
+      const ManagerForm = require('../models/ManagerForm');
+      
+      let fseForms, tlForms, managerForms;
       
       if (lastSyncTime && !forceRefresh) {
         // Incremental: Only get new/updated forms
         const lastSync = new Date(lastSyncTime);
-        forms = await FormResponse.find({
+        const query = {
           $or: [
             { createdAt: { $gt: lastSync } },
             { updatedAt: { $gt: lastSync } }
           ]
-        }).lean();
-        console.log(`📊 Found ${forms.length} new/updated forms since last sync`);
+        };
+        
+        [fseForms, tlForms, managerForms] = await Promise.all([
+          FormResponse.find(query).lean(),
+          TLFormResponse.find(query).lean(),
+          ManagerForm.find(query).lean()
+        ]);
+        
+        console.log(`📊 Found ${fseForms.length} FSE + ${tlForms.length} TL + ${managerForms.length} Manager = ${fseForms.length + tlForms.length + managerForms.length} new/updated forms since last sync`);
       } else {
         // First time OR force refresh: Get all forms
-        forms = await FormResponse.find({}).lean();
-        console.log(`📊 ${forceRefresh ? 'Force refresh' : 'First sync'}: Found ${forms.length} total forms`);
+        [fseForms, tlForms, managerForms] = await Promise.all([
+          FormResponse.find({}).lean(),
+          TLFormResponse.find({}).lean(),
+          ManagerForm.find({}).lean()
+        ]);
+        
+        console.log(`📊 ${forceRefresh ? 'Force refresh' : 'First sync'}: Found ${fseForms.length} FSE + ${tlForms.length} TL + ${managerForms.length} Manager = ${fseForms.length + tlForms.length + managerForms.length} total forms`);
       }
+      
+      // Combine all forms
+      const forms = [...fseForms, ...tlForms, ...managerForms];
 
       if (forms.length === 0) {
         console.log('✅ No forms to verify');

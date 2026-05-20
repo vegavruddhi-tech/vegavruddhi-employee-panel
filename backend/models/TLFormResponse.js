@@ -22,6 +22,12 @@ const tlFormResponseSchema = new mongoose.Schema({
   pine_wifiConnected:{ type: String },
   cc_cardName:       { type: String },
   tideIns_type:      { type: String },
+  
+  // Verification status (cached)
+  verificationStatus: { type: String, enum: ['Fully Verified', 'Partially Done', 'Not Verified', 'Not Found'], default: 'Not Found' },
+  verificationChecks: { type: Object }, // Store detailed check results
+  verificationUpdatedAt: { type: Date },
+  
   createdAt: { type: Date, default: Date.now }
 }, { collection: 'TL Form Responses' });
 

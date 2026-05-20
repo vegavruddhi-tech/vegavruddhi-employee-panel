@@ -170,6 +170,10 @@ router.post('/submit', verifyToken, async (req, res) => {
     if (!isTL && !isManager) {
       const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
       updateFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
+    } else if (isTL) {
+      // ✅ Verify TL forms too!
+      const { updateTLFormVerificationStatus } = require('../utils/updateVerificationStatus');
+      updateTLFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
     } else if (isManager) {
       const { updateManagerFormVerificationStatus } = require('../utils/updateVerificationStatus');
       updateManagerFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
@@ -189,13 +193,32 @@ router.post('/submit', verifyToken, async (req, res) => {
 // PUT /api/forms/admin/update/:id — admin can update any form
 router.put('/admin/update/:id', async (req, res) => {
   try {
+    console.log(`📝 Edit form request for ID: ${req.params.id}`);
+    
+    // ✅ Wait for MongoDB connection and verify it succeeded
+    const conn = await connectDB();
+    if (!conn) {
+      console.error('❌ MongoDB connection failed');
+      return res.status(503).json({ message: 'Database connection unavailable' });
+    }
+    
+    console.log('✅ MongoDB connected, updating form...');
+    
     const { reason, ...updateData } = req.body;
+    console.log('📦 Update data:', updateData);
+    
     const form = await FormResponse.findByIdAndUpdate(
       req.params.id,
       { $set: updateData },
       { new: true }
     );
-    if (!form) return res.status(404).json({ message: 'Form not found' });
+    
+    if (!form) {
+      console.error(`❌ Form not found with ID: ${req.params.id}`);
+      return res.status(404).json({ message: 'Form not found' });
+    }
+
+    console.log(`✅ Form updated successfully: ${form._id}`);
 
     // Update verification status after form update
     const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
@@ -203,6 +226,8 @@ router.put('/admin/update/:id', async (req, res) => {
     
     res.json({ message: 'Form updated successfully', form });
   } catch (err) {
+    console.error('❌ Edit form error:', err);
+    console.error('Stack trace:', err.stack);
     res.status(500).json({ message: err.message });
   }
 });
@@ -210,10 +235,29 @@ router.put('/admin/update/:id', async (req, res) => {
 // DELETE /api/forms/admin/delete/:id — admin can delete any form
 router.delete('/admin/delete/:id', async (req, res) => {
   try {
+    console.log(`🗑️ Delete form request for ID: ${req.params.id}`);
+    
+    // ✅ Wait for MongoDB connection and verify it succeeded
+    const conn = await connectDB();
+    if (!conn) {
+      console.error('❌ MongoDB connection failed');
+      return res.status(503).json({ message: 'Database connection unavailable' });
+    }
+    
+    console.log('✅ MongoDB connected, deleting form...');
+    
     const form = await FormResponse.findByIdAndDelete(req.params.id);
-    if (!form) return res.status(404).json({ message: 'Form not found' });
+    
+    if (!form) {
+      console.error(`❌ Form not found with ID: ${req.params.id}`);
+      return res.status(404).json({ message: 'Form not found' });
+    }
+    
+    console.log(`✅ Form deleted successfully: ${form._id}`);
     res.json({ message: 'Form deleted successfully' });
   } catch (err) {
+    console.error('❌ Delete form error:', err);
+    console.error('Stack trace:', err.stack);
     res.status(500).json({ message: err.message });
   }
 });

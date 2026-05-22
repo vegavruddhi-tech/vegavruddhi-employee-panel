@@ -67,7 +67,8 @@ const unfilledFormSchema = new mongoose.Schema({
   
   // Google Sheet Metadata
   sheetRowNumber: {
-    type: Number
+    type: mongoose.Schema.Types.Mixed,  // Allow any type to handle corrupted data
+    default: null
   },
   sheetTabName: {
     type: String
@@ -84,6 +85,18 @@ const unfilledFormSchema = new mongoose.Schema({
   },
   filledByEmployee: {
     type: String
+  },
+  
+  // Settlement Information (when admin settles the form)
+  settledFromUnfilled: {
+    type: Boolean,
+    default: false
+  },
+  settledBy: {
+    type: String
+  },
+  settledAt: {
+    type: Date
   },
   
   // Timestamps

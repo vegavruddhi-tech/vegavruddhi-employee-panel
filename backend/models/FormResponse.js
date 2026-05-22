@@ -75,6 +75,12 @@ formFillingFor: { type: String, },
   importSource: { type: String },
   importedAt: { type: Date },
 
+  // 🔥 NEW: Settled from unfilled forms metadata
+  settledFromUnfilled: { type: Boolean, default: false },
+  unfilledFormId: { type: mongoose.Schema.Types.ObjectId, ref: 'UnfilledForm' },
+  settledBy: { type: String },
+  settledAt: { type: Date },
+
   createdAt: { type: Date, default: Date.now }
 }, { collection: 'Forms_respones' });
 

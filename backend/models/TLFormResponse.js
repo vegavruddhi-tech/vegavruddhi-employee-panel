@@ -28,6 +28,12 @@ const tlFormResponseSchema = new mongoose.Schema({
   verificationChecks: { type: Object }, // Store detailed check results
   verificationUpdatedAt: { type: Date },
   
+  // 🔥 NEW: Settled from unfilled forms metadata
+  settledFromUnfilled: { type: Boolean, default: false },
+  unfilledFormId: { type: mongoose.Schema.Types.ObjectId, ref: 'UnfilledForm' },
+  settledBy: { type: String },
+  settledAt: { type: Date },
+  
   createdAt: { type: Date, default: Date.now }
 }, { collection: 'TL Form Responses' });
 

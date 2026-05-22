@@ -683,6 +683,62 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
+  // ---------- BULK CACHED POST (avoids URL length limit) ----------
+  router.post('/bulk-cached', verifyToken, async (req, res) => {
+    try {
+      const { phones: phonesArr, names: namesArr, products: productsArr, months: monthsArr } = req.body;
+      const phones   = (Array.isArray(phonesArr) ? phonesArr : (phonesArr || '').split(',')).map(p => String(p).trim()).filter(Boolean);
+      const names    = (Array.isArray(namesArr) ? namesArr : (namesArr || '').split(',')).map(n => String(n).trim());
+      const products = (Array.isArray(productsArr) ? productsArr : (productsArr || '').split(',')).map(p => normalizeProduct(p));
+      const months   = (Array.isArray(monthsArr) ? monthsArr : (monthsArr || '').split(',')).map(m => String(m).trim());
+
+      if (!phones.length) return res.json({});
+
+      const redis = getRedisClient();
+      const result = {};
+      const cacheKeys = phones.map((phone, i) => `verification:${phone}:${products[i] || ''}`);
+
+      let cachedValues = [];
+      if (redis) {
+        try { cachedValues = await redis.mget(...cacheKeys); }
+        catch { cachedValues = new Array(cacheKeys.length).fill(null); }
+      } else { cachedValues = new Array(cacheKeys.length).fill(null); }
+
+      const missedIndices = [];
+      phones.forEach((phone, i) => {
+        const product = products[i] || '';
+        const month = months[i] || '';
+        const key = product ? `${phone}__${product}` : phone;
+        const cached = cachedValues[i];
+        if (cached) {
+          try {
+            const d = JSON.parse(cached);
+            result[key] = { status: d.status, verified: d.verified, passed: d.passed, total: d.total, checks: d.checks || [], collection: d.collection, matchType: d.matchType, phoneMatch: d.status !== 'Not Found' ? true : (d.phoneMatch || false), inSheet: d.status !== 'Not Found' ? true : (d.matched || false), monthLabel: month };
+          } catch { missedIndices.push(i); }
+        } else { missedIndices.push(i); }
+      });
+
+      if (missedIndices.length > 0) {
+        const db = req.db;
+        const allRules = await VerificationRule.find().lean();
+        await Promise.all(missedIndices.map(async (i) => {
+          const phone = phones[i], name = names[i] || '', product = products[i] || '', month = months[i] || '';
+          const key = product ? `${phone}__${product}` : phone;
+          try {
+            const [v, pc] = await Promise.all([
+              verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
+              crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
+            ]);
+            result[key] = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch: v.status !== 'Not Found' ? true : pc.phoneMatch, inSheet: v.status !== 'Not Found' ? true : pc.matched, monthLabel: month };
+          } catch (err) { result[key] = { status: 'Error', verified: false, passed: 0, total: 0, checks: [], error: err.message }; }
+        }));
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ---------- BULK ADMIN (REDIS CACHED VERSION WITH MGET OPTIMIZATION) ----------
   router.get('/bulk-admin', async (req, res) => {
     

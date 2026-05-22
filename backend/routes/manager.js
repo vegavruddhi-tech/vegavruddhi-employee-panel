@@ -466,6 +466,55 @@ router.get('/my-tls', verifyToken, async (req, res) => {
   }
 });
 
+// ── GET /api/manager/tl/:id/tl-forms ──────────────────────────
+router.get('/tl/:id/tl-forms', verifyToken, async (req, res) => {
+  try {
+    const tl = await TeamLead.findById(req.params.id).select('name');
+    if (!tl) return res.status(404).json({ message: 'TL not found' });
+
+    const forms = await TLFormResponse.find({ employeeName: tl.name }).sort({ createdAt: -1 }).lean();
+    res.json(forms);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /api/manager/tl/:id/fse-forms ──────────────────────────
+router.get('/tl/:id/fse-forms', verifyToken, async (req, res) => {
+  try {
+    const tl = await TeamLead.findById(req.params.id).select('name email');
+    if (!tl) return res.status(404).json({ message: 'TL not found' });
+
+    // Get FSEs under this TL
+    const fsesByEmail = await TeamLead.find({
+      role: 'fse',
+      reportingManager: { $regex: new RegExp(tl.email.trim(), 'i') },
+    }).select('name');
+
+    const fsesByName = await Employee.find({
+      reportingManager: { $regex: new RegExp(tl.name.trim(), 'i') },
+    }).select('newJoinerName');
+
+    const fseNames = [
+      ...fsesByEmail.map(f => f.name),
+      ...fsesByName.map(f => f.newJoinerName),
+    ].filter(Boolean);
+
+    if (fseNames.length === 0) return res.json([]);
+
+    // Get all forms by these FSEs
+    const [fseForms, tlForms] = await Promise.all([
+      FormResponse.find({ employeeName: { $in: fseNames } }).sort({ createdAt: -1 }).lean(),
+      TLFormResponse.find({ employeeName: { $in: fseNames } }).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    const allForms = [...fseForms, ...tlForms];
+    res.json(allForms);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // ── GET /api/manager/tl/:id/fses ───────────────────────────────
 router.get('/tl/:id/fses', verifyToken, async (req, res) => {
   try {

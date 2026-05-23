@@ -232,7 +232,7 @@ router.put('/admin/update/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/forms/admin/delete/:id — admin can delete any form
+// DELETE /api/forms/admin/delete/:id — admin can delete any form (FSE, TL, or Manager)
 router.delete('/admin/delete/:id', async (req, res) => {
   try {
     console.log(`🗑️ Delete form request for ID: ${req.params.id}`);
@@ -246,15 +246,34 @@ router.delete('/admin/delete/:id', async (req, res) => {
     
     console.log('✅ MongoDB connected, deleting form...');
     
-    const form = await FormResponse.findByIdAndDelete(req.params.id);
+    // 🔥 NEW: Try to delete from all three collections (FSE, TL, Manager)
+    const TLFormResponse = require('../models/TLFormResponse');
+    const ManagerForm = require('../models/ManagerForm');
     
+    // Try FSE forms first
+    let form = await FormResponse.findByIdAndDelete(req.params.id);
+    let formType = 'FSE';
+    
+    // If not found in FSE, try TL forms
     if (!form) {
-      console.error(`❌ Form not found with ID: ${req.params.id}`);
+      form = await TLFormResponse.findByIdAndDelete(req.params.id);
+      formType = 'TL';
+    }
+    
+    // If not found in TL, try Manager forms
+    if (!form) {
+      form = await ManagerForm.findByIdAndDelete(req.params.id);
+      formType = 'Manager';
+    }
+    
+    // If still not found, return error
+    if (!form) {
+      console.error(`❌ Form not found with ID: ${req.params.id} in any collection (FSE, TL, Manager)`);
       return res.status(404).json({ message: 'Form not found' });
     }
     
-    console.log(`✅ Form deleted successfully: ${form._id}`);
-    res.json({ message: 'Form deleted successfully' });
+    console.log(`✅ ${formType} form deleted successfully: ${form._id}`);
+    res.json({ message: `${formType} form deleted successfully`, formType });
   } catch (err) {
     console.error('❌ Delete form error:', err);
     console.error('Stack trace:', err.stack);
@@ -307,14 +326,38 @@ router.get('/detail/:id', verifyToken, async (req, res) => {
   }
 });
 
-// PUT /api/forms/update/:id
+// PUT /api/forms/update/:id — employee can update their own form (FSE, TL, or Manager)
 router.put('/update/:id', verifyToken, async (req, res) => {
   try {
-    const form = await FormResponse.findOneAndUpdate(
+    // 🔥 NEW: Try to update in all three collections (FSE, TL, Manager)
+    const TLFormResponse = require('../models/TLFormResponse');
+    const ManagerForm = require('../models/ManagerForm');
+    
+    // Try FSE forms first
+    let form = await FormResponse.findOneAndUpdate(
       { _id: req.params.id, submittedBy: req.user.id },
       { $set: req.body },
       { new: true }
     );
+    
+    // If not found in FSE, try TL forms
+    if (!form) {
+      form = await TLFormResponse.findOneAndUpdate(
+        { _id: req.params.id, submittedBy: req.user.id },
+        { $set: req.body },
+        { new: true }
+      );
+    }
+    
+    // If not found in TL, try Manager forms
+    if (!form) {
+      form = await ManagerForm.findOneAndUpdate(
+        { _id: req.params.id, submittedBy: req.user.id },
+        { $set: req.body },
+        { new: true }
+      );
+    }
+    
     if (!form) return res.status(404).json({ message: 'Not found or not authorized' });
     res.json({ message: 'Updated successfully', form });
   } catch (err) {
@@ -322,10 +365,26 @@ router.put('/update/:id', verifyToken, async (req, res) => {
   }
 });
 
-// DELETE /api/forms/delete/:id
+// DELETE /api/forms/delete/:id — employee can delete their own form (FSE, TL, or Manager)
 router.delete('/delete/:id', verifyToken, async (req, res) => {
   try {
-    const form = await FormResponse.findOneAndDelete({ _id: req.params.id, submittedBy: req.user.id });
+    // 🔥 NEW: Try to delete from all three collections (FSE, TL, Manager)
+    const TLFormResponse = require('../models/TLFormResponse');
+    const ManagerForm = require('../models/ManagerForm');
+    
+    // Try FSE forms first
+    let form = await FormResponse.findOneAndDelete({ _id: req.params.id, submittedBy: req.user.id });
+    
+    // If not found in FSE, try TL forms
+    if (!form) {
+      form = await TLFormResponse.findOneAndDelete({ _id: req.params.id, submittedBy: req.user.id });
+    }
+    
+    // If not found in TL, try Manager forms
+    if (!form) {
+      form = await ManagerForm.findOneAndDelete({ _id: req.params.id, submittedBy: req.user.id });
+    }
+    
     if (!form) return res.status(404).json({ message: 'Not found or not authorized' });
     res.json({ message: 'Deleted successfully' });
   } catch (err) {

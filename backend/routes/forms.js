@@ -130,35 +130,60 @@ router.post('/submit', verifyToken, async (req, res) => {
     const form = await Model.create(data);
     
     // ========== CHECK FOR UNFILLED FORM (LATE SUBMISSION DETECTION) ==========
-    if (!isTL && req.body.formFillingFor && req.body.customerNumber) {
+    // Check for ALL form types (FSE, TL, Manager)
+    if (req.body.customerNumber) {
       try {
         const UnfilledForm = require('../models/UnfilledForm');
         
-        // Get month and year from form creation date
-        const formDate = new Date(form.createdAt);
-        const month = formDate.toLocaleString('en-US', { month: 'long' });
-        const year = formDate.getFullYear();
+        // Get product from form (priority: formFillingFor > tideProduct > brand)
+        const product = req.body.formFillingFor || req.body.tideProduct || req.body.brand;
         
-        // Create unique key to match unfilled form
-        const uniqueKey = UnfilledForm.createUniqueKey(
-          req.body.customerNumber,
-          req.body.customerName || '',
-          req.body.formFillingFor,
-          month,
-          year,
-          { matchFields: ['phone', 'name'] }  // Default rule
-        );
-        
-        // Check if this merchant was in unfilled forms
-        const unfilledForm = await UnfilledForm.findOne({
-          uniqueKey,
-          status: 'unfilled'
-        });
-        
-        if (unfilledForm) {
-          // Mark as filled late
-          await unfilledForm.markAsFilledLate(form._id, employeeName);
-          console.log(`⚠️ LATE SUBMISSION DETECTED: ${employeeName} filled form for ${req.body.customerName} (was unfilled)`);
+        if (product) {
+          // Get month and year from form creation date
+          const formDate = new Date(form.createdAt);
+          const month = formDate.toLocaleString('en-US', { month: 'long' });
+          const year = formDate.getFullYear();
+          
+          // Try multiple matching strategies (flexible matching)
+          // Strategy 1: Exact match with uniqueKey (phone + name + product + month + year)
+          const uniqueKey = UnfilledForm.createUniqueKey(
+            req.body.customerNumber,
+            req.body.customerName || '',
+            product,
+            month,
+            year,
+            { matchFields: ['phone', 'name'] }
+          );
+          
+          let unfilledForm = await UnfilledForm.findOne({
+            uniqueKey,
+            status: 'unfilled'
+          });
+          
+          // Strategy 2: If not found, try phone + product only (ignore name and exact month)
+          if (!unfilledForm) {
+            unfilledForm = await UnfilledForm.findOne({
+              customerPhone: req.body.customerNumber,
+              product: { $regex: new RegExp(`^${product.trim()}$`, 'i') }, // Case-insensitive
+              status: 'unfilled',
+              expectedYear: year // Same year
+            });
+          }
+          
+          // Strategy 3: If still not found, try phone only (same year, any product)
+          if (!unfilledForm) {
+            unfilledForm = await UnfilledForm.findOne({
+              customerPhone: req.body.customerNumber,
+              status: 'unfilled',
+              expectedYear: year
+            });
+          }
+          
+          if (unfilledForm) {
+            // Mark as filled late
+            await unfilledForm.markAsFilledLate(form._id, employeeName);
+            console.log(`⚠️ LATE SUBMISSION DETECTED: ${employeeName} filled form for ${req.body.customerName || req.body.customerNumber} (was unfilled since ${unfilledForm.expectedMonth} ${unfilledForm.expectedYear})`);
+          }
         }
       } catch (unfilledError) {
         // Don't fail form submission if unfilled check fails

@@ -63,6 +63,7 @@ router.get('/filled-late', async (req, res) => {
     if (year) query.expectedYear = parseInt(year);
 
     const filledLateForms = await UnfilledForm.find(query)
+      .populate('filledFormId', 'employeeName createdAt') // 🔥 Populate form details
       .sort({ filledAt: -1 })
       .lean();
 

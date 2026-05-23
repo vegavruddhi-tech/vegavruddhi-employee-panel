@@ -472,7 +472,17 @@ router.get('/tl/:id/tl-forms', verifyToken, async (req, res) => {
     const tl = await TeamLead.findById(req.params.id).select('name');
     if (!tl) return res.status(404).json({ message: 'TL not found' });
 
-    const forms = await TLFormResponse.find({ employeeName: tl.name }).sort({ createdAt: -1 }).lean();
+    const { year, month } = req.query;
+    let dateFilter = {};
+    if (year || month !== undefined) {
+      const y = year ? parseInt(year) : new Date().getFullYear();
+      const m = (month !== undefined && month !== '') ? parseInt(month) : 0;
+      const start = new Date(y, m, 1);
+      const end = new Date(y, m + 1, 0, 23, 59, 59);
+      dateFilter = { createdAt: { $gte: start, $lte: end } };
+    }
+
+    const forms = await TLFormResponse.find({ employeeName: tl.name, ...dateFilter }).sort({ createdAt: -1 }).lean();
     res.json(forms);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -502,10 +512,21 @@ router.get('/tl/:id/fse-forms', verifyToken, async (req, res) => {
 
     if (fseNames.length === 0) return res.json([]);
 
+    // Date filter
+    const { year, month } = req.query;
+    let dateFilter = {};
+    if (year || month !== undefined) {
+      const y = year ? parseInt(year) : new Date().getFullYear();
+      const m = (month !== undefined && month !== '') ? parseInt(month) : 0;
+      const start = new Date(y, m, 1);
+      const end = new Date(y, m + 1, 0, 23, 59, 59);
+      dateFilter = { createdAt: { $gte: start, $lte: end } };
+    }
+
     // Get all forms by these FSEs
     const [fseForms, tlForms] = await Promise.all([
-      FormResponse.find({ employeeName: { $in: fseNames } }).sort({ createdAt: -1 }).lean(),
-      TLFormResponse.find({ employeeName: { $in: fseNames } }).sort({ createdAt: -1 }).lean(),
+      FormResponse.find({ employeeName: { $in: fseNames }, ...dateFilter }).sort({ createdAt: -1 }).lean(),
+      TLFormResponse.find({ employeeName: { $in: fseNames }, ...dateFilter }).sort({ createdAt: -1 }).lean(),
     ]);
 
     const allForms = [...fseForms, ...tlForms];

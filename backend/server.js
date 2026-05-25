@@ -29,6 +29,8 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:3002',
+  'http://localhost:3004',
+  'http://localhost:3005',
   'https://team-leader-gamma.vercel.app',
   'https://vegavruddhi-admin-panel-tq8t.vercel.app',
   'https://vegavruddhi-employee-panel-ke56.vercel.app',

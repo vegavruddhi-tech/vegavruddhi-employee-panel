@@ -221,6 +221,76 @@ router.get('/profile', verifyToken, async (req, res) => {
   }
 });
 
+// ── GET /api/tl/tidebt-fses ─────────────────────────────────────
+// Get list of FSEs under this TL from TideBT_Access collection
+router.get('/tidebt-fses', verifyToken, async (req, res) => {
+  try {
+    const tl = await TeamLead.findById(req.user.id).select('name');
+    if (!tl) return res.status(404).json({ message: 'Team Lead not found' });
+    
+    console.log('🔍 Fetching FSEs for TL:', tl.name);
+    
+    // Get TideBT_Access collection
+    const TideBTAccess = req.db.collection('TideBT_Access');
+    
+    // Get all records
+    const allRecords = await TideBTAccess.find({ hasTideBTAccess: true }).toArray();
+    
+    // Fuzzy match TL name (same logic as check-tidebt-access)
+    const tlName = tl.name.toLowerCase().trim();
+    const tlParts = tlName.split(/\s+/);
+    const tlFirstName = tlParts[0];
+    const tlSurnameInitial = tlParts[1] ? tlParts[1][0] : null;
+    
+    let matchedRecords = [];
+    
+    // Priority 1: Exact full name match
+    matchedRecords = allRecords.filter(record => 
+      record.tlName && 
+      record.tlName.toLowerCase().trim() === tlName
+    );
+    
+    // Priority 2: First name + first letter of surname match
+    if (matchedRecords.length === 0 && tlSurnameInitial) {
+      matchedRecords = allRecords.filter(record => {
+        if (!record.tlName) return false;
+        const dbParts = record.tlName.toLowerCase().trim().split(/\s+/);
+        const dbFirstName = dbParts[0];
+        const dbSurnameInitial = dbParts[1] ? dbParts[1][0] : null;
+        
+        return dbFirstName === tlFirstName && 
+               dbSurnameInitial === tlSurnameInitial;
+      });
+    }
+    
+    // Priority 3: First name only match (fallback)
+    if (matchedRecords.length === 0) {
+      matchedRecords = allRecords.filter(record => {
+        if (!record.tlName) return false;
+        const dbFirstName = record.tlName.toLowerCase().trim().split(/\s+/)[0];
+        return dbFirstName === tlFirstName;
+      });
+      
+      // Check for ambiguous TL names
+      const uniqueTLNames = [...new Set(matchedRecords.map(m => m.tlName.toLowerCase().trim()))];
+      if (uniqueTLNames.length > 1) {
+        console.log('⚠️ Multiple different TLs found - returning empty list');
+        return res.json({ fses: [] });
+      }
+    }
+    
+    // Extract unique FSE names
+    const fseNames = [...new Set(matchedRecords.map(r => r.fseName).filter(Boolean))];
+    
+    console.log(`✅ Found ${fseNames.length} FSEs for TL ${tl.name}`);
+    
+    res.json({ fses: fseNames });
+  } catch (err) {
+    console.error('Error fetching Tide BT FSEs:', err);
+    res.status(500).json({ message: err.message, fses: [] });
+  }
+});
+
 // ── PUT /api/tl/update-profile ──────────────────────────────────
 router.put('/update-profile', verifyToken, async (req, res) => {
   try {
@@ -596,6 +666,106 @@ router.put('/my-notifications/:id/acknowledge', verifyToken, async (req, res) =>
     );
     res.json({ message: 'Acknowledged' });
   } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/tl/check-tidebt-access - Check if TL has Tide BT access
+router.get('/check-tidebt-access', verifyToken, async (req, res) => {
+  try {
+    console.log('🔍 Checking Tide BT access for TL...');
+    
+    const tl = await TeamLead.findById(req.user.id).select('name');
+    if (!tl) return res.status(404).json({ message: 'Team Lead not found' });
+
+    console.log('👤 TL name:', tl.name);
+
+    // Check if TL exists in TideBT_Access collection with fuzzy matching
+    const TideBTAccess = req.db.collection('TideBT_Access');
+    
+    // Get all TL records
+    const allRecords = await TideBTAccess.find({ hasTideBTAccess: true }).toArray();
+    console.log('📊 Total records in TideBT_Access:', allRecords.length);
+    
+    // Fuzzy name matching with 3-tier priority (TL can have multiple FSEs, so duplicates are OK)
+    const tlName = tl.name.toLowerCase().trim();
+    const tlParts = tlName.split(/\s+/);
+    const tlFirstName = tlParts[0];
+    const tlSurnameInitial = tlParts[1] ? tlParts[1][0] : null;
+    
+    let matchedRecord = null;
+    let matchType = null;
+    
+    // Priority 1: Exact full name match
+    matchedRecord = allRecords.find(record => 
+      record.tlName && 
+      record.tlName.toLowerCase().trim() === tlName
+    );
+    if (matchedRecord) {
+      matchType = 'exact';
+      console.log('✅ Exact match found:', matchedRecord.tlName);
+    }
+    
+    // Priority 2: First name + first letter of surname match
+    if (!matchedRecord && tlSurnameInitial) {
+      const potentialMatches = allRecords.filter(record => {
+        if (!record.tlName) return false;
+        const dbParts = record.tlName.toLowerCase().trim().split(/\s+/);
+        const dbFirstName = dbParts[0];
+        const dbSurnameInitial = dbParts[1] ? dbParts[1][0] : null;
+        
+        return dbFirstName === tlFirstName && 
+               dbSurnameInitial === tlSurnameInitial;
+      });
+      
+      if (potentialMatches.length >= 1) {
+        // For TL: Multiple matches are OK (one TL has many FSEs)
+        matchedRecord = potentialMatches[0];
+        matchType = 'first-name-initial';
+        console.log('✅ First name + initial match found:', matchedRecord.tlName, `(${potentialMatches.length} FSEs)`);
+      }
+    }
+    
+    // Priority 3: First name only match (fallback)
+    if (!matchedRecord) {
+      const potentialMatches = allRecords.filter(record => {
+        if (!record.tlName) return false;
+        const dbFirstName = record.tlName.toLowerCase().trim().split(/\s+/)[0];
+        return dbFirstName === tlFirstName;
+      });
+      
+      // Get unique TL names to check for ambiguity
+      const uniqueTLNames = [...new Set(potentialMatches.map(m => m.tlName.toLowerCase().trim()))];
+      
+      if (uniqueTLNames.length === 1) {
+        // Only one unique TL name found (multiple FSEs under same TL is OK)
+        matchedRecord = potentialMatches[0];
+        matchType = 'first-name-only';
+        console.log('✅ First name only match found:', matchedRecord.tlName, `(${potentialMatches.length} FSEs)`);
+      } else if (uniqueTLNames.length > 1) {
+        // Multiple different TLs with same first name - ambiguous
+        console.log('⚠️ Multiple different TLs found with first name - denying access for safety');
+        console.log('   Ambiguous TL names:', uniqueTLNames.join(', '));
+        matchType = 'ambiguous';
+      }
+    }
+    
+    const hasAccess = !!matchedRecord && matchType !== 'ambiguous';
+    
+    console.log('✅ Access granted:', hasAccess);
+    if (matchedRecord) {
+      console.log('   Match type:', matchType);
+      console.log('   Matched with:', matchedRecord.tlName);
+    }
+
+    res.json({
+      hasTideBTAccess: hasAccess,
+      userName: tl.name,
+      userRole: 'TL',
+      matchType: matchType || 'none'
+    });
+  } catch (err) {
+    console.error('❌ Error checking Tide BT access:', err);
     res.status(500).json({ message: err.message });
   }
 });

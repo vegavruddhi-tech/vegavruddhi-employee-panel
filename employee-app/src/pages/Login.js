@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { API_BASE } from '../api';
+import TideSelectionPopup from '../components/TideSelectionPopup';
 
 const GOOGLE_CLIENT_ID = '175231524136-39m136pat1dpous6u9eijhfulpmpms1i.apps.googleusercontent.com';
 
@@ -9,6 +10,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
   const [isWarn,  setIsWarn]  = useState(false);
+  const [showTidePopup, setShowTidePopup] = useState(false);
 
   useEffect(() => {
     if (localStorage.getItem('token')) navigate('/dashboard');
@@ -50,11 +52,37 @@ export default function Login() {
       }
       localStorage.setItem('token', data.token);
       localStorage.setItem('employee', JSON.stringify(data.employee));
-      navigate('/dashboard');
+      
+      // Check if user has Tide BT access
+      const tideBTRes = await fetch(`${API_BASE}/api/auth/check-tidebt-access`, {
+        headers: { 'Authorization': `Bearer ${data.token}` }
+      });
+      const tideBTData = await tideBTRes.json();
+      
+      if (tideBTData.hasTideBTAccess) {
+        // Show popup to select Tide or Tide BT
+        setShowTidePopup(true);
+        setLoading(false);
+      } else {
+        // No Tide BT access, go directly to Tide dashboard
+        navigate('/dashboard');
+      }
     } catch {
       setError('Server error. Please try again.');
       setLoading(false);
     }
+  };
+
+  const handleSelectTide = () => {
+    setShowTidePopup(false);
+    navigate('/dashboard');
+  };
+
+  const handleSelectTideBT = () => {
+    setShowTidePopup(false);
+    // Redirect to Tide BT with token in URL
+    const token = localStorage.getItem('token');
+    window.location.href = `http://localhost:3004?token=${encodeURIComponent(token)}`;
   };
 
   return (
@@ -125,6 +153,14 @@ export default function Login() {
             New joiner? <Link to="/register" style={{ color: '#1a4731', fontWeight: 700, textDecoration: 'none' }}>Register here</Link>
           </div>
         </div>
+        
+        {/* Tide Selection Popup */}
+        <TideSelectionPopup
+          open={showTidePopup}
+          onClose={() => setShowTidePopup(false)}
+          onSelectTide={handleSelectTide}
+          onSelectTideBT={handleSelectTideBT}
+        />
       </div>
     </>
   );

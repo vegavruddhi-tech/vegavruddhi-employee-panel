@@ -782,4 +782,105 @@ router.put('/update-profile', verifyToken, async (req, res) => {
   }
 });
 
+// GET /api/auth/check-tidebt-access - Check if user has Tide BT access
+router.get('/check-tidebt-access', verifyToken, async (req, res) => {
+  try {
+    console.log('🔍 Checking Tide BT access for employee...');
+    
+    const employee = await Employee.findById(req.user.id).select('newJoinerName position');
+    if (!employee) {
+      console.log('❌ Employee not found');
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+    
+    console.log('👤 Employee name:', employee.newJoinerName);
+
+    // Check if user exists in TideBT_Access collection (case-insensitive)
+    const db = Employee.db;
+    const TideBTAccess = db.collection('TideBT_Access');
+    
+    // Get all FSE records
+    const allRecords = await TideBTAccess.find({ hasTideBTAccess: true }).toArray();
+    console.log('📊 Total records in TideBT_Access:', allRecords.length);
+    
+    // Fuzzy name matching with 3-tier priority
+    const employeeName = employee.newJoinerName.toLowerCase().trim();
+    const employeeParts = employeeName.split(/\s+/);
+    const employeeFirstName = employeeParts[0];
+    const employeeSurnameInitial = employeeParts[1] ? employeeParts[1][0] : null;
+    
+    let matchedRecord = null;
+    let matchType = null;
+    
+    // Priority 1: Exact full name match
+    matchedRecord = allRecords.find(record => 
+      record.fseName && 
+      record.fseName.toLowerCase().trim() === employeeName
+    );
+    if (matchedRecord) {
+      matchType = 'exact';
+      console.log('✅ Exact match found:', matchedRecord.fseName);
+    }
+    
+    // Priority 2: First name + first letter of surname match
+    if (!matchedRecord && employeeSurnameInitial) {
+      const potentialMatches = allRecords.filter(record => {
+        if (!record.fseName) return false;
+        const dbParts = record.fseName.toLowerCase().trim().split(/\s+/);
+        const dbFirstName = dbParts[0];
+        const dbSurnameInitial = dbParts[1] ? dbParts[1][0] : null;
+        
+        return dbFirstName === employeeFirstName && 
+               dbSurnameInitial === employeeSurnameInitial;
+      });
+      
+      if (potentialMatches.length === 1) {
+        matchedRecord = potentialMatches[0];
+        matchType = 'first-name-initial';
+        console.log('✅ First name + initial match found:', matchedRecord.fseName);
+      } else if (potentialMatches.length > 1) {
+        console.log('⚠️ Multiple matches found for first name + initial - denying access for safety');
+        matchType = 'ambiguous';
+      }
+    }
+    
+    // Priority 3: First name only match (fallback)
+    if (!matchedRecord && matchType !== 'ambiguous') {
+      const potentialMatches = allRecords.filter(record => {
+        if (!record.fseName) return false;
+        const dbFirstName = record.fseName.toLowerCase().trim().split(/\s+/)[0];
+        return dbFirstName === employeeFirstName;
+      });
+      
+      if (potentialMatches.length === 1) {
+        matchedRecord = potentialMatches[0];
+        matchType = 'first-name-only';
+        console.log('✅ First name only match found:', matchedRecord.fseName);
+      } else if (potentialMatches.length > 1) {
+        console.log('⚠️ Multiple matches found for first name - denying access for safety');
+        console.log('   Ambiguous matches:', potentialMatches.map(m => m.fseName).join(', '));
+        matchType = 'ambiguous';
+      }
+    }
+    
+    const hasAccess = !!matchedRecord && matchType !== 'ambiguous';
+    
+    console.log('✅ Access granted:', hasAccess);
+    if (matchedRecord) {
+      console.log('   Match type:', matchType);
+      console.log('   Matched with:', matchedRecord.fseName);
+    }
+
+    res.json({
+      hasTideBTAccess: hasAccess,
+      userName: employee.newJoinerName,
+      userRole: employee.position,
+      matchType: matchType || 'none'
+    });
+  } catch (err) {
+    console.error('❌ Error checking Tide BT access:', err);
+    res.status(500).json({ message: err.message, error: err.toString() });
+  }
+});
+
 module.exports = router;

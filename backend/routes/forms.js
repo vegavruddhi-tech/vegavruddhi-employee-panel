@@ -851,19 +851,28 @@ router.get('/admin/overview', async (req, res) => {
 });
 
 // ── PUT /api/forms/save-verified-points ────────────────────────
-// Employee saves their auto-calculated verified points
+// Employee or TL saves their auto-calculated verified points
 router.put('/save-verified-points', verifyToken, async (req, res) => {
   try {
     const EmployeePoints = require('../models/EmployeePoints');
     const Employee = require('../models/Employee');
     const { verifiedPoints } = req.body;
 
+    // Try Employee first, then TeamLead
+    let name = null;
     const emp = await Employee.findById(req.user.id).select('newJoinerName');
-    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+    if (emp) {
+      name = emp.newJoinerName;
+    } else {
+      const tl = await TeamLead.findById(req.user.id).select('name');
+      if (tl) name = tl.name;
+    }
+
+    if (!name) return res.status(404).json({ message: 'User not found' });
 
     await EmployeePoints.findOneAndUpdate(
-      { newJoinerName: emp.newJoinerName },
-      { $set: { newJoinerName: emp.newJoinerName, employeeId: req.user.id, verifiedPoints: verifiedPoints || 0, updatedAt: new Date() } },
+      { newJoinerName: name },
+      { $set: { newJoinerName: name, employeeId: req.user.id, verifiedPoints: verifiedPoints || 0, updatedAt: new Date() } },
       { upsert: true, new: true }
     );
     res.json({ message: 'Verified points saved' });
@@ -1080,7 +1089,7 @@ router.post('/admin/init-employee-points', async (req, res) => {
 });
 
 // ── GET /api/forms/my-points ────────────────────────────────────
-// Employee views their own points (supports impersonation)
+// Employee or TL views their own points (supports impersonation)
 router.get('/my-points', verifyToken, async (req, res) => {
   try {
     const EmployeePoints = require('../models/EmployeePoints');
@@ -1098,10 +1107,18 @@ router.get('/my-points', verifyToken, async (req, res) => {
       empName = targetUser.newJoinerName;
       console.log(`🔐 Admin impersonation: Fetching points for ${viewAs} (${empName})`);
     } else {
+      // Try Employee first, then TeamLead
       const emp = await Employee.findById(req.user.id).select('newJoinerName');
-      if (!emp) return res.status(404).json({ message: 'Employee not found' });
-      empName = emp.newJoinerName;
+      if (emp) {
+        empName = emp.newJoinerName;
+      } else {
+        const tl = await TeamLead.findById(req.user.id).select('name');
+        if (tl) empName = tl.name;
+      }
+      if (!empName) return res.status(404).json({ message: 'User not found' });
     }
+
+    const trimmedName = empName.trim();
 
     // Find the record with slabs if multiple exist
     const docs = await EmployeePoints.find({
@@ -1157,8 +1174,18 @@ router.post('/admin/recalculate-all-points', async (req, res) => {
     // Use connection from middleware
     const db = req.db;
 
-    // Get all forms grouped by employee
-    const allForms = await FormResponse.find({}).lean();
+    // Get all forms from FSE, TL, and Manager
+    const allFSEForms = await FormResponse.find({}).lean();
+    const allTLForms  = await TLFormResponse.find({}).lean();
+    
+    let allForms;
+    try {
+      const ManagerForm = require('../models/ManagerForm');
+      const allManagerForms = await ManagerForm.find({}).lean();
+      allForms = [...allFSEForms, ...allTLForms, ...allManagerForms];
+    } catch (e) {
+      allForms = [...allFSEForms, ...allTLForms];
+    }
 
     // Group forms by employeeName
     const byEmployee = {};
@@ -1224,7 +1251,7 @@ router.post('/admin/recalculate-all-points', async (req, res) => {
       updatedCount++;
     }
 
-    res.json({ message: `Points recalculated for ${updatedCount} employees` });
+    res.json({ message: `Points recalculated for ${updatedCount} employees (FSE + TL + Manager forms)` });
 
   } catch (err) {
     res.status(500).json({ message: err.message });

@@ -249,6 +249,25 @@ router.get('/kpi-detail', verifyToken, async (req, res) => {
 // ── GET /api/manager/kpis ───────────────────────────────────────
 router.get('/kpis', verifyToken, async (req, res) => {
   try {
+    const { getRedisClient } = require('../utils/redisClient');
+    const redis = getRedisClient();
+
+    // Build cache key from manager ID + query params
+    const queryStr = JSON.stringify(req.query);
+    const cacheKey = `manager_kpis:${req.user.id}:${queryStr}`;
+
+    // Try Redis cache first (5 minutes)
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          return res.json(JSON.parse(cached));
+        }
+      } catch (cacheErr) {
+        console.error('Redis get error (kpis):', cacheErr.message);
+      }
+    }
+
     const manager = await Manager.findById(req.user.id).select('name email');
     if (!manager) return res.status(404).json({ message: 'Manager not found' });
 
@@ -385,7 +404,7 @@ router.get('/kpis', verifyToken, async (req, res) => {
       activeFSENamesLower.has((n || '').toLowerCase().trim())
     ).length;
 
-    res.json({
+    const responseData = {
       totalTLs,
       activeTLs: activeTLsFiltered.length,
       totalFSEs,
@@ -395,7 +414,18 @@ router.get('/kpis', verifyToken, async (req, res) => {
       partiallyDone: partiallyDoneForms.length,
       notInterested: notInterestedForms.length,
       todayForms: todayForms.length,
-    });
+    };
+
+    // Cache in Redis for 5 minutes (300 seconds)
+    if (redis) {
+      try {
+        await redis.setex(cacheKey, 300, JSON.stringify(responseData));
+      } catch (cacheErr) {
+        console.error('Redis set error (kpis):', cacheErr.message);
+      }
+    }
+
+    res.json(responseData);
 
   } catch (err) {
     console.error('Manager KPIs error:', err.message);

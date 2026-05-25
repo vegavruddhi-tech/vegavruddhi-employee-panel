@@ -376,29 +376,24 @@ export default function Dashboard() {
 
   // Use backend points if available (includes slabs), otherwise calculate from verified forms
   const totalPoints = useMemo(() => {
-    // If backend returned total points (with slabs), use that
-    if (backendPoints !== null) {
-      console.log('💰 Using backend total points (includes slabs):', backendPoints);
-      return backendPoints;
-    }
-    
-    // Otherwise calculate from verified forms (fallback)
+    // Calculate from verified forms filtered by selected month/year
     const counted = new Set();
     let auto = 0;
     allForms.forEach(f => {
+      // Filter by selected month/year
+      if (selYear && new Date(f.createdAt).getFullYear() !== parseInt(selYear)) return;
+      if (selMonth !== '' && new Date(f.createdAt).getMonth() !== parseInt(selMonth)) return;
       if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
         const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
         if (counted.has(dedupKey)) return;
         counted.add(dedupKey);
         const product = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
         auto += POINTS_MAP[normalizeProduct(product)] || 0;
-
       }
     });
     const calculated = Math.round((auto + adjustment) * 10) / 10;
-    console.log('💰 Calculated from verified forms:', calculated);
     return calculated;
-  }, [allForms, verifiedMap, adjustment, backendPoints]);
+  }, [allForms, verifiedMap, adjustment, selYear, selMonth]);
 
   const kpis = [
     { key: 'all',      label: 'Total Responses',      value: filtered.length,                                                                    cls: 'kpi-total' },

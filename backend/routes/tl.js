@@ -670,6 +670,53 @@ router.put('/my-notifications/:id/acknowledge', verifyToken, async (req, res) =>
   }
 });
 
+// GET /api/tl/tidebt-team-forms - TL gets their team's Tide BT forms
+router.get('/tidebt-team-forms', verifyToken, async (req, res) => {
+  try {
+    const TideBTFormResponse = require('../models/TideBTFormResponse');
+    const tl = await TeamLead.findById(req.user.id).select('name');
+    if (!tl) return res.status(404).json({ message: 'TL not found' });
+
+    // Get FSE names from TideBT_Access
+    const TideBTAccess = req.db.collection('TideBT_Access');
+    const allRecords = await TideBTAccess.find({ hasTideBTAccess: true }).toArray();
+    
+    const tlName = tl.name.toLowerCase().trim();
+    const tlParts = tlName.split(/\s+/);
+    
+    // Find FSEs under this TL
+    const fseNames = [];
+    allRecords.forEach(record => {
+      const recordTL = (record.tlName || '').toLowerCase().trim();
+      const recordTLParts = recordTL.split(/\s+/);
+      // Match if: exact match, OR all TL name parts found in record, OR first name matches
+      const firstNameMatch = tlParts[0] && recordTL.includes(tlParts[0]);
+      const fullMatch = recordTL === tlName;
+      const partsMatch = tlParts.length > 1 && tlParts.every(p => recordTL.includes(p));
+      if (fullMatch || partsMatch || firstNameMatch) {
+        if (record.fseName) fseNames.push(record.fseName);
+      }
+    });
+
+    if (fseNames.length === 0) return res.json([]);
+
+    // Build fuzzy regex patterns for each FSE name (match first name)
+    const regexPatterns = fseNames.map(name => {
+      const firstName = name.trim().split(/\s+/)[0];
+      return new RegExp(firstName, 'i');
+    });
+
+    // Get forms by these FSEs using fuzzy matching
+    const forms = await TideBTFormResponse.find({
+      $or: regexPatterns.map(r => ({ employeeName: r }))
+    }).sort({ createdAt: -1 });
+
+    res.json(forms);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // GET /api/tl/check-tidebt-access - Check if TL has Tide BT access
 router.get('/check-tidebt-access', verifyToken, async (req, res) => {
   try {

@@ -274,26 +274,21 @@ export default function Dashboard() {
       return;
     }
     
-    const phones   = allForms.map(f => f.customerNumber).join(',');
-    const names    = allForms.map(f => encodeURIComponent(f.customerName)).join(',');
-    const products = allForms.map(f => {
-      const p = f.formFillingFor || f.tideProduct || f.brand || '';
-      return encodeURIComponent(p.toLowerCase().trim());
-    }).join(',');
-    const months = allForms.map(f => 
-      encodeURIComponent(new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }))
-    ).join(',');
-
-    const url = `${API_BASE}/api/verify/bulk-cached?phones=${encodeURIComponent(phones)}&names=${names}&products=${products}&months=${months}`;
-    console.log('🔍 Fetching verification (Redis cached):', { 
-      formCount: filtered.length, 
-      endpoint: '/api/verify/bulk-cached',
-      url: url.substring(0, 150) + '...'
+    console.log('🔍 Fetching verification (POST bulk-admin):', { 
+      formCount: allForms.length, 
+      endpoint: '/api/verify/bulk-admin'
     });
 
-    // ✅ Use Redis-cached endpoint for fast verification
-    fetch(url, {
-      headers: { Authorization: 'Bearer ' + token }
+    // ✅ Use POST bulk-admin to avoid URL length limits
+    fetch(`${API_BASE}/api/verify/bulk-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({
+        phones:   allForms.map(f => f.customerNumber || ''),
+        names:    allForms.map(f => f.customerName || ''),
+        products: allForms.map(f => (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase().trim()),
+        months:   allForms.map(f => f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : ''),
+      }),
     })
       .then(r => {
         console.log('📡 Verification response status:', r.status);
@@ -384,7 +379,7 @@ export default function Dashboard() {
       if (selYear && new Date(f.createdAt).getFullYear() !== parseInt(selYear)) return;
       if (selMonth !== '' && new Date(f.createdAt).getMonth() !== parseInt(selMonth)) return;
       if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
-        const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
+        const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}__${(f.tideIns_type || f.ins_insuranceType || '').toLowerCase().trim()}`;
         if (counted.has(dedupKey)) return;
         counted.add(dedupKey);
         const product = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';

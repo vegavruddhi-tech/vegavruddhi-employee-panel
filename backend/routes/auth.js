@@ -883,4 +883,63 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
   }
 });
 
+// POST /api/auth/tidebt-daily-visit - FSE submits Tide BT daily visit form
+router.post('/tidebt-daily-visit', verifyToken, async (req, res) => {
+  try {
+    const TideBTFormResponse = require('../models/TideBTFormResponse');
+    const employee = await Employee.findById(req.user.id).select('newJoinerName newJoinerEmailId');
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+
+    const data = {
+      ...req.body,
+      formType: 'daily-visit',
+      submittedBy: req.user.id,
+      employeeName: employee.newJoinerName,
+      employeeEmail: employee.newJoinerEmailId,
+    };
+
+    const form = await TideBTFormResponse.create(data);
+    res.status(201).json({ message: 'Form submitted successfully', form });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/auth/tidebt-mobikwik-withdraw - FSE submits Mobikwik/Payzapp withdraw form
+router.post('/tidebt-mobikwik-withdraw', verifyToken, async (req, res) => {
+  try {
+    const TideBTFormResponse = require('../models/TideBTFormResponse');
+    const employee = await Employee.findById(req.user.id).select('newJoinerName newJoinerEmailId');
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+
+    const data = {
+      ...req.body,
+      formType: 'mobikwik-withdraw',
+      submittedBy: req.user.id,
+      employeeName: employee.newJoinerName,
+      employeeEmail: employee.newJoinerEmailId,
+      merchantOpinion: 'Ready For Onboarding',
+      merchantCategory: 'Others',
+      merchantName: req.body.merchantName,
+      merchantNumber: req.body.merchantNumber,
+    };
+
+    const form = await TideBTFormResponse.create(data);
+    res.status(201).json({ message: 'Form submitted successfully', form });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// GET /api/auth/tidebt-my-forms - FSE gets their own Tide BT forms
+router.get('/tidebt-my-forms', verifyToken, async (req, res) => {
+  try {
+    const TideBTFormResponse = require('../models/TideBTFormResponse');
+    const forms = await TideBTFormResponse.find({ submittedBy: req.user.id }).sort({ createdAt: -1 });
+    res.json(forms);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;

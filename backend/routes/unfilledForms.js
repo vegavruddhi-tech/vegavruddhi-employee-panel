@@ -53,6 +53,7 @@ router.get('/list', async (req, res) => {
  * GET /api/unfilled-forms/filled-late
  * Get forms that were unfilled but are now filled by FSEs
  * These need admin review to settle
+ * 🔥 NEW: Gets original date from product collection using VerificationRules
  */
 router.get('/filled-late', async (req, res) => {
   try {
@@ -67,10 +68,105 @@ router.get('/filled-late', async (req, res) => {
       .sort({ filledAt: -1 })
       .lean();
 
+    // 🔥 NEW: Get original dates from product collections
+    const VerificationRule = require('../models/VerificationRule');
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+
+    // Enhance each form with original date from product collection
+    const enhancedForms = await Promise.all(filledLateForms.map(async (form) => {
+      try {
+        console.log(`\n🔍 Processing form: ${form.customerName} (${form.customerPhone}) - Product: ${form.product}, Month: ${form.expectedMonth} ${form.expectedYear}`);
+        
+        // Get collection name from VerificationRules (filter by product AND month)
+        const monthLabel = `${form.expectedMonth} ${form.expectedYear}`;
+        const rule = await VerificationRule.findOne({ 
+          productTypes: new RegExp(form.product, 'i'),
+          monthLabel: new RegExp(monthLabel, 'i')
+        });
+        
+        console.log(`📋 VerificationRule found: ${rule ? 'YES' : 'NO'}`);
+        if (rule) {
+          console.log(`📦 Collection name: ${rule.collectionName}`);
+        }
+
+        if (rule && rule.collectionName) {
+          // Query the product collection for original date
+          const collection = db.collection(rule.collectionName);
+          
+          // Try to find by phone first (try multiple phone formats and columns)
+          let originalRecord = null;
+          if (form.customerPhone) {
+            const phone = form.customerPhone.replace(/\D/g, '').slice(-10);
+            const phoneWith91 = '91' + phone;
+            
+            console.log(`🔍 Searching for phone: ${phone} in collection: ${rule.collectionName}`);
+            
+            originalRecord = await collection.findOne({ 
+              $or: [
+                { phone: phone },
+                { phone: parseInt(phone) },
+                { phone: phoneWith91 },
+                { mobile_number: phone },
+                { mobile_number: phoneWith91 },
+                { phone_number: phone },
+                { phone_number: phoneWith91 },
+                { Mobile_No_: phone },
+                { Mobile_No_: phoneWith91 }
+              ]
+            });
+            
+            console.log(`📊 Phone search result: ${originalRecord ? 'FOUND' : 'NOT FOUND'}`);
+          }
+
+          // If not found by phone, try by name (try multiple name columns)
+          if (!originalRecord && form.customerName) {
+            console.log(`🔍 Phone search failed, trying name search: ${form.customerName}`);
+            
+            originalRecord = await collection.findOne({ 
+              $or: [
+                { lead: new RegExp(form.customerName, 'i') },
+                { Lead: new RegExp(form.customerName, 'i') },
+                { name: new RegExp(form.customerName, 'i') },
+                { Name: new RegExp(form.customerName, 'i') },
+                { member_name: new RegExp(form.customerName, 'i') },
+                { Member_Name: new RegExp(form.customerName, 'i') }
+              ]
+            });
+            
+            console.log(`📊 Name search result: ${originalRecord ? 'FOUND' : 'NOT FOUND'}`);
+          }
+
+          // Use createdAt from product collection if found
+          if (originalRecord && originalRecord.createdAt) {
+            console.log(`✅ Using createdAt from product collection: ${originalRecord.createdAt}`);
+            form.originalDate = originalRecord.createdAt;
+            form.originalDateSource = 'product_collection';
+          } else {
+            console.log(`❌ No record found in product collection, using unfilled form date`);
+            // Fallback to UnfilledForm createdAt
+            form.originalDate = form.createdAt;
+            form.originalDateSource = 'unfilled_form';
+          }
+        } else {
+          // No verification rule found, use UnfilledForm createdAt
+          form.originalDate = form.createdAt;
+          form.originalDateSource = 'unfilled_form';
+        }
+      } catch (err) {
+        console.error(`Error getting original date for form ${form._id}:`, err.message);
+        // Fallback to UnfilledForm createdAt
+        form.originalDate = form.createdAt;
+        form.originalDateSource = 'error_fallback';
+      }
+
+      return form;
+    }));
+
     res.json({
       success: true,
-      filledLateForms,
-      total: filledLateForms.length
+      filledLateForms: enhancedForms,
+      total: enhancedForms.length
     });
   } catch (error) {
     console.error('Error fetching filled late forms:', error);

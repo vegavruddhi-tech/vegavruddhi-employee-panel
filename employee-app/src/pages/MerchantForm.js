@@ -4,9 +4,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
-const BRANDS = ['Tide', 'Tide BT', 'Insurance 2W/4W', 'PineLab'];
+const BRANDS = ['Tide', 'Insurance 2W/4W', 'PineLab'];
 const TIDE_PRODUCTS = ['Tide', 'Tide Insurance', 'Tide MSME', 'Tide Credit Card'];
-const PRODUCTS = ['Tide','Tide BT','Insurance 2W/4W','PineLab','Tide MSME','Tide Insurance','Tide Credit Card'];
+const PRODUCTS = ['Tide','Insurance 2W/4W','PineLab','Tide MSME','Tide Insurance','Tide Credit Card'];
 const ATTEMPTED = ['Tide','Kotak','Insurance','Pinelab','Credit Card','BharatPe'];
 const BP_PRODUCTS = ['New Onboarding','QR Re-linking','Re-visit','Loan','Sound Box','Swipe','Mid Market Onboarding'];
 

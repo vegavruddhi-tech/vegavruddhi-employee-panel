@@ -314,8 +314,49 @@ export default function Navbar({ emp, taskCount, token }) {
   const [open, setOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
   const ref = useRef();
   const navigate = useNavigate();
+
+  // PWA Install prompt handler
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallButton(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    // Check if already installed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setShowInstallButton(false);
+    }
+
+    window.addEventListener('appinstalled', () => {
+      setShowInstallButton(false);
+      setDeferredPrompt(null);
+    });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+
+    if (outcome === 'accepted') {
+      console.log('User accepted the install prompt');
+    }
+
+    setDeferredPrompt(null);
+    setShowInstallButton(false);
+  };
 
   const refreshCount = useCallback(() => {
     if (!token) return;
@@ -362,6 +403,40 @@ export default function Navbar({ emp, taskCount, token }) {
           </a>
         </div>
         <div className="nav-right">
+          {/* Install App Button (PWA) */}
+          {showInstallButton && (
+            <div
+              onClick={handleInstallClick}
+              style={{
+                position: 'relative',
+                marginRight: 8,
+                cursor: 'pointer',
+                padding: '8px 16px',
+                borderRadius: 20,
+                background: 'linear-gradient(135deg, #1a4731 0%, #40916c 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                transition: 'all 0.2s',
+                border: '2px solid #40916c',
+                boxShadow: '0 2px 8px rgba(26, 71, 49, 0.3)',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(26, 71, 49, 0.4)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(26, 71, 49, 0.3)';
+              }}
+            >
+              <span style={{ fontSize: 16 }}>📱</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+                Install App
+              </span>
+            </div>
+          )}
+
           {/* Tasks Link with Badge */}
           <div
             onClick={() => navigate('/tasks')}

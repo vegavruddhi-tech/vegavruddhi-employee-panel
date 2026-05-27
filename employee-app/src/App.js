@@ -8,6 +8,7 @@ import MerchantForm from './pages/MerchantForm';
 import MerchantDetail from './pages/MerchantDetail';
 import Tasks from './pages/Tasks';
 import MySalary from './pages/MySalary';
+import InstallPWA from './components/InstallPWA';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000';
 
@@ -74,6 +75,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AutoLogoutHandler />
+      <InstallPWA />
       <Routes>
         <Route path="/"                  element={<Login />} />
         <Route path="/register"          element={<Register />} />

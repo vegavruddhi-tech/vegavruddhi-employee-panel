@@ -422,12 +422,19 @@ router.delete('/delete/:id', verifyToken, async (req, res) => {
 // GET /api/forms/admin/all — all forms grouped by employee (with role filter and caching)
 router.get('/admin/all', async (req, res) => {
   try {
-    const { role = 'FSE' } = req.query; // Default to FSE for backward compatibility
+    const { role = 'FSE', limit, skip, page } = req.query; // Pagination params
     const { getRedisClient } = require('../utils/redisClient');
     const redis = getRedisClient();
     
-    // 🔥 Cache key based on role
-    const cacheKey = `admin_forms_all:${role}`;
+    // 🔥 NEW: Pagination support
+    const pageSize = limit ? parseInt(limit) : null; // null = no pagination (backward compat)
+    const pageNum = page ? parseInt(page) : 1;
+    const skipCount = skip ? parseInt(skip) : (pageNum - 1) * (pageSize || 0);
+    
+    // 🔥 Cache key includes pagination params
+    const cacheKey = pageSize 
+      ? `admin_forms_all:${role}:page${pageNum}:limit${pageSize}`
+      : `admin_forms_all:${role}`;
     
     // Try Redis cache first (expires in 5 minutes)
     if (redis) {
@@ -446,21 +453,42 @@ router.get('/admin/all', async (req, res) => {
     // 🔥 Fetch from appropriate collection based on role
     const ManagerForm = require('../models/ManagerForm');
     const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
-    const forms = await Model.find({}).sort({ createdAt: -1 }).lean();
     
-    console.log(`📋 Fetched ${forms.length} ${role} forms from database`);
+    // 🔥 NEW: Get total count for pagination metadata
+    const totalCount = await Model.countDocuments({});
+    
+    // 🔥 NEW: Apply pagination if limit is provided
+    let query = Model.find({}).sort({ createdAt: -1 });
+    if (pageSize) {
+      query = query.skip(skipCount).limit(pageSize);
+    }
+    const forms = await query.lean();
+    
+    console.log(`📋 Fetched ${forms.length}/${totalCount} ${role} forms from database (page ${pageNum}, limit ${pageSize || 'all'})`);
+    
+    // 🔥 NEW: Response includes pagination metadata
+    const response = pageSize ? {
+      forms,
+      pagination: {
+        total: totalCount,
+        page: pageNum,
+        limit: pageSize,
+        pages: Math.ceil(totalCount / pageSize),
+        hasMore: skipCount + forms.length < totalCount
+      }
+    } : forms; // Backward compat: return array if no pagination
     
     // Cache the result (5 minutes = 300 seconds)
     if (redis) {
       try {
-        await redis.setex(cacheKey, 300, JSON.stringify(forms));
+        await redis.setex(cacheKey, 300, JSON.stringify(response));
         console.log(`💾 Cached ${forms.length} forms for ${role}`);
       } catch (cacheErr) {
         console.error('Redis set error:', cacheErr.message);
       }
     }
     
-    res.json(forms);
+    res.json(response);
   } catch (err) {
     console.error(`Error fetching ${req.query.role || 'FSE'} forms:`, err.message);
     res.status(500).json({ message: err.message });

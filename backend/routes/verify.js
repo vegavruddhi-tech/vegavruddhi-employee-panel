@@ -264,8 +264,14 @@ module.exports = (connectionManager, connectDB) => {
         console.log(`📊 ${forceRefresh ? 'Force refresh' : 'First sync'}: Found ${fseForms.length} FSE + ${tlForms.length} TL + ${managerForms.length} Manager = ${fseForms.length + tlForms.length + managerForms.length} total forms`);
       }
       
-      // Combine all forms
+      // Combine all forms and track which collection each belongs to
       const forms = [...fseForms, ...tlForms, ...managerForms];
+      
+      // 🔥 NEW: Create a map to track which collection each form belongs to
+      const formCollectionMap = new Map();
+      fseForms.forEach(f => formCollectionMap.set(f._id.toString(), 'FSE'));
+      tlForms.forEach(f => formCollectionMap.set(f._id.toString(), 'TL'));
+      managerForms.forEach(f => formCollectionMap.set(f._id.toString(), 'MANAGER'));
 
       if (forms.length === 0) {
         console.log('✅ No forms to verify');
@@ -375,6 +381,31 @@ module.exports = (connectionManager, connectDB) => {
             } catch (redisErr) {
               console.error(`❌ Redis save error for ${phone}:`, redisErr.message);
               // Continue processing even if Redis fails
+            }
+            
+            // 🔥 NEW: ALSO UPDATE MONGODB FORM DOCUMENT
+            // This ensures the form document itself has the latest verification status
+            try {
+              const updateData = {
+                verificationStatus: result.status,
+                verificationChecks: result,
+                verificationUpdatedAt: new Date()
+              };
+              
+              // Determine which collection this form belongs to using the map
+              const formIdStr = form._id.toString();
+              const collectionType = formCollectionMap.get(formIdStr);
+              
+              if (collectionType === 'FSE') {
+                await FormResponse.updateOne({ _id: form._id }, { $set: updateData });
+              } else if (collectionType === 'TL') {
+                await TLFormResponse.updateOne({ _id: form._id }, { $set: updateData });
+              } else if (collectionType === 'MANAGER') {
+                await ManagerForm.updateOne({ _id: form._id }, { $set: updateData });
+              }
+            } catch (mongoErr) {
+              console.error(`❌ MongoDB update error for ${phone}:`, mongoErr.message);
+              // Continue processing even if MongoDB update fails
             }
             
           } catch (err) {
@@ -829,6 +860,11 @@ module.exports = (connectionManager, connectDB) => {
       if (missedIndices.length > 0) {
         const db = req.db;
         const allRules = await VerificationRule.find().lean();
+        
+        // 🔥 NEW: Get form models to read verificationStatus from MongoDB as fallback
+        const FormResponse = require('../models/FormResponse');
+        const TLFormResponse = require('../models/TLFormResponse');
+        const ManagerForm = require('../models/ManagerForm');
 
         await Promise.all(missedIndices.map(async (i) => {
           const phone   = phones[i];
@@ -844,15 +880,37 @@ module.exports = (connectionManager, connectDB) => {
             ]);
 
             // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
-            const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
-            const inSheet = v.status !== 'Not Found' ? true : pc.matched;
+            let phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
+            let inSheet = v.status !== 'Not Found' ? true : pc.matched;
+            
+            // 🔥 NEW: If live verification returns "Not Found", check MongoDB verificationStatus as fallback
+            let finalStatus = v.status;
+            let finalVerified = v.verified;
+            let finalChecks = v.checks || [];
+            
+            if (v.status === 'Not Found') {
+              // Try to find form in MongoDB with this phone number
+              const form = await FormResponse.findOne({ customerNumber: phone }).lean() ||
+                          await TLFormResponse.findOne({ customerNumber: phone }).lean() ||
+                          await ManagerForm.findOne({ customerNumber: phone }).lean();
+              
+              if (form && form.verificationStatus && form.verificationStatus !== 'Not Found') {
+                // Use MongoDB verification status as fallback
+                finalStatus = form.verificationStatus;
+                finalVerified = form.verificationStatus === 'Fully Verified';
+                finalChecks = form.verificationChecks?.checks || [];
+                phoneMatch = true;
+                inSheet = true;
+                console.log(`✅ Using MongoDB fallback for ${phone}: ${finalStatus}`);
+              }
+            }
 
             result[key] = {
-              status:     v.status,
-              verified:   v.verified,
+              status:     finalStatus,
+              verified:   finalVerified,
               passed:     v.passed,
               total:      v.total,
-              checks:     v.checks || [],
+              checks:     finalChecks,
               collection: v.collection,
               matchType:  v.matchType,
               phoneMatch: phoneMatch,

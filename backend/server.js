@@ -49,6 +49,18 @@ app.use(cors({
   credentials: true,
 }));
 
+// 🔥 NEW: Add compression middleware to reduce response sizes by 70-80%
+const compression = require('compression');
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  },
+  level: 6 // Compression level (0-9, 6 is default balance of speed/size)
+}));
+
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
 

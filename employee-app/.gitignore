@@ -22,3 +22,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# PWA Documentation (ignore from git)
+PWA_*.md
+QUICK_START_PWA.md
+README_PWA.md
+public/ICON_INSTRUCTIONS.md
+

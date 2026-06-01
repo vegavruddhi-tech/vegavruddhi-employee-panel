@@ -942,4 +942,36 @@ router.get('/tidebt-my-forms', verifyToken, async (req, res) => {
   }
 });
 
+// GET /api/auth/tidebt-received-payments - FSE gets payments received
+router.get('/tidebt-received-payments', verifyToken, async (req, res) => {
+  try {
+    const Employee = require('../models/Employee');
+    const emp = await Employee.findById(req.user.id);
+    if (!emp) return res.status(404).json({ message: 'Employee not found' });
+
+    const db = require('mongoose').connection.db;
+    const empName = emp.newJoinerName?.trim();
+    
+    // Match payments where transferTo contains the employee name OR employee name contains transferTo
+    // This handles "Niteesh kumar" matching "Niteesh Kumar Saroj" and vice versa
+    const allPayments = await db.collection('TideBT_Payments')
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+    
+    // Filter: match if either name contains the other (case-insensitive)
+    const payments = allPayments.filter(p => {
+      const transferTo = (p.transferTo || '').toLowerCase().trim();
+      const myName = empName.toLowerCase();
+      return transferTo === myName || 
+             transferTo.includes(myName) || 
+             myName.includes(transferTo);
+    });
+
+    res.json({ success: true, payments });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;

@@ -817,5 +817,34 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
   }
 });
 
+// GET /api/tl/tidebt-received-payments - TL gets payments received
+router.get('/tidebt-received-payments', verifyToken, async (req, res) => {
+  try {
+    const tl = await TeamLead.findById(req.user.id).select('name');
+    if (!tl) return res.status(404).json({ message: 'TL not found' });
+
+    const db = require('mongoose').connection.db;
+    const tlName = tl.name?.trim();
+    
+    const allPayments = await db.collection('TideBT_Payments')
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+    
+    // Filter: match if either name contains the other (case-insensitive)
+    const payments = allPayments.filter(p => {
+      const transferTo = (p.transferTo || '').toLowerCase().trim();
+      const myName = tlName.toLowerCase();
+      return transferTo === myName || 
+             transferTo.includes(myName) || 
+             myName.includes(transferTo);
+    });
+
+    res.json({ success: true, payments });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
   return router;
 };

@@ -294,7 +294,7 @@ module.exports = (connectionManager, connectDB) => {
       let redisSaved = 0; // Track successful Redis saves
 
       // Process forms in batches
-      const batchSize = 50;
+      const batchSize = 200;
       for (let i = 0; i < forms.length; i += batchSize) {
         const batch = forms.slice(i, i + batchSize);
         
@@ -860,11 +860,6 @@ module.exports = (connectionManager, connectDB) => {
       if (missedIndices.length > 0) {
         const db = req.db;
         const allRules = await VerificationRule.find().lean();
-        
-        // 🔥 NEW: Get form models to read verificationStatus from MongoDB as fallback
-        const FormResponse = require('../models/FormResponse');
-        const TLFormResponse = require('../models/TLFormResponse');
-        const ManagerForm = require('../models/ManagerForm');
 
         await Promise.all(missedIndices.map(async (i) => {
           const phone   = phones[i];
@@ -880,37 +875,15 @@ module.exports = (connectionManager, connectDB) => {
             ]);
 
             // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
-            let phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
-            let inSheet = v.status !== 'Not Found' ? true : pc.matched;
-            
-            // 🔥 NEW: If live verification returns "Not Found", check MongoDB verificationStatus as fallback
-            let finalStatus = v.status;
-            let finalVerified = v.verified;
-            let finalChecks = v.checks || [];
-            
-            if (v.status === 'Not Found') {
-              // Try to find form in MongoDB with this phone number
-              const form = await FormResponse.findOne({ customerNumber: phone }).lean() ||
-                          await TLFormResponse.findOne({ customerNumber: phone }).lean() ||
-                          await ManagerForm.findOne({ customerNumber: phone }).lean();
-              
-              if (form && form.verificationStatus && form.verificationStatus !== 'Not Found') {
-                // Use MongoDB verification status as fallback
-                finalStatus = form.verificationStatus;
-                finalVerified = form.verificationStatus === 'Fully Verified';
-                finalChecks = form.verificationChecks?.checks || [];
-                phoneMatch = true;
-                inSheet = true;
-                console.log(`✅ Using MongoDB fallback for ${phone}: ${finalStatus}`);
-              }
-            }
+            const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
+            const inSheet = v.status !== 'Not Found' ? true : pc.matched;
 
             result[key] = {
-              status:     finalStatus,
-              verified:   finalVerified,
+              status:     v.status,
+              verified:   v.verified,
               passed:     v.passed,
               total:      v.total,
-              checks:     finalChecks,
+              checks:     v.checks || [],
               collection: v.collection,
               matchType:  v.matchType,
               phoneMatch: phoneMatch,

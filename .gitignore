@@ -27,8 +27,12 @@ employee-app/build/
 uploads/
 *.pdf
 *.jpg
-*.png
 *.jpeg
+
+# Ignore PNG files except PWA icons
+*.png
+!employee-app/public/logo-192.png
+!employee-app/public/logo-512.png
 
 # -----------------------------
 # LOG FILES
@@ -79,6 +83,7 @@ backup/
 backup_test/
 backup_test2/
 backup_test3/
+
 *.bson
 *.metadata.json
 

@@ -339,7 +339,8 @@ module.exports = (connectionManager, connectDB) => {
               ? new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
               : '';
 
-            const result = await verifyMerchant(
+            // ✅ SMART VERIFICATION: Try with calculated month first
+            let result = await verifyMerchant(
               db, 
               phone, 
               form.customerName || '', 
@@ -348,6 +349,19 @@ module.exports = (connectionManager, connectDB) => {
               month, 
               allRules
             );
+
+            // ✅ If not found with specific month, try ALL months (handles backdated forms)
+            if (result.status === 'Not Found' && month) {
+              result = await verifyMerchant(
+                db, 
+                phone, 
+                form.customerName || '', 
+                VerificationRule, 
+                product, 
+                '',  // Empty month = search all months
+                allRules
+              );
+            }
 
             // 🔍 DEBUG: Log verification result for this specific phone
             if (phone === '9939234435') {

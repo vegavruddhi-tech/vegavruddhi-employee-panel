@@ -865,12 +865,19 @@ router.get('/admin/overview', async (req, res) => {
   try {
     const Employee = require('../models/Employee');
     const TeamLead = require('../models/TeamLead');
+    const ManagerForm = require('../models/ManagerForm');
 
-    const [forms, employees, tls] = await Promise.all([
+    // ✅ Fetch ALL forms: FSE + TL + Manager (consistent with Merchant Forms page)
+    const [fseForms, tlForms, mgrForms, employees, tls] = await Promise.all([
       FormResponse.find({}).sort({ createdAt: -1 }),
+      TLFormResponse.find({}).sort({ createdAt: -1 }),
+      ManagerForm.find({}).sort({ createdAt: -1 }),
       Employee.find({ approvalStatus: 'approved' }).select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager position location status'),
       TeamLead.find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).select('name email phone location reportingManager status'),
     ]);
+
+    // ✅ Combine all forms from all 3 collections
+    const forms = [...fseForms, ...tlForms, ...mgrForms];
 
     res.json({ forms, employees, tls });
   } catch (err) {

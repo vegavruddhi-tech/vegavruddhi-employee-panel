@@ -1,15 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const SalarySlip = require('../models/SalarySlip');
-const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
 const { generateSalarySlipPDF } = require('../utils/pdfGenerator');
 
-// ========== SYNC POINTS ENDPOINT ==========
+// ========== IN-MEMORY POINTS CACHE ==========
+// Stores latest synced points from Merchant Forms
+const pointsCache = new Map(); // Key: "employeeName__month__year", Value: { autoPoints, slabPoints, totalPoints }
 
 /**
  * POST /api/salary/sync-points
- * Called from Merchant Forms page to save pre-calculated points
- * This is the KEY endpoint that makes Salary Slips fast and accurate
+ * Called by Merchant Forms to sync calculated points
  */
 router.post('/sync-points', async (req, res) => {
   try {
@@ -19,67 +19,41 @@ router.post('/sync-points', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    console.log(`📊 Syncing points for ${employees.length} employees - ${month} ${year}`);
-
-    const { getRedisClient } = require('../utils/redisClient');
-    const redis = getRedisClient();
+    console.log(`📊 [sync-points] Syncing ${employees.length} employees for ${month} ${year}`);
 
     let saved = 0;
-    let errors = 0;
+    
+    employees.forEach(emp => {
+      const basePoints  = Math.round((emp.basePoints || emp.autoPoints || 0) * 10) / 10;
+      const slabPoints  = Math.round((emp.slabPoints || 0) * 10) / 10;
+      const totalPoints = Math.round((basePoints + slabPoints) * 10) / 10;
+      
+      const normalizedName = (emp.employeeName || '').trim();
+      if (!normalizedName) return;
+      
+      const cacheKey = `${normalizedName.toLowerCase()}__${month}__${year}`;
+      pointsCache.set(cacheKey, {
+        employeeName: normalizedName,
+        employeeEmail: emp.employeeEmail || '',
+        autoPoints: basePoints,
+        slabPoints,
+        totalPoints,
+        syncedAt: new Date()
+      });
+      
+      saved++;
+    });
 
-    for (const emp of employees) {
-      try {
-        const basePoints  = Math.round((emp.basePoints || emp.autoPoints || 0) * 10) / 10;
-        const slabPoints  = Math.round((emp.slabPoints || 0) * 10) / 10;
-        const totalPoints = Math.round((basePoints + slabPoints) * 10) / 10;
-
-        // Normalize employee name to prevent duplicates
-        const normalizedName = emp.employeeName.trim();
-
-        // Upsert into MongoDB (exact match on normalized name)
-        await EmployeeMonthlyPoints.findOneAndUpdate(
-          {
-            employeeName: normalizedName,
-            month,
-            year: parseInt(year)
-          },
-          {
-            $set: {
-              employeeName: normalizedName,
-              employeeEmail: emp.employeeEmail || '',
-              basePoints,
-              slabPoints,
-              totalPoints,
-              updatedAt: new Date()
-            }
-          },
-          { upsert: true, new: true }
-        );
-
-        // Also save to Redis cache (expires in 25 hours)
-        if (redis) {
-          const cacheKey = `monthly_points:${normalizedName.toLowerCase()}:${month}:${year}`;
-          await redis.setex(cacheKey, 90000, JSON.stringify({
-            employeeName: normalizedName,
-            employeeEmail: emp.employeeEmail || '',
-            basePoints,
-            slabPoints,
-            totalPoints
-          }));
-        }
-
-        saved++;
-      } catch (err) {
-        console.error(`Error saving points for ${emp.employeeName}:`, err.message);
-        errors++;
-      }
-    }
-
-    console.log(`✅ Synced ${saved} employees, ${errors} errors`);
-    res.json({ success: true, saved, errors });
+    console.log(`✅ [sync-points] Synced ${saved} employees to cache`);
+    console.log(`🔍 Cache sample:`, Array.from(pointsCache.entries()).slice(0, 3).map(([k, v]) => ({
+      key: k,
+      points: v.totalPoints
+    })));
+    
+    res.json({ success: true, saved, message: `Synced ${saved} employees for ${month} ${year}` });
 
   } catch (error) {
-    console.error('❌ Sync points error:', error);
+    console.error('❌ [sync-points] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -88,457 +62,139 @@ router.post('/sync-points', async (req, res) => {
 
 /**
  * GET /api/salary/employees
- * 3-LAYER APPROACH:
- * Layer 1: Redis cache (fastest)
- * Layer 2: EmployeeMonthlyPoints MongoDB (fast, pre-saved from Merchant Forms)
- * Layer 3: Fallback - calculate from verify API (slow but always works)
- */
-// ========== ADMIN ENDPOINTS ==========
-
-/**
- * GET /api/salary/employees
- * 3-LAYER APPROACH:
- * Layer 1: Redis cache (fastest)
- * Layer 2: EmployeeMonthlyPoints MongoDB (fast, pre-saved from Merchant Forms)
- * Layer 3: Fallback - calculate from verify API (slow but always works)
+ * Reads points from in-memory cache (synced from Merchant Forms)
  */
 router.get('/employees', async (req, res) => {
   try {
-    const { month, year, pointValue = 250 } = req.query;
+    const { month, year, pointValue = 250, roleFilter } = req.query;
 
     if (!month || !year) {
       return res.status(400).json({ error: 'Month and year are required' });
     }
 
     console.log(`📋 GET /api/salary/employees - Month: ${month}, Year: ${year}`);
+    console.log(`📦 Cache has ${pointsCache.size} entries`);
 
     const Employee = require('../models/Employee');
     const TeamLead = require('../models/TeamLead');
-    const Manager = require('../models/Manager');  // 🔥 ADD: Manager model
-    const { getRedisClient } = require('../utils/redisClient');
-    const redis = getRedisClient();
+    const Manager = require('../models/Manager');
     const pv = parseInt(pointValue);
 
-    // ✅ LAYER 2: Try MongoDB EmployeeMonthlyPoints first (pre-saved from Merchant Forms)
-    const savedPoints = await EmployeeMonthlyPoints.find({
-      month,
-      year: parseInt(year)
-    }).lean();
-
-    if (savedPoints && savedPoints.length > 0) {
-      console.log(`✅ LAYER 2: Found ${savedPoints.length} employees in EmployeeMonthlyPoints`);
-
-      // Get employee details for email/phone/role from BOTH Users and TeamLeads collections
-      const allEmployees = await Employee.find({ status: 'Active' }).lean();
-      const allTeamLeads = await TeamLead.find({ status: 'Active' }).lean();
-      const allManagers = await Manager.find({ status: 'Active' }).lean();  // 🔥 ADD: Fetch managers
-      
-      console.log(`📊 Fetched: ${allEmployees.length} employees, ${allTeamLeads.length} TLs, ${allManagers.length} managers`);
-      
-      // 🔥 FIX: Create a Set of TL names for fast lookup
-      const tlNameSet = new Set(allTeamLeads.map(tl => (tl.name || '').trim().toLowerCase()));
-      const managerNameSet = new Set(allManagers.map(mgr => (mgr.name || '').trim().toLowerCase()));  // 🔥 ADD: Manager name set
-      
-      const empDbMap = {};
-      
-      // 🔥 PRIORITY 1: Add Managers first (highest priority)
-      allManagers.forEach(mgr => {
-        const key = (mgr.name || '').trim().toLowerCase();
-        empDbMap[key] = {
-          newJoinerEmailId: mgr.email || mgr.emailId,
-          newJoinerPhone: mgr.phone,
-          employeeId: mgr.employeeId || null,
-          role: 'Manager',
-          source: 'managers'  // Track source
-        };
-      });
-      
-      // 🔥 PRIORITY 2: Add TLs second (overwrite only if not Manager)
-      allTeamLeads.forEach(tl => {
-        const key = (tl.name || '').trim().toLowerCase();
-        if (!empDbMap[key] || empDbMap[key].source !== 'managers') {
-          empDbMap[key] = {
-            newJoinerEmailId: tl.email || tl.emailId,
-            newJoinerPhone: tl.phone,
-            employeeId: tl.employeeId || null,
-            role: 'TL',
-            source: 'teamleads'  // Track source
-          };
-        }
-      });
-      
-      // 🔥 PRIORITY 3: Add FSE employees last (only if not TL/Manager)
-      allEmployees.forEach(emp => {
-        const key = (emp.newJoinerName || '').trim().toLowerCase();
-        if (!empDbMap[key]) {
-          // Only add if not already a TL or Manager
-          empDbMap[key] = { 
-            ...emp, 
-            role: 'FSE',
-            source: 'employees'  // Track source
-          };
-        }
-      });
-
-      // Check existing slips
-      const existingSlips = await SalarySlip.find({ month, year: parseInt(year) }).lean();
-      const slipMap = {};
-      existingSlips.forEach(slip => { slipMap[slip.employeeEmail] = slip; });
-
-      // 🔥 FIX: Build employee list from savedPoints, but EXCLUDE TLs/Managers
-      // (TLs/Managers will be added separately below)
-      const employeeList = savedPoints
-        .filter(emp => {
-          const empKey = emp.employeeName.trim().toLowerCase();
-          const empDb = empDbMap[empKey];
-          // ✅ ONLY include if role is FSE (exclude TLs/Managers from savedPoints)
-          return !empDb || empDb.role === 'FSE';
-        })
-        .map(emp => {
-          const empKey = emp.employeeName.trim().toLowerCase();
-          const empDb  = empDbMap[empKey];
-          const email  = emp.employeeEmail || empDb?.newJoinerEmailId || empDb?.email || '';
-          const role   = 'FSE';  // ✅ Force FSE role (we already filtered out TLs/Managers)
-          
-          // FSE: Points-based salary
-          let totalPts = emp.totalPoints || emp.basePoints || 0;
-          let totalSalary = Math.round(totalPts * pv * 10) / 10;
-
-          return {
-            employeeId:    empDb?.employeeId || null,  // VV0001 format
-            employeeName:  emp.employeeName,
-            employeeEmail: email,
-            employeePhone: empDb?.newJoinerPhone || empDb?.phone || '',
-            role:          role,
-            pointsEarned:  emp.basePoints || 0,
-            slabPoints:    emp.slabPoints || 0,
-            totalPoints:   totalPts,
-            pointValue:    pv,
-            totalSalary:   totalSalary,
-            hasSlip:       !!slipMap[email],
-            slipId:        slipMap[email]?._id || null,
-            slipStatus:    slipMap[email]?.status || null,
-            dataSource:    'mongodb'
-          };
-        });
-      
-      // 🔥 ADD TLs who don't have points data (they get fixed salary anyway)
-      // IMPORTANT: Only add TLs that are NOT already in employeeList to avoid duplicates
-      allTeamLeads.forEach(tl => {
-        const tlKey = (tl.name || '').trim().toLowerCase();
-        const tlEmail = (tl.email || tl.emailId || '').trim().toLowerCase();
-        
-        // Check if TL already exists by name OR email
-        const alreadyExists = employeeList.some(e => 
-          e.employeeName.toLowerCase() === tlKey || 
-          (e.employeeEmail && e.employeeEmail.toLowerCase() === tlEmail)
-        );
-        
-        if (!alreadyExists) {
-          const email = tl.email || tl.emailId || '';
-          // 🔥 FIX: Use actual role from empDbMap (which has correct role detection)
-          const empDb = empDbMap[tlKey];
-          const actualRole = empDb?.role || 'TL';  // Use corrected role, not hardcoded
-          
-          employeeList.push({
-            employeeId: tl.employeeId || null,
-            employeeName: tl.name,
-            employeeEmail: email,
-            employeePhone: tl.phone || '',
-            role: actualRole,  // ← Use actual role instead of hardcoded 'TL'
-            pointsEarned: 0,
-            slabPoints: 0,
-            totalPoints: 0,
-            pointValue: pv,
-            totalSalary: actualRole === 'TL' ? 35000 : 0,  // Only TLs get fixed salary
-            hasSlip: !!slipMap[email],
-            slipId: slipMap[email]?._id || null,
-            slipStatus: slipMap[email]?.status || null,
-            dataSource: 'teamleads'
-          });
-        }
-      });
-      
-      // 🔥 ADD: Add Managers who don't have points data (they get fixed salary anyway)
-      allManagers.forEach(mgr => {
-        const mgrKey = (mgr.name || '').trim().toLowerCase();
-        const mgrEmail = (mgr.email || mgr.emailId || '').trim().toLowerCase();
-        
-        console.log(`🔍 Processing manager: ${mgr.name} (${mgr.email})`);
-        
-        // Check if Manager already exists by name OR email
-        const alreadyExists = employeeList.some(e => 
-          e.employeeName.toLowerCase() === mgrKey || 
-          (e.employeeEmail && e.employeeEmail.toLowerCase() === mgrEmail)
-        );
-        
-        if (!alreadyExists) {
-          const email = mgr.email || mgr.emailId || '';
-          
-          console.log(`✅ Adding manager to list: ${mgr.name}`);
-          
-          employeeList.push({
-            employeeId: mgr.employeeId || null,
-            employeeName: mgr.name,
-            employeeEmail: email,
-            employeePhone: mgr.phone || '',
-            role: 'Manager',
-            pointsEarned: 0,
-            slabPoints: 0,
-            totalPoints: 0,
-            pointValue: pv,
-            totalSalary: 60000,  // Fixed ₹60,000 for Manager
-            hasSlip: !!slipMap[email],
-            slipId: slipMap[email]?._id || null,
-            slipStatus: slipMap[email]?.status || null,
-            dataSource: 'managers'
-          });
-        } else {
-          console.log(`⚠️ Manager already exists, skipping: ${mgr.name}`);
-        }
-      });
-
-      // 🔥 DEDUPLICATION: Remove duplicate employees by email (keep first occurrence)
-      const emailSet = new Set();
-      const deduplicatedList = [];
-      
-      employeeList.forEach(emp => {
-        const emailKey = (emp.employeeEmail || '').trim().toLowerCase();
-        if (emailKey && !emailSet.has(emailKey)) {
-          emailSet.add(emailKey);
-          deduplicatedList.push(emp);
-        } else if (!emailKey) {
-          // If no email, keep it (shouldn't happen but safe fallback)
-          deduplicatedList.push(emp);
-        }
-      });
-
-      console.log(`🔧 Deduplication: ${employeeList.length} → ${deduplicatedList.length} employees (removed ${employeeList.length - deduplicatedList.length} duplicates)`);
-
-      // Sort by totalPoints descending
-      deduplicatedList.sort((a, b) => b.totalPoints - a.totalPoints);
-
-      // 🔥 FILTER BY ROLE (if roleFilter query param provided)
-      const roleFilter = req.query.roleFilter;
-      let finalList = deduplicatedList;
-      
-      if (roleFilter && roleFilter !== 'All') {
-        finalList = deduplicatedList.filter(emp => emp.role === roleFilter);
-        console.log(`🔍 Role filter applied: "${roleFilter}" - ${deduplicatedList.length} → ${finalList.length} employees`);
-      }
-
-      return res.json({
-        success: true,
-        employees: finalList,
-        total: finalList.length,
-        dataSource: 'mongodb',
-        message: 'Data from pre-saved EmployeeMonthlyPoints. Open Merchant Forms to refresh.'
-      });
-    }
-
-    // ✅ LAYER 3: Fallback - calculate from verify API (slow)
-    console.log(`⚠️ LAYER 3: No pre-saved data found. Calculating from verify API...`);
-    console.log(`⚠️ TIP: Open Merchant Forms page first to pre-save points for faster loading.`);
-
-    const FormResponse = require('../models/FormResponse');
-
-    const getMonthIndex = (monthName) => {
-      const months = ['January', 'February', 'March', 'April', 'May', 'June',
-                      'July', 'August', 'September', 'October', 'November', 'December'];
-      return months.indexOf(monthName);
-    };
-
-    const monthIndex = getMonthIndex(month);
-    const targetYear = parseInt(year);
-    const startDate  = new Date(targetYear, monthIndex, 1);
-    const endDate    = new Date(targetYear, monthIndex + 1, 1);
-
-    const allFormsRaw = await FormResponse.find({
-      createdAt: { $gte: startDate, $lt: endDate }
-    }).lean();
-
-    const allForms = allFormsRaw.filter(f => {
-      const d = new Date(f.createdAt);
-      return d.getFullYear() === targetYear &&
-             d.toLocaleString('en-US', { month: 'long' }) === month;
-    });
-
-    console.log(`📊 Found ${allForms.length} forms in ${month} ${year}`);
-
+    // Get all employees from database
     const allEmployees = await Employee.find({ status: 'Active' }).lean();
     const allTeamLeads = await TeamLead.find({ status: 'Active' }).lean();
-    const allManagers = await Manager.find({ status: 'Active' }).lean();  // 🔥 ADD: Fetch managers
-    
-    const empDbMap = {};
-    
-    // 🔥 PRIORITY 1: Add Managers first (highest priority)
-    allManagers.forEach(mgr => {
-      const key = (mgr.name || '').trim().toLowerCase();
-      empDbMap[key] = {
-        newJoinerEmailId: mgr.email || mgr.emailId,
-        newJoinerPhone: mgr.phone,
-        employeeId: mgr.employeeId || null,
-        role: 'Manager',
-        source: 'managers'  // Track source
-      };
-    });
-    
-    // 🔥 PRIORITY 2: Add TLs second (overwrite only if not Manager)
-    allTeamLeads.forEach(tl => {
-      const key = (tl.name || '').trim().toLowerCase();
-      if (!empDbMap[key] || empDbMap[key].source !== 'managers') {
-        empDbMap[key] = {
-          newJoinerEmailId: tl.email || tl.emailId,
-          newJoinerPhone: tl.phone,
-          employeeId: tl.employeeId || null,
-          role: 'TL',
-          source: 'teamleads'  // Track source
-        };
-      }
-    });
-    
-    // 🔥 PRIORITY 3: Add FSE employees last (only if not TL/Manager)
-    allEmployees.forEach(emp => {
-      const key = (emp.newJoinerName || '').trim().toLowerCase();
-      if (!empDbMap[key]) {
-        // Only add if not already a TL or Manager
-        empDbMap[key] = { 
-          ...emp, 
-          role: 'FSE',
-          source: 'employees'  // Track source
-        };
-      }
-    });
+    const allManagers = await Manager.find({ status: 'Active' }).lean();
 
-    // Call verify API in batches
-    const http = require('http');
-    const verifyMap = {};
-    const BATCH = 50;
-    const getFormProduct = (f) => (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase().trim();
-
-    for (let i = 0; i < allForms.length; i += BATCH) {
-      const batch    = allForms.slice(i, i + BATCH);
-      const phones   = batch.map(f => encodeURIComponent(f.customerNumber)).join(',');
-      const names    = batch.map(f => encodeURIComponent(f.customerName || '')).join(',');
-      const products = batch.map(f => encodeURIComponent(getFormProduct(f))).join(',');
-      const months   = batch.map(f => encodeURIComponent(new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }))).join(',');
-
-      try {
-        const PORT = process.env.PORT || 4000;
-        const url  = `http://localhost:${PORT}/api/verify/bulk-admin?phones=${phones}&names=${names}&products=${products}&months=${months}`;
-        const result = await new Promise((resolve, reject) => {
-          http.get(url, (r) => {
-            let data = '';
-            r.on('data', c => data += c);
-            r.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { resolve({}); } });
-          }).on('error', reject);
-        });
-        Object.assign(verifyMap, result);
-      } catch (err) {
-        console.error(`Verify batch error:`, err.message);
-      }
-    }
-
-    const POINTS_MAP = { 'Tide': 2, 'Tide MSME': 0.3, 'Tide Insurance': 1, 'Tide Credit Card': 1, 'Tide BT': 1 };
-    const employeeMap = {};
-
-    allForms.forEach(form => {
-      const empName    = (form.employeeName || '').trim().replace(/\s+/g, ' ');
-      if (!empName) return;
-      const empKey     = empName.toLowerCase();
-      if (!employeeMap[empKey]) {
-        employeeMap[empKey] = { displayName: empName, points: 0, counted: new Set() };
-      }
-      const product    = getFormProduct(form);
-      const vKey       = `${form.customerNumber}__${product}`;
-      if (verifyMap[vKey]?.status === 'Fully Verified' && !employeeMap[empKey].counted.has(vKey)) {
-        employeeMap[empKey].counted.add(vKey);
-        const pk = Object.keys(POINTS_MAP).find(k => k.toLowerCase() === product);
-        employeeMap[empKey].points += pk ? POINTS_MAP[pk] : 0;
-      }
-    });
-
-    // Fetch slab points
-    const EmployeePoints = require('../models/EmployeePoints');
     const employeeList = [];
 
-    for (const [empKey, data] of Object.entries(employeeMap)) {
-      const empDb     = empDbMap[empKey];
-      const basePoints = Math.round(data.points * 10) / 10;
-      let slabPoints   = 0;
-
-      try {
-        const empPts = await EmployeePoints.findOne({
-          newJoinerName: { $regex: new RegExp(`^${data.displayName.trim()}$`, 'i') }
-        }).lean();
-        if (empPts?.productSlabs) {
-          Object.values(empPts.productSlabs).forEach(ps => {
-            const tiers = ps?.slabTiers || (Array.isArray(ps) ? ps : []);
-            tiers.forEach(t => { slabPoints += (parseFloat(t.forms) || 0) * (parseFloat(t.multiplier) || 0); });
-          });
-          slabPoints = Math.round(slabPoints * 10) / 10;
-        }
-      } catch (e) {}
-
-      const totalPoints = Math.round((basePoints + slabPoints) * 10) / 10;
-      const email       = empDb?.newJoinerEmailId || empDb?.email || '';
-      const role        = empDb?.role || 'FSE';
+    // Build employee list from cache
+    allEmployees.forEach(emp => {
+      const empName = (emp.newJoinerName || '').trim();
+      if (!empName) return;
       
-      // 🔥 Role-based salary calculation
-      let totalSalary;
-      let displayPoints = totalPoints;
+      const cacheKey = `${empName.toLowerCase()}__${month}__${year}`;
+      const cached = pointsCache.get(cacheKey);
       
-      if (role === 'TL') {
-        // TL: Fixed ₹35,000 base (no points)
-        totalSalary = 35000;
-        displayPoints = 0;
-      } else if (role === 'Manager') {
-        // Manager: Fixed ₹60,000 base (no points)
-        totalSalary = 60000;
-        displayPoints = 0;
-      } else {
-        // FSE: Points-based (existing logic)
-        totalSalary = Math.round(totalPoints * pv * 10) / 10;
+      if (cached) {
+        // Found in cache - use synced points
+        const totalSalary = Math.round(cached.totalPoints * pv * 10) / 10;
+        
+        employeeList.push({
+          employeeId: emp.employeeId || null,
+          employeeName: empName,
+          employeeEmail: emp.newJoinerEmailId || emp.email || '',
+          employeePhone: emp.newJoinerPhone || emp.phone || '',
+          role: 'FSE',
+          pointsEarned: cached.autoPoints,
+          slabPoints: cached.slabPoints,
+          totalPoints: cached.totalPoints,
+          pointValue: pv,
+          totalSalary: totalSalary,
+          hasSlip: false,
+          slipId: null,
+          slipStatus: null,
+          dataSource: 'synced-from-merchant-forms'
+        });
       }
+    });
 
+    // Add TLs with fixed salary
+    allTeamLeads.forEach(tl => {
       employeeList.push({
-        employeeId:    empDb?.employeeId || null,  // VV0001 format
-        employeeName:  data.displayName,
-        employeeEmail: email,
-        employeePhone: empDb?.newJoinerPhone || empDb?.phone || '',
-        role:          role,
-        pointsEarned:  role === 'FSE' ? basePoints : 0,
-        slabPoints:    role === 'FSE' ? slabPoints : 0,
-        totalPoints:   role === 'FSE' ? displayPoints : 0,
-        pointValue:    pv,
-        totalSalary:   totalSalary,
-        hasSlip:       false,
-        slipId:        null,
-        slipStatus:    null,
-        dataSource:    'api'
+        employeeId: tl.employeeId || null,
+        employeeName: tl.name,
+        employeeEmail: tl.email || tl.emailId || '',
+        employeePhone: tl.phone || '',
+        role: 'TL',
+        pointsEarned: 0,
+        slabPoints: 0,
+        totalPoints: 0,
+        pointValue: pv,
+        totalSalary: 35000,
+        hasSlip: false,
+        slipId: null,
+        slipStatus: null,
+        dataSource: 'fixed-salary'
       });
-    }
+    });
+
+    // Add Managers with fixed salary
+    allManagers.forEach(mgr => {
+      employeeList.push({
+        employeeId: mgr.employeeId || null,
+        employeeName: mgr.name,
+        employeeEmail: mgr.email || mgr.emailId || '',
+        employeePhone: mgr.phone || '',
+        role: 'Manager',
+        pointsEarned: 0,
+        slabPoints: 0,
+        totalPoints: 0,
+        pointValue: pv,
+        totalSalary: 60000,
+        hasSlip: false,
+        slipId: null,
+        slipStatus: null,
+        dataSource: 'fixed-salary'
+      });
+    });
 
     // Check existing slips
     const existingSlips = await SalarySlip.find({ month, year: parseInt(year) }).lean();
     const slipMap = {};
-    existingSlips.forEach(slip => { slipMap[slip.employeeEmail] = slip; });
+    existingSlips.forEach(slip => {
+      slipMap[slip.employeeEmail] = slip;
+    });
 
     const finalList = employeeList.map(emp => ({
       ...emp,
-      hasSlip:   !!slipMap[emp.employeeEmail],
-      slipId:    slipMap[emp.employeeEmail]?._id || null,
+      hasSlip: !!slipMap[emp.employeeEmail],
+      slipId: slipMap[emp.employeeEmail]?._id || null,
       slipStatus: slipMap[emp.employeeEmail]?.status || null
     }));
 
+    // Sort by totalPoints descending
     finalList.sort((a, b) => b.totalPoints - a.totalPoints);
+
+    // Filter by role if requested
+    let filteredList = finalList;
+    if (roleFilter && roleFilter !== 'All') {
+      filteredList = finalList.filter(emp => emp.role === roleFilter);
+    }
+    
+    console.log(`✅ Returning ${filteredList.length} employees (${finalList.length - filteredList.length} filtered out)`);
+    console.log(`🔍 Sample:`, filteredList.slice(0, 3).map(e => ({
+      name: e.employeeName,
+      points: e.pointsEarned,
+      slab: e.slabPoints,
+      total: e.totalPoints
+    })));
 
     res.json({
       success: true,
-      employees: finalList,
-      total: finalList.length,
-      dataSource: 'api',
-      message: 'Calculated from verify API (slow). Open Merchant Forms to pre-save for faster loading.'
+      employees: filteredList,
+      total: filteredList.length,
+      dataSource: 'synced-from-merchant-forms',
+      message: `✅ Using points synced from Merchant Forms`
     });
 
   } catch (error) {
@@ -546,6 +202,7 @@ router.get('/employees', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 /**
  * POST /api/salary/generate
  * Generate salary slip for an employee

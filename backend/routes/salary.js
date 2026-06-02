@@ -489,14 +489,36 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const {
       pointsEarned,
+      slabPoints,
+      totalPoints,
       pointValue,
+      baseSalary,
+      incentiveAmount,
       totalSalary,
       paymentDate,
       paymentMode,
       status,
       remarks,
+      pctBasic,
+      pctHRA,
+      pctConv,
+      pctSpec,
+      deductionPF,
+      deductionPT,
+      deductionESIC,
+      deductionTDS,
       editedBy
     } = req.body;
+
+    console.log('🔄 PUT /api/salary/:id - Updating slip:', id);
+    console.log('📝 Request body:', {
+      pointsEarned,
+      slabPoints,
+      totalPoints,
+      totalSalary,
+      baseSalary,
+      incentiveAmount
+    });
 
     const slip = await SalarySlip.findById(id);
 
@@ -507,6 +529,7 @@ router.put('/:id', async (req, res) => {
     // Track changes in edit history
     const changes = [];
 
+    // Update all fields that are provided
     if (pointsEarned !== undefined && pointsEarned !== slip.pointsEarned) {
       changes.push({
         field: 'pointsEarned',
@@ -515,6 +538,28 @@ router.put('/:id', async (req, res) => {
         editedBy: editedBy || 'admin'
       });
       slip.pointsEarned = pointsEarned;
+    }
+
+    // 🔥 NEW: Update slabPoints
+    if (slabPoints !== undefined && slabPoints !== slip.slabPoints) {
+      changes.push({
+        field: 'slabPoints',
+        oldValue: slip.slabPoints,
+        newValue: slabPoints,
+        editedBy: editedBy || 'admin'
+      });
+      slip.slabPoints = slabPoints;
+    }
+
+    // 🔥 NEW: Update totalPoints
+    if (totalPoints !== undefined && totalPoints !== slip.totalPoints) {
+      changes.push({
+        field: 'totalPoints',
+        oldValue: slip.totalPoints,
+        newValue: totalPoints,
+        editedBy: editedBy || 'admin'
+      });
+      slip.totalPoints = totalPoints;
     }
 
     if (pointValue !== undefined && pointValue !== slip.pointValue) {
@@ -527,6 +572,28 @@ router.put('/:id', async (req, res) => {
       slip.pointValue = pointValue;
     }
 
+    // 🔥 NEW: Update baseSalary
+    if (baseSalary !== undefined && baseSalary !== slip.baseSalary) {
+      changes.push({
+        field: 'baseSalary',
+        oldValue: slip.baseSalary,
+        newValue: baseSalary,
+        editedBy: editedBy || 'admin'
+      });
+      slip.baseSalary = baseSalary;
+    }
+
+    // 🔥 NEW: Update incentiveAmount
+    if (incentiveAmount !== undefined && incentiveAmount !== slip.incentiveAmount) {
+      changes.push({
+        field: 'incentiveAmount',
+        oldValue: slip.incentiveAmount,
+        newValue: incentiveAmount,
+        editedBy: editedBy || 'admin'
+      });
+      slip.incentiveAmount = incentiveAmount;
+    }
+
     if (totalSalary !== undefined && totalSalary !== slip.totalSalary) {
       changes.push({
         field: 'totalSalary',
@@ -537,6 +604,19 @@ router.put('/:id', async (req, res) => {
       slip.totalSalary = totalSalary;
     }
 
+    // 🔥 NEW: Update breakdown percentages
+    if (pctBasic !== undefined) slip.pctBasic = pctBasic;
+    if (pctHRA !== undefined) slip.pctHRA = pctHRA;
+    if (pctConv !== undefined) slip.pctConv = pctConv;
+    if (pctSpec !== undefined) slip.pctSpec = pctSpec;
+
+    // 🔥 NEW: Update deductions
+    if (deductionPF !== undefined) slip.deductionPF = deductionPF;
+    if (deductionPT !== undefined) slip.deductionPT = deductionPT;
+    if (deductionESIC !== undefined) slip.deductionESIC = deductionESIC;
+    if (deductionTDS !== undefined) slip.deductionTDS = deductionTDS;
+
+    // Update other fields
     if (paymentDate !== undefined) slip.paymentDate = paymentDate;
     if (paymentMode !== undefined) slip.paymentMode = paymentMode;
     if (status !== undefined) slip.status = status;
@@ -551,29 +631,30 @@ router.put('/:id', async (req, res) => {
       slip.editHistory.push(...changes);
     }
 
-    await slip.save();
-
-    // Regenerate PDF if points/value/salary changed
-    if (changes.some(c => ['pointsEarned', 'pointValue', 'totalSalary'].includes(c.field))) {
-      try {
-        console.log('📄 Regenerating PDF after edit...');
-        const pdfUrl = await generateSalarySlipPDF(slip);
-        slip.pdfUrl = pdfUrl;
-        await slip.save();
-        console.log('✅ PDF regenerated:', pdfUrl);
-      } catch (pdfError) {
-        console.error('⚠️ PDF regeneration failed:', pdfError.message);
-        // Continue without PDF update
-      }
+    // 🔥 Clear PDF URL when slip is edited (forces regeneration)
+    if (changes.length > 0) {
+      slip.pdfUrl = null; // Clear existing PDF
+      console.log('🗑️ PDF cleared - needs regeneration');
     }
+
+    await slip.save();
+    
+    console.log('✅ Slip updated successfully:', {
+      pointsEarned: slip.pointsEarned,
+      slabPoints: slip.slabPoints,
+      totalPoints: slip.totalPoints,
+      totalSalary: slip.totalSalary,
+      changesCount: changes.length
+    });
 
     res.json({
       success: true,
       message: 'Salary slip updated successfully',
-      slip
+      slip,
+      pdfCleared: changes.length > 0 // Indicate if PDF was cleared
     });
   } catch (error) {
-    console.error('Error updating salary slip:', error);
+    console.error('❌ Error updating salary slip:', error);
     res.status(500).json({ error: error.message });
   }
 });

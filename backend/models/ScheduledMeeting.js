@@ -41,8 +41,12 @@ const scheduledMeetingSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['scheduled', 'completed', 'cancelled'],
+    enum: ['scheduled', 'live', 'completed', 'cancelled'],
     default: 'scheduled'
+  },
+  isInstant: {
+    type: Boolean,
+    default: false // true for instant meetings, false for scheduled ones
   },
   createdAt: {
     type: Date,

@@ -27,16 +27,33 @@ export default function MeetingsModal({ isOpen, onClose, userEmail, token }) {
     }
   }, [isOpen, userEmail, token]);
 
-  const handleJoin = (meeting) => {
-    // Create personalized meeting link with user's name
-    const displayName = encodeURIComponent(userEmail.split('@')[0] || 'Guest');
-    const personalizedLink = `${meeting.meetingLink}#userInfo.displayName="${displayName}"&config.prejoinPageEnabled=false`;
-    
-    setJoinMeeting({
-      meetingLink: personalizedLink,
-      title: meeting.title,
-      roomName: meeting.roomName
-    });
+  const handleJoin = async (meeting) => {
+    try {
+      // Create personalized meeting link with user's name
+      const displayName = encodeURIComponent(userEmail.split('@')[0] || 'Guest');
+      
+      // Fetch JWT token for JaaS
+      const res = await fetch(`${API_BASE}/api/meetings/jaas-jwt?name=${displayName}&email=${encodeURIComponent(userEmail)}`);
+      const data = await res.json();
+      
+      if (!data.token) throw new Error('No token received');
+      
+      let baseLink = meeting.meetingLink;
+      if (baseLink.includes('meet.jit.si')) {
+        baseLink = baseLink.replace('meet.jit.si', '8x8.vc/vpaas-magic-cookie-85bbd4a4745d48878a0d7c667dd963fe');
+      }
+      
+      const personalizedLink = `${baseLink}?jwt=${data.token}#userInfo.displayName="${displayName}"&config.prejoinPageEnabled=false`;
+      
+      setJoinMeeting({
+        meetingLink: personalizedLink,
+        title: meeting.title,
+        roomName: meeting.roomName
+      });
+    } catch (err) {
+      console.error('Failed to authenticate meeting room:', err);
+      alert('Failed to get secure meeting token. Please try again.');
+    }
   };
 
   const handleLeaveMeeting = () => {

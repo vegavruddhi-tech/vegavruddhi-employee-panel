@@ -397,40 +397,72 @@ router.post('/jitsi/create', async (req, res) => {
     await Promise.all(emailPromises);
     console.log('✅ Jitsi meeting invitations sent successfully to all recipients');
 
-    // Save scheduled meeting to database if it's scheduled for later
-    if (isScheduled) {
-      try {
-        const scheduledMeeting = new ScheduledMeeting({
-          title,
-          meetingLink,
-          roomName,
-          scheduledDate,
-          scheduledTime,
-          scheduledDateTime,
-          duration,
-          attendees,
-          createdBy: 'admin',
-          status: 'scheduled'
-        });
-        
-        await scheduledMeeting.save();
-        console.log('✅ Scheduled meeting saved to database:', scheduledMeeting._id);
-      } catch (dbErr) {
-        console.error('⚠️ Failed to save meeting to database:', dbErr);
-        // Don't fail the request if DB save fails
+    // Save meeting to database (both instant and scheduled)
+    try {
+      // For instant meetings, set scheduled time to current time + 5 minutes
+      let meetingScheduledDateTime;
+      let meetingScheduledDate;
+      let meetingScheduledTime;
+      let meetingDuration;
+      
+      if (isScheduled) {
+        // Scheduled meeting - use provided date/time
+        meetingScheduledDateTime = scheduledDateTime;
+        meetingScheduledDate = scheduledDate;
+        meetingScheduledTime = scheduledTime;
+        meetingDuration = duration;
+      } else {
+        // Instant meeting - set to current time (LIVE NOW)
+        const now = new Date();
+        meetingScheduledDateTime = now;
+        meetingScheduledDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
+        meetingScheduledTime = now.toTimeString().slice(0, 5); // HH:MM
+        meetingDuration = 60; // Default 60 minutes for instant meetings
       }
+      
+      const scheduledMeeting = new ScheduledMeeting({
+        title,
+        meetingLink,
+        roomName,
+        scheduledDate: meetingScheduledDate,
+        scheduledTime: meetingScheduledTime,
+        scheduledDateTime: meetingScheduledDateTime,
+        duration: meetingDuration,
+        attendees,
+        createdBy: 'admin',
+        status: 'scheduled',
+        isInstant: !isScheduled // Flag to identify instant meetings
+      });
+      
+      await scheduledMeeting.save();
+      console.log('✅ Meeting saved to database:', scheduledMeeting._id);
+      
+      res.json({
+        success: true,
+        meetingLink,
+        roomName,
+        isScheduled,
+        scheduledDateTime: isScheduled ? scheduledDateTime.toISOString() : new Date().toISOString(),
+        scheduledMeetingId: scheduledMeeting._id, // 🔥 Return the ID so we can end it later
+        message: isScheduled 
+          ? `Jitsi meeting scheduled! Invitations sent to ${attendees.length} attendees.`
+          : `Jitsi meeting created! Invitations sent to ${attendees.length} attendees.`
+      });
+      return; // Early return since we responded
+    } catch (dbErr) {
+      console.error('⚠️ Failed to save meeting to database:', dbErr);
+      // Fallback response if DB fails
+      res.json({
+        success: true,
+        meetingLink,
+        roomName,
+        isScheduled,
+        scheduledDateTime: isScheduled ? scheduledDateTime.toISOString() : new Date().toISOString(),
+        message: isScheduled 
+          ? `Jitsi meeting scheduled! Invitations sent to ${attendees.length} attendees.`
+          : `Jitsi meeting created! Invitations sent to ${attendees.length} attendees.`
+      });
     }
-
-    res.json({
-      success: true,
-      meetingLink,
-      roomName,
-      isScheduled,
-      scheduledDateTime: isScheduled ? scheduledDateTime.toISOString() : null,
-      message: isScheduled 
-        ? `Jitsi meeting scheduled! Invitations sent to ${attendees.length} attendees.`
-        : `Jitsi meeting created! Invitations sent to ${attendees.length} attendees.`
-    });
 
   } catch (err) {
     console.error('❌ Jitsi meeting creation error:', err);
@@ -525,6 +557,20 @@ router.post('/attendance/start', async (req, res) => {
       });
       await attendance.save();
       console.log('✅ Attendance tracking started');
+    }
+
+    // 🔥 NEW: Update ScheduledMeeting status to 'live' when meeting starts
+    if (scheduledMeetingId) {
+      try {
+        await ScheduledMeeting.findByIdAndUpdate(
+          scheduledMeetingId,
+          { status: 'live' },
+          { new: true }
+        );
+        console.log('✅ Meeting status updated to LIVE');
+      } catch (err) {
+        console.error('⚠️ Failed to update meeting status to live:', err);
+      }
     }
 
     res.json({
@@ -635,7 +681,7 @@ router.post('/attendance/leave', async (req, res) => {
 // POST /api/meetings/attendance/end - End meeting and finalize attendance
 router.post('/attendance/end', async (req, res) => {
   try {
-    const { meetingId } = req.body;
+    const { meetingId, scheduledMeetingId } = req.body;
     
     console.log('🏁 Ending meeting:', meetingId);
 
@@ -668,6 +714,20 @@ router.post('/attendance/end', async (req, res) => {
 
     await attendance.save();
     console.log('✅ Meeting ended and attendance finalized');
+
+    // 🔥 NEW: Update ScheduledMeeting status to 'completed' so it disappears from employee notifications
+    if (scheduledMeetingId) {
+      try {
+        await ScheduledMeeting.findByIdAndUpdate(
+          scheduledMeetingId,
+          { status: 'completed' },
+          { new: true }
+        );
+        console.log('✅ Meeting status updated to completed in database');
+      } catch (err) {
+        console.error('⚠️ Failed to update meeting status:', err);
+      }
+    }
 
     res.json({
       success: true,
@@ -756,6 +816,63 @@ router.get('/attendance/report/:meetingId', async (req, res) => {
     res.status(500).json({ 
       error: err.message,
       details: 'Failed to generate attendance report'
+    });
+  }
+});
+
+// 🔔 GET /api/meetings/my-meetings - Get meetings for logged-in user (by email)
+router.get('/my-meetings', async (req, res) => {
+  try {
+    // Get user email from auth token (assuming it's added to req.user by auth middleware)
+    const userEmail = req.query.email || req.user?.email;
+    
+    if (!userEmail) {
+      return res.status(400).json({ error: 'User email required' });
+    }
+
+    console.log('🔔 Fetching meetings for user:', userEmail);
+
+    // Get current date/time
+    const now = new Date();
+
+    // Fetch scheduled, live, and completed meetings where user is an attendee
+    const meetings = await ScheduledMeeting.find({
+      'attendees.email': userEmail,
+      status: { $in: ['scheduled', 'live', 'completed'] }
+    }).sort({ scheduledDateTime: 1 });
+
+    // Categorize meetings - Show scheduled AND live meetings in upcoming
+    const upcoming = meetings.filter(m => {
+      // Show both scheduled and live meetings
+      if (m.status === 'scheduled' || m.status === 'live') return true;
+      return false;
+    });
+    
+    const past = meetings.filter(m => {
+      // Only show completed/cancelled in past
+      return m.status === 'completed' || m.status === 'cancelled';
+    });
+    
+    // Count unread (upcoming meetings that user hasn't joined yet)
+    const unreadCount = upcoming.length;
+
+    console.log(`✅ Found ${meetings.length} meetings (${upcoming.length} upcoming, ${past.length} past)`);
+
+    res.json({
+      success: true,
+      meetings: {
+        all: meetings,
+        upcoming,
+        past
+      },
+      unreadCount
+    });
+
+  } catch (err) {
+    console.error('❌ Error fetching user meetings:', err);
+    res.status(500).json({ 
+      error: err.message,
+      details: 'Failed to fetch meetings'
     });
   }
 });

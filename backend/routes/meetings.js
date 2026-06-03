@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const ScheduledMeeting = require('../models/ScheduledMeeting');
 const MeetingAttendance = require('../models/MeetingAttendance');
+const jwt = require('jsonwebtoken');
 
 // Load service account credentials (lazy — only if file exists)
 let serviceAccount = null;
@@ -874,6 +875,58 @@ router.get('/my-meetings', async (req, res) => {
       error: err.message,
       details: 'Failed to fetch meetings'
     });
+  }
+});
+
+// 🔑 GET /api/meetings/jaas-jwt - Generate 8x8 JaaS JWT token
+router.get('/jaas-jwt', (req, res) => {
+  try {
+    const { name, email, avatar, isModerator } = req.query;
+    
+    // Read the private key
+    const privateKeyPath = path.join(__dirname, '../jaas_private_key.pem');
+    if (!fs.existsSync(privateKeyPath)) {
+      return res.status(500).json({ error: 'JaaS private key not found' });
+    }
+    const privateKey = fs.readFileSync(privateKeyPath, 'utf8');
+
+    const appId = process.env.JAAS_APP_ID;
+    const kid = process.env.JAAS_KID;
+    
+    if (!appId || !kid) {
+      return res.status(500).json({ error: 'JaaS App ID or Key ID not configured in .env' });
+    }
+
+    const payload = {
+      aud: "jitsi",
+      iss: "chat",
+      sub: appId,
+      room: "*", // Wildcard to allow this token to join any room
+      context: {
+        user: {
+          name: name || email?.split('@')[0] || "Guest",
+          email: email || "",
+          avatar: avatar || "",
+          moderator: isModerator === 'true',
+        },
+        features: {
+          recording: isModerator === 'true',
+          livestreaming: "false",
+          "screen-sharing": "true"
+        }
+      }
+    };
+
+    const token = jwt.sign(payload, privateKey, {
+      algorithm: 'RS256',
+      keyid: kid,
+      expiresIn: '4h' // Token valid for 4 hours
+    });
+
+    res.json({ token, appId });
+  } catch (err) {
+    console.error('❌ Error generating JaaS JWT:', err);
+    res.status(500).json({ error: 'Failed to generate meeting token' });
   }
 });
 

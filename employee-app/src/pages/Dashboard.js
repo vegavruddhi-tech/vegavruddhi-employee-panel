@@ -6,15 +6,6 @@ import Footer from '../components/Footer';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 import TideMerchantTimeline from '../components/TideMerchantTimeline';
 
-const POINTS_MAP = { 
-  'Tide': 2, 
-  // 'MSME': 0.3, 
-  'Tide MSME': 0.3,
-  'Tide Insurance': 1, 
-  'Tide Credit Card': 1,
-  'Tide BT': 1,
-};
-
 
 const STATUS_COLOR = {
   'Ready for Onboarding':          { color: '#2e7d32', bg: '#e6f4ea' },
@@ -182,8 +173,9 @@ export default function Dashboard() {
   const getVerifyKey = (f) => {
     // ✅ MATCH BACKEND PRIORITY: formFillingFor → tideProduct → brand
     const p = f.formFillingFor || f.tideProduct || f.brand || '';
-    // ✅ NORMALIZE: Convert to lowercase to match cache keys
-    return p ? `${f.customerNumber}__${p.toLowerCase().trim()}` : f.customerNumber;
+    // ✅ NORMALIZE: Convert to lowercase and append month to match cache keys
+    const month = f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : '';
+    return p ? `${f.customerNumber}__${p.toLowerCase().trim()}__${month}` : `${f.customerNumber}__${month}`;
   };
   // Filtered forms
   const filtered = useMemo(() => {
@@ -313,18 +305,8 @@ export default function Dashboard() {
             const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
             if (counted.has(dedupKey)) return;
             counted.add(dedupKey);
-            const product = f.formFillingFor || f.tideProduct || f.brand || '';
-            const normalizedProduct = normalizeProduct(product);
-            const points = POINTS_MAP[normalizedProduct] || 0;
-            console.log('🔍 Verified form:', {
-              customerNumber: f.customerNumber,
-              formFillingFor: f.formFillingFor,
-              product,
-              normalizedProduct,
-              points,
-              pointsMapKey: normalizedProduct,
-              pointsMapValue: POINTS_MAP[normalizedProduct]
-            });
+            const vInfo = vm[getVerifyKey(f)];
+            const points = vInfo?.points || 0;
             autoPts += points;
           }
         });
@@ -382,8 +364,7 @@ export default function Dashboard() {
         const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}__${(f.tideIns_type || f.ins_insuranceType || '').toLowerCase().trim()}`;
         if (counted.has(dedupKey)) return;
         counted.add(dedupKey);
-        const product = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
-        auto += POINTS_MAP[normalizeProduct(product)] || 0;
+        auto += verifiedMap[getVerifyKey(f)]?.points || 0;
       }
     });
     const calculated = Math.round((auto + adjustment) * 10) / 10;
@@ -419,7 +400,7 @@ export default function Dashboard() {
     if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
       console.log('Verified form product:', f.formFillingFor);
       console.log('Normalized:', normalizeProduct(f.formFillingFor));
-      console.log('Points:', POINTS_MAP[normalizeProduct(f.formFillingFor)]);
+      console.log('Points:', verifiedMap[getVerifyKey(f)]?.points);
     }
   });
   // ... your JSX
@@ -635,19 +616,31 @@ export default function Dashboard() {
         ) : filtered.length === 0 ? (
           <div className="merchants-empty">No merchants found.</div>
         ) : (
-          filtered.map(f => {
-            const info    = verifiedMap[getVerifyKey(f)] || {};
-            const vstatus = info.status || 'Not Found';
-            const b       = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
-            const sc      = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };
-           const product = f.formFillingFor 
-           || (f.attemptedProducts?.join(', ')) 
-           || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand) 
-           || '–';
+          (() => {
+            const seenDedup = new Set();
+            return filtered.map(f => {
+              const info    = verifiedMap[getVerifyKey(f)] || {};
+              const vstatus = info.status || 'Not Found';
+              const b       = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
+              const sc      = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };
+              const product = f.formFillingFor 
+                || (f.attemptedProducts?.join(', ')) 
+                || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand) 
+                || '–';
 
-            const date    = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-            // const product = f.formFillingFor || (f.brand === 'Tide' && f.tideProduct ? f.tideProduct : f.brand) || '';
-            const pts = (info.status === 'Fully Verified') ? (POINTS_MAP[normalizeProduct(product)] || null) : null;
+              const date    = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+              
+              const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
+              let isDuplicateForPoints = false;
+              if (vstatus === 'Fully Verified') {
+                if (seenDedup.has(dedupKey)) {
+                  isDuplicateForPoints = true;
+                } else {
+                  seenDedup.add(dedupKey);
+                }
+              }
+
+              const pts = (info.status === 'Fully Verified' && !isDuplicateForPoints) ? (info.points || null) : null;
 
 
             return (
@@ -681,11 +674,7 @@ export default function Dashboard() {
                   </div>
                   <div className="mr-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                     <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
-                    {pts !== null && (
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 800 }}>
-                        ⭐ {pts} pts
-                      </div>
-                    )}
+                    
                     <div className="mr-date">{date}</div>
                   </div>
                 </Link>
@@ -705,7 +694,8 @@ export default function Dashboard() {
                 )}
               </div>
             );
-          })
+            });
+          })()
         )}
       </div>
       <Footer />

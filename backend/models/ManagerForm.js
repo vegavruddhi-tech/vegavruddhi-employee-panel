@@ -41,6 +41,6 @@ const managerFormSchema = new mongoose.Schema({
   settledAt: { type: Date },
 
   createdAt: { type: Date, default: Date.now }
-}, { collection: 'ManagerForms' });
+}, { collection: 'ManagerForms', strict: false });
 
 module.exports = mongoose.model('ManagerForm', managerFormSchema);

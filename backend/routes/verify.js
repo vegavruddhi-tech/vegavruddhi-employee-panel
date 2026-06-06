@@ -2,6 +2,7 @@ const express          = require('express');
 const jwt              = require('jsonwebtoken');
 const crypto           = require('crypto');
 const VerificationRule = require('../models/VerificationRule');
+const PointsConfiguration = require('../models/PointsConfiguration');
 const { verifyMerchant, crossCheckPhone } = require('../utils/verifyMerchant');
 const { getRedisClient } = require('../utils/redisClient');
 
@@ -115,7 +116,111 @@ module.exports = (connectionManager, connectDB) => {
     return crypto.createHash('md5').update(data).digest('hex');
   }
 
-  // ---------- DEBUG ENDPOINTS ----------
+  
+function getFallbackPointsMap() {
+  return { 'tide': 2, 'tide msme': 0.3, 'msme': 0.3, 'tide insurance': 1, 'tide credit card': 1, 'tide bt': 1 };
+}
+
+function calculateRecordPointsSync(form, monthLabel, pointsMap) {
+  let formMonth = monthLabel || form._month || form.month;
+  const fallbackProductName = (form.formFillingFor || form.tideProduct || form.brand || '').toLowerCase().trim();
+  const fallbackMap = getFallbackPointsMap();
+
+  if (formMonth) {
+    const parts = formMonth.split(' ');
+    if (parts.length >= 1) {
+      const m = parts[0];
+      const y = parts.length > 1 ? parseInt(parts[1]) : new Date().getFullYear();
+      const mIdx = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].indexOf(m);
+      if ((y === 2026 && mIdx <= 4) || y < 2026 || !pointsMap) {
+        return fallbackMap[fallbackProductName] || 0;
+      }
+    }
+  }
+
+  if (!pointsMap) return fallbackMap[fallbackProductName] || 0;
+
+
+  for (const [configProductName, config] of Object.entries(pointsMap)) {
+    const productField = config.fieldMapping?.productField || 'formFillingFor';
+    const actualProductName = String(form[productField] || form.tideProduct || form.brand || '').toLowerCase().trim();
+
+    if (actualProductName === configProductName) {
+      if (config.type === 'simple') return config.points || 0;
+      if (config.type === 'mapped') {
+        const mappedColumn = config.fieldMapping?.mappedColumn;
+        if (!mappedColumn) return 0;
+        const actualValue = String(form[mappedColumn] || '').toLowerCase().trim();
+        const mapping = config.valueMapping?.find(m => String(m.value).toLowerCase().trim() === actualValue);
+        if (mapping) return mapping.points;
+        return 0;
+      }
+      if (config.type === 'complex') {
+        // ... (not modified for brevity, just copying)
+        const planField = config.fieldMapping?.planField || 'planName';
+        const actualPlanName = String(form[planField] || '').toLowerCase().trim();
+        if (!actualPlanName || !config.plans[actualPlanName]) continue;
+        const plan = config.plans[actualPlanName];
+        const tierField = config.fieldMapping?.tierField || 'tierName';
+        const priceField = config.fieldMapping?.priceField || 'price';
+        const actualTierName = String(form[tierField] || form.variant || '').toLowerCase().trim();
+        const actualPrice = parseFloat(form[priceField] || form.amount || 0);
+        if (actualTierName && plan[actualTierName]) return plan[actualTierName].points;
+        if (actualPrice > 0) {
+          let closestTier = null; let minDiff = Infinity;
+          Object.values(plan).forEach(tier => {
+            if (tier.price) { const diff = Math.abs(tier.price - actualPrice); if (diff < minDiff) { minDiff = diff; closestTier = tier; } }
+          });
+          if (closestTier) return closestTier.points;
+        }
+        return 0;
+      }
+    }
+  }
+  return fallbackMap[fallbackProductName] || 0;
+}
+
+async function attachPoints(result) {
+  try {
+    const allConfigs = await PointsConfiguration.find().lean();
+    const pointsMap = {};
+    allConfigs.forEach(config => {
+      const productKey = config.productName.toLowerCase();
+      const configData = { type: config.productType, fieldMapping: config.fieldMapping || {} };
+      if (config.productType === 'simple') configData.points = config.simplePoints;
+      else if (config.productType === 'complex') {
+        configData.plans = {};
+        (config.plans || []).forEach(plan => {
+          const planKey = plan.planName.toLowerCase();
+          configData.plans[planKey] = {};
+          (plan.tiers || []).forEach(t => configData.plans[planKey][t.name.toLowerCase()] = { points: t.points, price: t.price });
+        });
+      }
+      else if (config.productType === 'mapped') configData.valueMapping = config.valueMapping || [];
+      pointsMap[productKey] = configData;
+    });
+
+    Object.keys(result).forEach(key => {
+      if (result[key] && result[key].status === 'Fully Verified') {
+        const productParts = key.split('__');
+        const product = productParts.length > 1 ? productParts[1] : key;
+        const mockForm = {
+          ...(result[key].record || {}),
+          formFillingFor: product,
+          _month: result[key].monthLabel || ''
+        };
+        result[key].points = calculateRecordPointsSync(mockForm, result[key].monthLabel, pointsMap);
+      } else if (result[key]) {
+        result[key].points = 0;
+      }
+    });
+  } catch(err) {
+    console.error("Error attaching points:", err);
+  }
+  return result;
+}
+
+// ---------- DEBUG ENDPOINTS ----------
   /**
    * GET /api/verify/debug-cache/:phone
    * Debug endpoint to check what's in cache for a phone number
@@ -202,13 +307,11 @@ module.exports = (connectionManager, connectDB) => {
    */
   router.post('/precompute-all', async (req, res) => {
     try {
-      console.log('🚀 Starting smart verification pre-computation...');
       const startTime = Date.now();
       
       // Check if force refresh is requested
       const forceRefresh = req.query.force === 'true';
       if (forceRefresh) {
-        console.log('⚡ FORCE REFRESH requested - will process ALL forms');
       }
       
       // Wait for MongoDB connection
@@ -227,7 +330,6 @@ module.exports = (connectionManager, connectDB) => {
 
       // Get last sync time (ignore if force refresh)
       const lastSyncTime = forceRefresh ? null : await redis.get('last_sync_time');
-      console.log(`📅 Last sync: ${lastSyncTime || 'Never'}`);
 
       // Get all forms from FSE, TL, and Manager collections
       const FormResponse = require('../models/FormResponse');
@@ -252,7 +354,6 @@ module.exports = (connectionManager, connectDB) => {
           ManagerForm.find(query).lean()
         ]);
         
-        console.log(`📊 Found ${fseForms.length} FSE + ${tlForms.length} TL + ${managerForms.length} Manager = ${fseForms.length + tlForms.length + managerForms.length} new/updated forms since last sync`);
       } else {
         // First time OR force refresh: Get all forms
         [fseForms, tlForms, managerForms] = await Promise.all([
@@ -261,7 +362,6 @@ module.exports = (connectionManager, connectDB) => {
           ManagerForm.find({}).lean()
         ]);
         
-        console.log(`📊 ${forceRefresh ? 'Force refresh' : 'First sync'}: Found ${fseForms.length} FSE + ${tlForms.length} TL + ${managerForms.length} Manager = ${fseForms.length + tlForms.length + managerForms.length} total forms`);
       }
       
       // Combine all forms and track which collection each belongs to
@@ -274,7 +374,6 @@ module.exports = (connectionManager, connectDB) => {
       managerForms.forEach(f => formCollectionMap.set(f._id.toString(), 'MANAGER'));
 
       if (forms.length === 0) {
-        console.log('✅ No forms to verify');
         await redis.set('last_sync_time', new Date().toISOString());
         return res.json({ 
           success: true, 
@@ -303,18 +402,11 @@ module.exports = (connectionManager, connectDB) => {
             const phone = form.customerNumber;
             // ✅ USE CONSISTENT PRODUCT EXTRACTION
             const product = getProductField(form);
+            const month = form.createdAt 
+              ? new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+              : '';
             const cacheKey = `verification:${phone}:${product}`;
-            
-            // 🔍 DEBUG: Log product extraction for this specific phone
-            if (phone === '9939234435') {
-              console.log(`🔍 DEBUG Form ${phone}:`, {
-                formFillingFor: form.formFillingFor,
-                tideProduct: form.tideProduct,
-                brand: form.brand,
-                extractedProduct: product,
-                cacheKey
-              });
-            }
+            const monthCacheKey = `verification:${phone}:${product}:${month}`;
             
             // Calculate current form hash
             const currentHash = calculateFormHash(form);
@@ -326,6 +418,12 @@ module.exports = (connectionManager, connectDB) => {
               if (cachedData) {
                 const parsed = JSON.parse(cachedData);
                 if (parsed.hash === currentHash) {
+                  // ✅ Copy to the month-specific cache key if missing
+                  try {
+                    await redis.setex(monthCacheKey, 86400, cachedData);
+                  } catch (e) {
+                    console.warn(`Failed to copy cached data to month key: ${e.message}`);
+                  }
                   // Data unchanged, skip verification
                   skipped++;
                   processed++;
@@ -335,10 +433,6 @@ module.exports = (connectionManager, connectDB) => {
             }
             
             // New or changed form - run verification
-            const month = form.createdAt 
-              ? new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
-              : '';
-
             // ✅ SMART VERIFICATION: Try with calculated month first
             let result = await verifyMerchant(
               db, 
@@ -363,17 +457,7 @@ module.exports = (connectionManager, connectDB) => {
               );
             }
 
-            // 🔍 DEBUG: Log verification result for this specific phone
-            if (phone === '9939234435') {
-              console.log(`🔍 DEBUG Verification ${phone}:`, {
-                product,
-                month,
-                status: result.status,
-                verified: result.verified
-              });
-            }
-
-            // ✅ SAVE VERIFICATION RESULTS TO REDIS (FIX: This was missing!)
+            // ✅ SAVE VERIFICATION RESULTS TO REDIS (FIX: Save to both formats to support bulk-cached and bulk-admin!)
             // Store ALL verification results, including "Not Found" status
             const cacheValue = {
               ...result,
@@ -386,7 +470,8 @@ module.exports = (connectionManager, connectDB) => {
             // Save to Redis with 24-hour TTL
             try {
               await redis.setex(cacheKey, 86400, JSON.stringify(cacheValue));
-              redisSaved++; // Track successful save
+              await redis.setex(monthCacheKey, 86400, JSON.stringify(cacheValue));
+              redisSaved += 2; // Track successful save
               
               // Only count as "cached" if verification succeeded
               if (result.status !== 'Not Found') {
@@ -431,7 +516,6 @@ module.exports = (connectionManager, connectDB) => {
 
         // Log progress
         const progress = Math.min(i + batchSize, forms.length);
-        console.log(`⏳ Progress: ${progress}/${forms.length} forms processed`);
       }
 
       // Update last sync time
@@ -441,16 +525,8 @@ module.exports = (connectionManager, connectDB) => {
       // This ensures all users get fresh data after pre-compute
       const timestamp = Date.now();
       await redis.set('verification_rules_updated_at', timestamp.toString());
-      console.log(`🔄 Updated verification timestamp: ${timestamp} (triggers frontend refresh)`);
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`✅ Pre-computation complete in ${elapsed}s`);
-      console.log(`   Total: ${forms.length} | Verified: ${cached} | Skipped: ${skipped}`);
-      console.log(`   💾 Redis: ${redisSaved} results saved to cache`);
-      console.log(`   📊 Breakdown:`);
-      console.log(`      - Cached (verified): ${cached}`);
-      console.log(`      - Skipped (unchanged): ${skipped}`);
-      console.log(`      - Not Found: ${forms.length - cached - skipped}`);
       
       res.json({ 
         success: true, 
@@ -580,7 +656,12 @@ module.exports = (connectionManager, connectDB) => {
         });
       });
       
-      res.json(result);
+      
+      const finalResult = await attachPoints(result);
+      Object.keys(finalResult).forEach(k => {
+      });
+      res.json(finalResult);
+
 
     } catch (err) {
       console.error('Bulk error:', err);
@@ -609,7 +690,7 @@ module.exports = (connectionManager, connectDB) => {
       // Build all cache keys
       const cacheKeys = phones.map((phone, i) => {
         const product = products[i] || '';
-        return `verification:${phone}:${product}`;
+        return `verification:${phone}:${product}:${months[i] || ''}`;
       });
 
       // Get ALL cached values in ONE Redis call
@@ -653,7 +734,8 @@ module.exports = (connectionManager, connectDB) => {
               matchType:  cachedData.matchType,
               phoneMatch: phoneMatch,
               inSheet:    inSheet,
-              monthLabel: month
+              monthLabel: month,
+              record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null)))
             };
             cacheHits++;
           } catch (parseErr) {
@@ -699,7 +781,8 @@ module.exports = (connectionManager, connectDB) => {
               matchType:  v.matchType,
               phoneMatch: phoneMatch,
               inSheet:    inSheet,
-              monthLabel: month
+              monthLabel: month,
+              record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null)))
             };
             
           } catch (err) {
@@ -716,8 +799,12 @@ module.exports = (connectionManager, connectDB) => {
         }));
       }
 
-      console.log(`📊 Employee cache stats: ${cacheHits} hits, ${cacheMisses} misses (${phones.length} forms)`);
-      res.json(result);
+      
+      const finalResult = await attachPoints(result);
+      Object.keys(finalResult).forEach(k => {
+      });
+      res.json(finalResult);
+
 
     } catch (err) {
       console.error('Bulk-cached error:', err);
@@ -758,7 +845,7 @@ module.exports = (connectionManager, connectDB) => {
         if (cached) {
           try {
             const d = JSON.parse(cached);
-            result[key] = { status: d.status, verified: d.verified, passed: d.passed, total: d.total, checks: d.checks || [], collection: d.collection, matchType: d.matchType, phoneMatch: d.status !== 'Not Found' ? true : (d.phoneMatch || false), inSheet: d.status !== 'Not Found' ? true : (d.matched || false), monthLabel: month };
+            result[key] = { status: d.status, verified: d.verified, passed: d.passed, total: d.total, checks: d.checks || [], collection: d.collection, matchType: d.matchType, phoneMatch: d.status !== 'Not Found' ? true : (d.phoneMatch || false), inSheet: d.status !== 'Not Found' ? true : (d.matched || false), monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
           } catch { missedIndices.push(i); }
         } else { missedIndices.push(i); }
       });
@@ -774,11 +861,16 @@ module.exports = (connectionManager, connectDB) => {
               verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
               crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
             ]);
-            result[key] = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch: v.status !== 'Not Found' ? true : pc.phoneMatch, inSheet: v.status !== 'Not Found' ? true : pc.matched, monthLabel: month };
+            result[key] = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch: v.status !== 'Not Found' ? true : pc.phoneMatch, inSheet: v.status !== 'Not Found' ? true : pc.matched, monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
           } catch (err) { result[key] = { status: 'Error', verified: false, passed: 0, total: 0, checks: [], error: err.message }; }
         }));
       }
-      res.json(result);
+      
+      const finalResult = await attachPoints(result);
+      Object.keys(finalResult).forEach(k => {
+      });
+      res.json(finalResult);
+
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
@@ -810,7 +902,7 @@ module.exports = (connectionManager, connectDB) => {
       // ✅ MGET OPTIMIZATION: Build all cache keys first
       const cacheKeys = phones.map((phone, i) => {
         const product = products[i] || '';
-        return `verification:${phone}:${product}`;
+        return `verification:${phone}:${product}:${months[i] || ''}`;
       });
 
       // ✅ MGET OPTIMIZATION: Get ALL cached values in ONE Redis call (instead of 813 calls)
@@ -834,6 +926,7 @@ module.exports = (connectionManager, connectDB) => {
         const product = products[i] || '';
         const month   = months[i]   || '';
         const key = product ? `${phone}__${product}` : phone;
+        const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
         const cached = cachedValues[i];
 
         if (cached) {
@@ -845,7 +938,7 @@ module.exports = (connectionManager, connectDB) => {
             const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
             const inSheet = cachedData.status !== 'Not Found' ? true : (cachedData.matched || false);
             
-            result[key] = {
+            const data = {
               status:     cachedData.status,
               verified:   cachedData.verified,
               passed:     cachedData.passed,
@@ -855,8 +948,11 @@ module.exports = (connectionManager, connectDB) => {
               matchType:  cachedData.matchType,
               phoneMatch: phoneMatch,
               inSheet:    inSheet,
-              monthLabel: month
+              monthLabel: month,
+              record: cachedData.record
             };
+            result[key] = data;
+            result[monthKey] = data;
             cacheHits++;
           } catch (parseErr) {
             console.error(`Error parsing cached data for ${phone}:`, parseErr.message);
@@ -881,6 +977,7 @@ module.exports = (connectionManager, connectDB) => {
           const product = products[i] || '';
           const month   = months[i]   || '';
           const key = product ? `${phone}__${product}` : phone;
+          const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
 
           try {
             const [v, pc] = await Promise.all([
@@ -892,7 +989,7 @@ module.exports = (connectionManager, connectDB) => {
             const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
             const inSheet = v.status !== 'Not Found' ? true : pc.matched;
 
-            result[key] = {
+            const data = {
               status:     v.status,
               verified:   v.verified,
               passed:     v.passed,
@@ -902,12 +999,15 @@ module.exports = (connectionManager, connectDB) => {
               matchType:  v.matchType,
               phoneMatch: phoneMatch,
               inSheet:    inSheet,
-              monthLabel: month
+              monthLabel: month,
+              record: v.record
             };
+            result[key] = data;
+            result[monthKey] = data;
             
           } catch (err) {
             console.error(`Error verifying ${phone}:`, err.message);
-            result[key] = {
+            const errorData = {
               status: 'Error',
               verified: false,
               passed: 0,
@@ -915,12 +1015,18 @@ module.exports = (connectionManager, connectDB) => {
               checks: [],
               error: err.message
             };
+            result[key] = errorData;
+            result[monthKey] = errorData;
           }
         }));
       }
 
-      console.log(`📊 Cache stats: ${cacheHits} hits, ${cacheMisses} misses (MGET optimization: 1 Redis call for ${phones.length} forms)`);
-      res.json(result);
+      
+      const finalResult = await attachPoints(result);
+      Object.keys(finalResult).forEach(k => {
+      });
+      res.json(finalResult);
+
 
     } catch (err) {
       console.error('Bulk-admin error:', err);
@@ -946,6 +1052,8 @@ module.exports = (connectionManager, connectDB) => {
       const products = (Array.isArray(productsArr) ? productsArr : (productsArr || '').split(',')).map(p => normalizeProduct(p));
       const months   = (Array.isArray(monthsArr)   ? monthsArr   : (monthsArr   || '').split(',')).map(m => String(m).trim());
 
+      console.log('📥 INCOMING BULK-ADMIN POST:', { phones, products, months });
+
       if (!phones.length) return res.json({});
 
       const redis = getRedisClient();
@@ -953,7 +1061,7 @@ module.exports = (connectionManager, connectDB) => {
 
       const cacheKeys = phones.map((phone, i) => {
         const product = products[i] || '';
-        return `verification:${phone}:${product}`;
+        return `verification:${phone}:${product}:${months[i] || ''}`;
       });
 
       let cachedValues = [];
@@ -973,6 +1081,7 @@ module.exports = (connectionManager, connectDB) => {
         const product = products[i] || '';
         const month   = months[i]   || '';
         const key     = product ? `${phone}__${product}` : phone;
+        const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
         const cached  = cachedValues[i];
 
         if (cached) {
@@ -980,7 +1089,9 @@ module.exports = (connectionManager, connectDB) => {
             const cachedData = JSON.parse(cached);
             const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
             const inSheet    = cachedData.status !== 'Not Found' ? true : (cachedData.matched    || false);
-            result[key] = { status: cachedData.status, verified: cachedData.verified, passed: cachedData.passed, total: cachedData.total, checks: cachedData.checks || [], collection: cachedData.collection, matchType: cachedData.matchType, phoneMatch, inSheet, monthLabel: month };
+            const data = { status: cachedData.status, verified: cachedData.verified, passed: cachedData.passed, total: cachedData.total, checks: cachedData.checks || [], collection: cachedData.collection, matchType: cachedData.matchType, phoneMatch, inSheet, monthLabel: month, record: cachedData.record };
+            result[key] = data;
+            result[monthKey] = data;
           } catch {
             missedIndices.push(i);
           }
@@ -999,6 +1110,7 @@ module.exports = (connectionManager, connectDB) => {
           const product = products[i] || '';
           const month   = months[i]   || '';
           const key     = product ? `${phone}__${product}` : phone;
+          const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
 
           try {
             const [v, pc] = await Promise.all([
@@ -1007,14 +1119,24 @@ module.exports = (connectionManager, connectDB) => {
             ]);
             const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
             const inSheet    = v.status !== 'Not Found' ? true : pc.matched;
-            result[key] = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch, inSheet, monthLabel: month };
+            const data = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch, inSheet, monthLabel: month, record: v.record };
+            result[key] = data;
+            result[monthKey] = data;
           } catch (err) {
-            result[key] = { status: 'Error', verified: false, passed: 0, total: 0, checks: [], error: err.message };
+            const errorData = { status: 'Error', verified: false, passed: 0, total: 0, checks: [], error: err.message };
+            result[key] = errorData;
+            result[monthKey] = errorData;
           }
         }));
       }
 
-      res.json(result);
+      
+      const finalResult = await attachPoints(result);
+      console.log('📤 OUTGOING BULK-ADMIN RESPONSE:', JSON.stringify(finalResult, null, 2));
+      Object.keys(finalResult).forEach(k => {
+      });
+      res.json(finalResult);
+
     } catch (err) {
       console.error('Bulk-admin POST error:', err);
       res.status(500).json({ message: err.message });
@@ -1068,10 +1190,8 @@ module.exports = (connectionManager, connectDB) => {
         const keys = await redis.keys(pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
-          console.log(`✅ Cleared ${keys.length} Redis verification caches`);
         }
         
-        console.log('✅ Verification rules updated - all caches invalidated');
       }
       
       res.json(rule);
@@ -1100,10 +1220,8 @@ module.exports = (connectionManager, connectDB) => {
         const keys = await redis.keys(pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
-          console.log(`✅ Cleared ${keys.length} Redis verification caches`);
         }
         
-        console.log('✅ New verification rule created - all caches invalidated');
       }
       
       res.status(201).json(rule);
@@ -1130,10 +1248,8 @@ module.exports = (connectionManager, connectDB) => {
         const keys = await redis.keys(pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
-          console.log(`✅ Cleared ${keys.length} Redis verification caches`);
         }
         
-        console.log('✅ Verification rule deleted - all caches invalidated');
       }
       
       res.json({ 

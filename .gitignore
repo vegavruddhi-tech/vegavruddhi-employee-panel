@@ -97,3 +97,13 @@ TESTING_CHECKLIST.md
 HISTORICAL_IMPORT_COMPLETE.md
 backend/DUPLICATE_FIX_SUMMARY.md
 backend/import_full_log.txt
+
+# Ignored Keys
+*.pem
+**/*.pem
+jaas_private_key.pem
+
+# Ignored Markdown Files
+*.md
+**/*.md
+

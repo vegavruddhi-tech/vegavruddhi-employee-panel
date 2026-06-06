@@ -39,6 +39,7 @@ export default function Tasks() {
     if (!token) return;
     loadTasks();
     loadTaskCounts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, filter]);
 
   const loadTasks = () => {

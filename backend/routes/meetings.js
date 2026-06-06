@@ -688,8 +688,12 @@ router.post('/attendance/end', async (req, res) => {
 
     const attendance = await MeetingAttendance.findOne({ meetingId });
     
+    // 🔥 If attendance not found, at least try to update the scheduled meeting status
     if (!attendance) {
-      return res.status(404).json({ error: 'Meeting attendance record not found' });
+      if (scheduledMeetingId) {
+        await ScheduledMeeting.findByIdAndUpdate(scheduledMeetingId, { status: 'completed' });
+      }
+      return res.status(404).json({ error: 'Meeting attendance record not found, but meeting marked as completed' });
     }
 
     attendance.endTime = new Date();
@@ -842,16 +846,31 @@ router.get('/my-meetings', async (req, res) => {
       status: { $in: ['scheduled', 'live', 'completed'] }
     }).sort({ scheduledDateTime: 1 });
 
-    // Categorize meetings - Show scheduled AND live meetings in upcoming
-    const upcoming = meetings.filter(m => {
-      // Show both scheduled and live meetings
-      if (m.status === 'scheduled' || m.status === 'live') return true;
-      return false;
-    });
+    // Categorize meetings
+    const upcoming = [];
+    const past = [];
     
-    const past = meetings.filter(m => {
-      // Only show completed/cancelled in past
-      return m.status === 'completed' || m.status === 'cancelled';
+    meetings.forEach(m => {
+      let isPast = false;
+      
+      if (m.status === 'completed') {
+        isPast = true;
+      } else if (m.scheduledDateTime && m.duration) {
+        // Automatically consider past if the end time has passed by more than 15 mins buffer
+        const endTime = new Date(m.scheduledDateTime.getTime() + (m.duration + 15) * 60000);
+        if (now > endTime) {
+          isPast = true;
+          
+          // Optionally update the DB status asynchronously
+          ScheduledMeeting.findByIdAndUpdate(m._id, { status: 'completed' }).catch(() => {});
+        }
+      }
+
+      if (isPast) {
+        past.push(m);
+      } else {
+        upcoming.push(m);
+      }
     });
     
     // Count unread (upcoming meetings that user hasn't joined yet)

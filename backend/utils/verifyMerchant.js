@@ -236,8 +236,10 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
         ...c,
         field: criticalConditions[criticalChecks.indexOf(c)]?.field,
         label: c.label
-      }))
+      })),
+      record: record || null
     };
+    console.log("DEBUG VERIFYMERCHANT RETURNING record keys:", record ? Object.keys(record) : "NULL");
   }
 
   return { status: 'Not Found', verified: false };

@@ -82,6 +82,6 @@ formFillingFor: { type: String, },
   settledAt: { type: Date },
 
   createdAt: { type: Date, default: Date.now }
-}, { collection: 'Forms_respones' });
+}, { collection: 'Forms_respones', strict: false });
 
 module.exports = mongoose.model('FormResponse', formResponseSchema);

@@ -35,6 +35,6 @@ const tlFormResponseSchema = new mongoose.Schema({
   settledAt: { type: Date },
   
   createdAt: { type: Date, default: Date.now }
-}, { collection: 'TL Form Responses' });
+}, { collection: 'TL Form Responses', strict: false });
 
 module.exports = mongoose.model('TLFormResponse', tlFormResponseSchema);

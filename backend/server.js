@@ -29,12 +29,20 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:3002',
+  'http://localhost:3003',
   'http://localhost:3004',
   'http://localhost:3005',
+  'http://localhost:4000',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:3002',
+  'http://127.0.0.1:3003',
+  'http://127.0.0.1:3004',
+  'http://127.0.0.1:3005',
+  'http://127.0.0.1:4000',
   'https://team-leader-gamma.vercel.app',
   'https://vegavruddhi-admin-panel-tq8t.vercel.app',
   'https://vegavruddhi-employee-panel-ke56.vercel.app',
-  'http://localhost:3003',
   'https://vegavruddhi-manager-panel.vercel.app'
 ];
 
@@ -80,8 +88,6 @@ async function connectDB() {
     return cached.conn;
   }
   
-  console.log('🔄 Connecting to MongoDB...');
-  console.log('📍 URI:', process.env.MONGO_URI ? 'Set' : 'Not Set');
 
   if (!cached.promise) {
     cached.promise = mongoose
@@ -106,9 +112,6 @@ async function connectDB() {
         tlsAllowInvalidCertificates: true,
       })
       .then((mongoose) => {
-        console.log('✅ MongoDB connected successfully');
-        console.log(`📊 Database: ${mongoose.connection.name}`);
-        console.log(`🔗 Host: ${mongoose.connection.host}`);
         
         // Register with ConnectionManager immediately after connection
         connectionManager.setMongooseConnection(mongoose.connection);
@@ -146,7 +149,6 @@ connectDB().then(() => {
  * Register all application routes
  */
 function registerRoutes() {
-  console.log('📝 Registering routes...');
   
   // Health check routes (enhanced)
   app.use('/api/health', require('./routes/health')(connectionManager));
@@ -165,11 +167,12 @@ function registerRoutes() {
   app.use('/api/points-activity', require('./routes/pointsActivity'));
   app.use('/api/meetings', meetingsRoutes);
   app.use('/api/salary', require('./routes/salary'));
+  app.use('/api/points-config', require('./routes/pointsConfig'));
+  app.use('/api/form-config', require('./routes/formConfig'));
   app.use('/api/tide', require('./routes/tide')(connectionManager, connectDB));
   app.use('/api/attendance', require('./routes/attendance'));
   app.use('/api/unfilled-forms', require('./routes/unfilledForms'));
 
-  console.log('✅ Routes registered successfully');
 }
 
 /**
@@ -210,16 +213,11 @@ process.env.TZ = 'Asia/Kolkata';
 
 // Auto logout cron job - runs at 11:59 PM IST every day
 cron.schedule('59 23 * * *', async () => {
-  console.log('\n' + '='.repeat(70));
-  console.log('🕐 AUTO LOGOUT CRON JOB - 11:59 PM IST');
-  console.log('='.repeat(70));
   
   const now = new Date();
   const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const today = istTime.toISOString().split('T')[0];
   
-  console.log(`📅 Date: ${today}`);
-  console.log(`🕐 Time: ${istTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}\n`);
   
   try {
     const pendingAttendance = await Attendance.find({
@@ -227,10 +225,8 @@ cron.schedule('59 23 * * *', async () => {
       lastLogoutTime: null
     });
     
-    console.log(`👥 Found ${pendingAttendance.length} users to auto logout\n`);
     
     if (pendingAttendance.length === 0) {
-      console.log('✅ No pending logouts');
       return;
     }
     
@@ -244,15 +240,8 @@ cron.schedule('59 23 * * *', async () => {
       attendance.autoCheckOut = true;
       await attendance.save();
       
-      console.log(`✅ ${attendance.userEmail}`);
-      console.log(`   Attendance: ${new Date(attendance.firstLoginTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
-      console.log(`   Duration: ${durationHours.toFixed(2)}h`);
-      console.log(`   Re-logins: ${attendance.reloginCount}x\n`);
     }
     
-    console.log('='.repeat(70));
-    console.log('✅ AUTO LOGOUT COMPLETED');
-    console.log('='.repeat(70) + '\n');
     
   } catch (error) {
     console.error('❌ Cron job error:', error);
@@ -261,13 +250,11 @@ cron.schedule('59 23 * * *', async () => {
   timezone: "Asia/Kolkata"
 });
 
-console.log('✅ Cron job scheduled: Auto logout at 11:59 PM IST daily');
 
 /**
  * Graceful shutdown handler
  */
 async function gracefulShutdown(signal) {
-  console.log(`\n� Received ${signal}. Starting graceful shutdown...`);
   
   try {
     // Shutdown connection manager
@@ -276,10 +263,8 @@ async function gracefulShutdown(signal) {
     // Close database connection
     if (mongoose.connection.readyState === 1) {
       await mongoose.connection.close();
-      console.log('✅ Database connection closed');
     }
     
-    console.log('✅ Graceful shutdown completed');
     process.exit(0);
   } catch (error) {
     console.error('❌ Error during shutdown:', error.message);
@@ -308,10 +293,6 @@ process.on('unhandledRejection', (reason, promise) => {
   const PORT = process.env.PORT || 4000;
 
   app.listen(PORT, () => {
-    console.log(`🚀 Server running locally on http://localhost:${PORT}`);
-    console.log(`💓 Health check: http://localhost:${PORT}/api/health`);
-    console.log(`📊 Detailed health: http://localhost:${PORT}/api/health/detailed`);
-    console.log(`📈 Metrics: http://localhost:${PORT}/api/health/metrics`);
   });
 
 

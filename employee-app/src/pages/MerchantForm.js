@@ -4,11 +4,13 @@ import { useNavigate, Link } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
+/*
 const BRANDS = ['Tide', 'Insurance 2W/4W', 'PineLab'];
 const TIDE_PRODUCTS = ['Tide', 'Tide Insurance', 'Tide MSME', 'Tide Credit Card'];
 const PRODUCTS = ['Tide','Insurance 2W/4W','PineLab','Tide MSME','Tide Insurance','Tide Credit Card'];
 const ATTEMPTED = ['Tide','Kotak','Insurance','Pinelab','Credit Card','BharatPe'];
 const BP_PRODUCTS = ['New Onboarding','QR Re-linking','Re-visit','Loan','Sound Box','Swipe','Mid Market Onboarding'];
+*/
 
 function FormCard({ icon, title, sub, children }) {
   return (
@@ -65,15 +67,31 @@ export default function MerchantForm() {
   const [bpProduct,    setBpProduct]    = useState('');
   const [brand, setBrand] = useState('');
   const [tideProduct, setTideProduct] = useState('');
-  const [tideBtTxn, setTideBtTxn] = useState('');
+  const [tideBtTxn] = useState('');
   const [reason, setReason] = useState('');
 
 
+
+  // Dynamic Form State
+  const [formConfig, setFormConfig] = useState(null);
+  const [dynamicData, setDynamicData] = useState({});
 
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [dupModal, setDupModal] = useState(null); // { name, product, existingId }
+
+  // Fetch Form Config
+  useEffect(() => {
+    fetch(`${API_BASE}/api/form-config`)
+      .then(r => r.json())
+      .then(setFormConfig)
+      .catch(console.error);
+  }, []);
+
+  const handleDynamicChange = (key, value) => {
+    setDynamicData(prev => ({ ...prev, [key]: value }));
+  };
 
   useEffect(() => {
     fetch(`${API_BASE}/api/auth/profile`, { headers: { Authorization: 'Bearer ' + token } })
@@ -90,7 +108,7 @@ export default function MerchantForm() {
 
   const isOnboarding = status === 'Ready for Onboarding';
 
-  const toggleAttempted = (val) => setAttempted(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
+  // const toggleAttempted = (val) => setAttempted(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -106,16 +124,8 @@ export default function MerchantForm() {
       ...(isOnboarding && brand ? { brand } : {}),
       ...(isOnboarding && brand ? { formFillingFor: brand === 'Tide' && tideProduct ? tideProduct : brand } : {}), 
       ...(isOnboarding && tideProduct ? { tideProduct } : {}),
-      ...(isOnboarding && tideBtTxn ? { tideBt_txnDone: tideBtTxn } : {}),
-      ...(isOnboarding && tideQR ? { tide_qrPosted: tideQR } : {}),
-      ...(isOnboarding && tideUPI ? { tide_upiTxnDone: tideUPI } : {}),
-      ...(isOnboarding && insVehicleNo ? { ins_vehicleNumber: insVehicleNo } : {}),
-      ...(isOnboarding && insVehicle ? { ins_vehicleType: insVehicle } : {}),
-      ...(isOnboarding && insType ? { ins_insuranceType: insType } : {}),
-      ...(isOnboarding && pineCard ? { pine_cardTxn: pineCard } : {}),
-      ...(isOnboarding && pineWifi ? { pine_wifiConnected: pineWifi } : {}),
-      ...(isOnboarding && ccName ? { cc_cardName: ccName } : {}),
-      ...(isOnboarding && tideInsType ? { tideIns_type: tideInsType } : {}),
+      // dynamic fields
+      ...(isOnboarding ? dynamicData : {}),
       ...(!isOnboarding && reason ? { reason } : {}),
     };
 
@@ -244,30 +254,70 @@ export default function MerchantForm() {
 )}
 
 
-          {isOnboarding && (
+          {isOnboarding && formConfig && (
   <FormCard icon="🏷️" title="Brand Name" sub="Select the brand">
     <div className="form-group">
       <label>Brand <span className="req">*</span></label>
-      <RadioGroup name="brand" options={BRANDS} value={brand} onChange={setBrand} />
-    </div>
-    {/* {status && !isOnboarding && (
-  <FormCard icon="📝" title="Reason" sub="Why was the merchant not onboarded?">
-    <div className="form-group">
-      <label>Reason <span className="req">*</span></label>
-      <textarea
-        value={reason}
-        onChange={e => setReason(e.target.value)}
-        placeholder="Enter reason..."
-        rows={3}
-        required
-        style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #dde8dd', borderRadius: 8, fontSize: 14, resize: 'vertical', outline: 'none' }}
+      <RadioGroup 
+        name="brand" 
+        options={formConfig.brands.map(b => b.name)} 
+        value={brand} 
+        onChange={(val) => { setBrand(val); setTideProduct(''); setDynamicData({}); }} 
       />
     </div>
-  </FormCard>
-)} */}
 
+    {/* Dynamic sub-products and fields */}
+    {(() => {
+      const selectedBrand = formConfig.brands.find(b => b.name === brand);
+      if (!selectedBrand) return null;
 
-    {/* Tide sub-products */}
+      return (
+        <>
+          {selectedBrand.hasSubProducts && (
+            <div className="form-group">
+              <label>Product <span className="req">*</span></label>
+              <RadioGroup 
+                name="tideProduct" 
+                options={selectedBrand.products.map(p => p.name)} 
+                value={tideProduct} 
+                onChange={(val) => { setTideProduct(val); setDynamicData({}); }} 
+              />
+            </div>
+          )}
+
+          {/* Render Fields */}
+          {(() => {
+            const fields = selectedBrand.hasSubProducts 
+              ? selectedBrand.products.find(p => p.name === tideProduct)?.fields || []
+              : selectedBrand.fields || [];
+
+            return fields.map((f, i) => (
+              <div key={i} className="form-group">
+                <label>{f.label}</label>
+                {f.type === 'radio' ? (
+                  <RadioGroup 
+                    name={f.name} 
+                    options={f.options || ['Yes', 'No']} 
+                    value={dynamicData[f.name] || ''} 
+                    onChange={(val) => handleDynamicChange(f.name, val)} 
+                  />
+                ) : (
+                  <input 
+                    type="text" 
+                    value={dynamicData[f.name] || ''} 
+                    onChange={e => handleDynamicChange(f.name, e.target.value)} 
+                    placeholder={`Enter ${f.label.toLowerCase()}`} 
+                    style={{ width: '100%', padding: '11px 14px', border: '1.5px solid #dde8dd', borderRadius: 8, fontSize: 14 }} 
+                  />
+                )}
+              </div>
+            ));
+          })()}
+        </>
+      );
+    })()}
+
+    {/* --- Old Hardcoded form (commented out for testing) ---
     {brand === 'Tide' && (
       <div className="form-group">
         <label>Tide Product <span className="req">*</span></label>
@@ -275,7 +325,6 @@ export default function MerchantForm() {
       </div>
     )}
 
-    {/* Tide sub-fields — same as existing */}
     {brand === 'Tide' && tideProduct === 'Tide' && <>
       <div className="form-group"><label>QR Posted</label><RadioGroup name="tide_qr" options={['Yes','No']} value={tideQR} onChange={setTideQR} /></div>
       <div className="form-group"><label>Rs 10/30 UPI Txn Done</label><RadioGroup name="tide_upi" options={['Yes','No']} value={tideUPI} onChange={setTideUPI} /></div>
@@ -287,12 +336,10 @@ export default function MerchantForm() {
       <div className="form-group"><label>Name of the Credit Card</label><input type="text" value={ccName} onChange={e => setCcName(e.target.value)} placeholder="e.g. HDFC Regalia" style={{ width:'100%', padding:'11px 14px', border:'1.5px solid #dde8dd', borderRadius:8, fontSize:14 }} /></div>
     )}
 
-    {/* Tide BT */}
     {brand === 'Tide BT' && (
       <div className="form-group"><label>Rs 10 Txn Done</label><RadioGroup name="tideBtTxn" options={['Yes','No']} value={tideBtTxn} onChange={setTideBtTxn} /></div>
     )}
 
-    {/* Insurance 2W/4W */}
     {brand === 'Insurance 2W/4W' && <>
       <p style={{ fontSize:12, color:'#888', marginBottom:8 }}>For Motor Insurance</p>
       <div className="form-group"><label>Vehicle Number</label><input type="text" value={insVehicleNo} onChange={e => setInsVehicleNo(e.target.value)} placeholder="e.g. MH12AB1234" style={{ width:'100%', padding:'11px 14px', border:'1.5px solid #dde8dd', borderRadius:8, fontSize:14 }} /></div>
@@ -300,11 +347,11 @@ export default function MerchantForm() {
       <div className="form-group"><label>Insurance Type</label><RadioGroup name="ins_type" options={['3rd Party','Only OD','OD + 3rd Party']} value={insType} onChange={setInsType} /></div>
     </>}
 
-    {/* PineLab */}
     {brand === 'PineLab' && <>
       <div className="form-group"><label>Card Txn done of Rs 100</label><RadioGroup name="pine_card" options={['Yes','No']} value={pineCard} onChange={setPineCard} /></div>
       <div className="form-group"><label>Machine connected with Wi-Fi</label><RadioGroup name="pine_wifi" options={['Yes','No']} value={pineWifi} onChange={setPineWifi} /></div>
     </>}
+    --- */}
   </FormCard>
 )}
 

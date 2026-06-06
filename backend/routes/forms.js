@@ -126,7 +126,6 @@ router.post('/submit', verifyToken, async (req, res) => {
     if (!body.formFillingFor) delete body.formFillingFor;
 
     const data = { ...body, submittedBy: req.user.id, employeeName };
-    console.log(data);
     const form = await Model.create(data);
     
     // ========== CHECK FOR UNFILLED FORM (LATE SUBMISSION DETECTION) ==========
@@ -182,7 +181,6 @@ router.post('/submit', verifyToken, async (req, res) => {
           if (unfilledForm) {
             // Mark as filled late
             await unfilledForm.markAsFilledLate(form._id, employeeName);
-            console.log(`⚠️ LATE SUBMISSION DETECTED: ${employeeName} filled form for ${req.body.customerName || req.body.customerNumber} (was unfilled since ${unfilledForm.expectedMonth} ${unfilledForm.expectedYear})`);
           }
         }
       } catch (unfilledError) {
@@ -218,7 +216,6 @@ router.post('/submit', verifyToken, async (req, res) => {
 // PUT /api/forms/admin/update/:id — admin can update any form
 router.put('/admin/update/:id', async (req, res) => {
   try {
-    console.log(`📝 Edit form request for ID: ${req.params.id}`);
     
     // ✅ Wait for MongoDB connection and verify it succeeded
     const conn = await connectDB();
@@ -227,27 +224,61 @@ router.put('/admin/update/:id', async (req, res) => {
       return res.status(503).json({ message: 'Database connection unavailable' });
     }
     
-    console.log('✅ MongoDB connected, updating form...');
     
     const { reason, ...updateData } = req.body;
-    console.log('📦 Update data:', updateData);
     
-    const form = await FormResponse.findByIdAndUpdate(
+    // 🔥 NEW: Try to update in all three collections (FSE, TL, Manager)
+    const TLFormResponse = require('../models/TLFormResponse');
+    const ManagerForm = require('../models/ManagerForm');
+
+    // Try FSE forms first
+    let form = await FormResponse.findByIdAndUpdate(
       req.params.id,
       { $set: updateData },
       { new: true }
     );
+    let formType = 'FSE';
+
+    // If not found in FSE, try TL forms
+    if (!form) {
+      form = await TLFormResponse.findByIdAndUpdate(
+        req.params.id,
+        { $set: updateData },
+        { new: true }
+      );
+      formType = 'TL';
+    }
+
+    // If not found in TL, try Manager forms
+    if (!form) {
+      form = await ManagerForm.findByIdAndUpdate(
+        req.params.id,
+        { $set: updateData },
+        { new: true }
+      );
+      formType = 'Manager';
+    }
     
     if (!form) {
       console.error(`❌ Form not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Form not found' });
     }
 
-    console.log(`✅ Form updated successfully: ${form._id}`);
 
     // Update verification status after form update
-    const { updateFormVerificationStatus } = require('../utils/updateVerificationStatus');
-    updateFormVerificationStatus(req.params.id, req.db).catch(console.error); // Run async, don't wait
+    const { 
+      updateFormVerificationStatus, 
+      updateTLFormVerificationStatus, 
+      updateManagerFormVerificationStatus 
+    } = require('../utils/updateVerificationStatus');
+
+    if (formType === 'FSE') {
+      updateFormVerificationStatus(req.params.id, req.db).catch(console.error);
+    } else if (formType === 'TL') {
+      updateTLFormVerificationStatus(req.params.id, req.db).catch(console.error);
+    } else if (formType === 'Manager') {
+      updateManagerFormVerificationStatus(req.params.id, req.db).catch(console.error);
+    }
     
     res.json({ message: 'Form updated successfully', form });
   } catch (err) {
@@ -260,7 +291,6 @@ router.put('/admin/update/:id', async (req, res) => {
 // DELETE /api/forms/admin/delete/:id — admin can delete any form (FSE, TL, or Manager)
 router.delete('/admin/delete/:id', async (req, res) => {
   try {
-    console.log(`🗑️ Delete form request for ID: ${req.params.id}`);
     
     // ✅ Wait for MongoDB connection and verify it succeeded
     const conn = await connectDB();
@@ -269,7 +299,6 @@ router.delete('/admin/delete/:id', async (req, res) => {
       return res.status(503).json({ message: 'Database connection unavailable' });
     }
     
-    console.log('✅ MongoDB connected, deleting form...');
     
     // 🔥 NEW: Try to delete from all three collections (FSE, TL, Manager)
     const TLFormResponse = require('../models/TLFormResponse');
@@ -297,7 +326,6 @@ router.delete('/admin/delete/:id', async (req, res) => {
       return res.status(404).json({ message: 'Form not found' });
     }
     
-    console.log(`✅ ${formType} form deleted successfully: ${form._id}`);
     res.json({ message: `${formType} form deleted successfully`, formType });
   } catch (err) {
     console.error('❌ Delete form error:', err);
@@ -321,7 +349,6 @@ router.get('/my', verifyToken, async (req, res) => {
         return res.status(404).json({ message: 'Target user not found' });
       }
       userId = targetUser._id;
-      console.log(`🔐 Admin impersonation: Fetching forms for ${viewAs} (ID: ${userId})`);
     }
     
     const forms = await FormResponse.find({ submittedBy: userId }).sort({ createdAt: -1 });
@@ -364,6 +391,7 @@ router.put('/update/:id', verifyToken, async (req, res) => {
       { $set: req.body },
       { new: true }
     );
+    let formType = 'FSE';
     
     // If not found in FSE, try TL forms
     if (!form) {
@@ -372,6 +400,7 @@ router.put('/update/:id', verifyToken, async (req, res) => {
         { $set: req.body },
         { new: true }
       );
+      formType = 'TL';
     }
     
     // If not found in TL, try Manager forms
@@ -381,9 +410,26 @@ router.put('/update/:id', verifyToken, async (req, res) => {
         { $set: req.body },
         { new: true }
       );
+      formType = 'Manager';
     }
     
     if (!form) return res.status(404).json({ message: 'Not found or not authorized' });
+
+    // Update verification status after form update
+    const { 
+      updateFormVerificationStatus, 
+      updateTLFormVerificationStatus, 
+      updateManagerFormVerificationStatus 
+    } = require('../utils/updateVerificationStatus');
+
+    if (formType === 'FSE') {
+      updateFormVerificationStatus(req.params.id, req.db).catch(console.error);
+    } else if (formType === 'TL') {
+      updateTLFormVerificationStatus(req.params.id, req.db).catch(console.error);
+    } else if (formType === 'Manager') {
+      updateManagerFormVerificationStatus(req.params.id, req.db).catch(console.error);
+    }
+
     res.json({ message: 'Updated successfully', form });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -441,10 +487,8 @@ router.get('/admin/all', async (req, res) => {
       try {
         const cached = await redis.get(cacheKey);
         if (cached) {
-          console.log(`✅ Cache HIT: ${cacheKey}`);
           return res.json(JSON.parse(cached));
         }
-        console.log(`❌ Cache MISS: ${cacheKey}`);
       } catch (cacheErr) {
         console.error('Redis get error:', cacheErr.message);
       }
@@ -464,7 +508,6 @@ router.get('/admin/all', async (req, res) => {
     }
     const forms = await query.lean();
     
-    console.log(`📋 Fetched ${forms.length}/${totalCount} ${role} forms from database (page ${pageNum}, limit ${pageSize || 'all'})`);
     
     // 🔥 NEW: Response includes pagination metadata
     const response = pageSize ? {
@@ -482,7 +525,6 @@ router.get('/admin/all', async (req, res) => {
     if (redis) {
       try {
         await redis.setex(cacheKey, 300, JSON.stringify(response));
-        console.log(`💾 Cached ${forms.length} forms for ${role}`);
       } catch (cacheErr) {
         console.error('Redis set error:', cacheErr.message);
       }
@@ -922,9 +964,7 @@ router.get('/admin/employee-points', async (req, res) => {
     const EmployeePoints = require('../models/EmployeePoints');
     const points = await EmployeePoints.find({}).sort({ newJoinerName: 1 }).lean();
     
-    console.log('📊 Returning employee points, count:', points.length);
     if (points.length > 0) {
-      console.log('📊 Sample record:', JSON.stringify(points[0], null, 2));
     }
     
     res.json(points);
@@ -941,7 +981,6 @@ router.get('/admin/employee-points/:name', async (req, res) => {
     const EmployeePoints = require('../models/EmployeePoints');
     const data = await EmployeePoints.findOne({ newJoinerName: req.params.name }).lean();
     
-    console.log('📊 Employee points for', req.params.name, ':', JSON.stringify(data, null, 2));
     
     if (!data) {
       return res.status(404).json({ message: 'Employee points not found' });
@@ -962,12 +1001,6 @@ router.put('/admin/adjust-points/:id', async (req, res) => {
     const { adjustment, reason, productSlabs } = req.body;
     const delta = parseFloat(adjustment) || 0;
 
-    console.log('📝 Adjust points request:', { 
-      id: req.params.id, 
-      delta, 
-      reason, 
-      productSlabs: JSON.stringify(productSlabs, null, 2)
-    });
 
     let doc = await EmployeePoints.findById(req.params.id);
     if (!doc) {
@@ -981,18 +1014,12 @@ router.put('/admin/adjust-points/:id', async (req, res) => {
       doc.newJoinerName = normalizedName;
     }
 
-    console.log('✅ Found employee points record BEFORE update:', { 
-      newJoinerName: doc.newJoinerName, 
-      currentAdjustment: doc.pointsAdjustment,
-      currentSlabs: JSON.stringify(doc.productSlabs, null, 2)
-    });
 
     doc.pointsAdjustment += delta;
     
     // ✅ Save product slabs as plain object
     if (productSlabs !== undefined) {
       // Notifications handled by frontend via /points-activity/bulk-create
-      console.log('💾 Setting productSlabs to:', JSON.stringify(productSlabs, null, 2));
       doc.productSlabs = productSlabs;
       doc.markModified('productSlabs');
     }
@@ -1010,16 +1037,10 @@ router.put('/admin/adjust-points/:id', async (req, res) => {
     
     // Save and wait for it to complete
     await doc.save();
-    console.log('💾 Document saved to database');
     
     // Fetch fresh data directly from database to confirm save
     const freshDoc = await EmployeePoints.findById(req.params.id).lean();
     
-    console.log('✅ Points updated successfully - AFTER save from DB:', { 
-      newJoinerName: freshDoc.newJoinerName, 
-      newAdjustment: freshDoc.pointsAdjustment,
-      newSlabs: JSON.stringify(freshDoc.productSlabs, null, 2)
-    });
 
     res.json({ message: 'Points updated', doc: freshDoc });
 
@@ -1140,7 +1161,6 @@ router.get('/my-points', verifyToken, async (req, res) => {
         return res.status(404).json({ message: 'Target user not found' });
       }
       empName = targetUser.newJoinerName;
-      console.log(`🔐 Admin impersonation: Fetching points for ${viewAs} (${empName})`);
     } else {
       // Try Employee first, then TeamLead
       const emp = await Employee.findById(req.user.id).select('newJoinerName');
@@ -1334,16 +1354,13 @@ router.post('/admin/delete-slab', async (req, res) => {
     let doc = await EmployeePoints.findById(empPointsId);
     if (!doc) return res.status(404).json({ message: 'Employee points record not found' });
 
-    console.log(`[delete-slab] Found doc: "${doc.newJoinerName}", has product "${product}":`, !!doc.productSlabs?.[product]);
 
     // If this doc has no slabs for the product, find the correct one by name
     if (!doc.productSlabs?.[product]) {
-      console.log(`[delete-slab] Searching for better record by name: "${doc.newJoinerName}"`);
       const better = await EmployeePoints.findOne({
         newJoinerName: { $regex: new RegExp(`^${doc.newJoinerName.trim()}\\s*$`, 'i') },
         [`productSlabs.${product}`]: { $exists: true }
       });
-      console.log(`[delete-slab] Better record found:`, better ? better._id : 'NONE');
       if (better) doc = better;
     }
 
@@ -1377,6 +1394,161 @@ router.post('/admin/delete-slab', async (req, res) => {
   } catch (err) {
     console.error('[delete-slab] Error:', err.message, err.stack);
     res.status(500).json({ message: err.message });
+  }
+});
+
+// ========== MONTHLY POINTS CALCULATION ENDPOINT ==========
+/**
+ * GET /api/forms/admin/monthly-points?month=May&year=2026
+ * Calculates points for all employees for a specific month
+ * Uses SAME logic as Merchant Forms frontend to ensure accuracy
+ * Returns: { employees: [{ employeeName, employeeEmail, autoPoints, slabPoints, totalPoints }] }
+ */
+router.get('/admin/monthly-points', async (req, res) => {
+  try {
+    const { month, year } = req.query;
+
+    if (!month || !year) {
+      return res.status(400).json({ error: 'Month and year are required' });
+    }
+
+
+    const targetYear = parseInt(year);
+    
+    // ✅ Fetch ALL forms (we'll filter by month in JavaScript like frontend does)
+    const allFormsRaw = await FormResponse.find({}).lean();
+    
+    // ✅ EXACT SAME FILTER AS MERCHANT FORMS FRONTEND
+    const allForms = allFormsRaw.filter(f => {
+      if (!f.createdAt) return false;
+      
+      const formDate = new Date(f.createdAt);  // Local timezone (matches frontend)
+      const formYear = formDate.getFullYear();
+      const formMonth = formDate.toLocaleString('en-US', { month: 'long' });
+      
+      return formYear === targetYear && formMonth === month;
+    });
+
+
+    // ✅ Get verification status using verify API (same as backend does)
+    const http = require('http');
+    const verifyMap = {};
+    const BATCH = 50;
+    const getFormProduct = (f) => (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase().trim();
+
+    for (let i = 0; i < allForms.length; i += BATCH) {
+      const batch = allForms.slice(i, i + BATCH);
+      const phones = batch.map(f => encodeURIComponent(f.customerNumber)).join(',');
+      const names = batch.map(f => encodeURIComponent(f.customerName || '')).join(',');
+      const products = batch.map(f => encodeURIComponent(getFormProduct(f))).join(',');
+      const months = batch.map(f => encodeURIComponent(new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }))).join(',');
+
+      try {
+        const PORT = process.env.PORT || 4000;
+        const url = `http://localhost:${PORT}/api/verify/bulk-admin?phones=${phones}&names=${names}&products=${products}&months=${months}`;
+        const result = await new Promise((resolve, reject) => {
+          http.get(url, (response) => {
+            let data = '';
+            response.on('data', chunk => data += chunk);
+            response.on('end', () => {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                resolve({});
+              }
+            });
+          }).on('error', reject);
+        });
+        Object.assign(verifyMap, result);
+      } catch (err) {
+        console.error(`⚠️ [monthly-points] Verify batch error:`, err.message);
+      }
+    }
+    
+
+    // ✅ Points calculation (same as frontend)
+    const POINTS_MAP = {
+      'Tide': 2,
+      'Tide MSME': 0.3,
+      'MSME': 0.3,
+      'Tide Insurance': 1,
+      'Tide Credit Card': 1,
+      'Tide BT': 1
+    };
+    
+    // Group by employee and calculate auto points
+    const employeeMap = {};
+    
+    allForms.forEach(form => {
+      const empName = (form.employeeName || '').trim().replace(/\s+/g, ' ');
+      if (!empName) return;
+      
+      const empKey = empName.toLowerCase();
+      if (!employeeMap[empKey]) {
+        employeeMap[empKey] = {
+          displayName: empName,
+          autoPoints: 0,
+          verifiedForms: new Set()
+        };
+      }
+      
+      const product = getFormProduct(form);
+      const vKey = product ? `${form.customerNumber}__${product}` : form.customerNumber;
+      
+      if (verifyMap[vKey]?.status === 'Fully Verified' && !employeeMap[empKey].verifiedForms.has(vKey)) {
+        employeeMap[empKey].verifiedForms.add(vKey);
+        const productKey = Object.keys(POINTS_MAP).find(k => k.toLowerCase() === product);
+        employeeMap[empKey].autoPoints += productKey ? POINTS_MAP[productKey] : 0;
+      }
+    });
+
+    // ✅ Get slab bonuses from EmployeePoints collection
+    const EmployeePoints = require('../models/EmployeePoints');
+    const employeeList = [];
+
+    for (const [empKey, data] of Object.entries(employeeMap)) {
+      const autoPoints = Math.round(data.autoPoints * 10) / 10;
+      let slabPoints = 0;
+
+      try {
+        const empPts = await EmployeePoints.findOne({
+          newJoinerName: { $regex: new RegExp(`^${data.displayName.trim()}$`, 'i') }
+        }).lean();
+
+        if (empPts?.productSlabs) {
+          Object.values(empPts.productSlabs).forEach(ps => {
+            const tiers = ps?.slabTiers || (Array.isArray(ps) ? ps : []);
+            tiers.forEach(t => {
+              slabPoints += (parseFloat(t.forms) || 0) * (parseFloat(t.multiplier) || 0);
+            });
+          });
+          slabPoints = Math.round(slabPoints * 10) / 10;
+        }
+      } catch (e) {
+      }
+
+      const totalPoints = Math.round((autoPoints + slabPoints) * 10) / 10;
+
+      employeeList.push({
+        employeeName: data.displayName,
+        autoPoints,
+        slabPoints,
+        totalPoints
+      });
+    }
+
+
+    res.json({
+      success: true,
+      month,
+      year: targetYear,
+      employees: employeeList,
+      totalForms: allForms.length
+    });
+
+  } catch (error) {
+    console.error('❌ [monthly-points] Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

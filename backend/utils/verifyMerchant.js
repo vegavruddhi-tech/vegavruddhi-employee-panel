@@ -19,7 +19,8 @@ const NAME_COLS = [
 // ---------- HELPERS ----------
 const normalize = (s) => String(s || '').toLowerCase().trim();
 const normalizeProduct = (p) => {
-  const val = (p || '').toLowerCase().trim();
+  let val = (p || '').toLowerCase().trim();
+  if (val === 'msme') val = 'tide msme';
   return val;
 };
 // ---------- PHONE ----------

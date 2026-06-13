@@ -17,7 +17,9 @@ const { verifyMerchant, crossCheckPhone } = require('./verifyMerchant');
  */
 function normalizeProduct(product) {
   if (!product || product === 'undefined' || product === 'null') return '';
-  return String(product).toLowerCase().trim();
+  let val = String(product).toLowerCase().trim();
+  if (val === 'msme') val = 'tide msme';
+  return val;
 }
 
 /**

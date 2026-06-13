@@ -13,7 +13,17 @@ export default function Login() {
   const [showTidePopup, setShowTidePopup] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem('token')) navigate('/dashboard');
+    if (localStorage.getItem('token')) {
+      navigate('/dashboard');
+    } else {
+      // Auto-refresh the login page every 10 minutes if left open
+      const refreshInterval = setInterval(() => {
+        console.log('🔄 Auto-refreshing login page...');
+        window.location.reload();
+      }, 10 * 60 * 1000); // 10 minutes
+      
+      return () => clearInterval(refreshInterval);
+    }
   }, [navigate]);
 
   const handleSignIn = () => {

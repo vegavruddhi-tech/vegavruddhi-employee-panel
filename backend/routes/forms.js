@@ -502,7 +502,7 @@ router.get('/admin/all', async (req, res) => {
     const totalCount = await Model.countDocuments({});
     
     // 🔥 NEW: Apply pagination if limit is provided
-    let query = Model.find({}).sort({ createdAt: -1 });
+    let query = Model.find({}).select('-verificationChecks.record').sort({ createdAt: -1 });
     if (pageSize) {
       query = query.skip(skipCount).limit(pageSize);
     }

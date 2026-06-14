@@ -459,10 +459,20 @@ async function attachPoints(result) {
               );
             }
 
-            // ✅ SAVE VERIFICATION RESULTS TO REDIS (FIX: Save to both formats to support bulk-cached and bulk-admin!)
-            // Store ALL verification results, including "Not Found" status
+            // ✅ ATTACH POINTS BEFORE STRIPPING RECORD
+            result.monthLabel = month; // Attach month so dynamic config logic knows it's June
+            const attachKey = `${phone}__${product}`;
+            const tempResultObj = { [attachKey]: result };
+            const attachedObj = await attachPoints(tempResultObj);
+            const finalResult = attachedObj[attachKey];
+
+            // ✅ STRIP RAW RECORD TO PREVENT PAYLOAD/DB BLOAT
+            const lightweightResult = { ...finalResult };
+            delete lightweightResult.record;
+
+            // ✅ SAVE VERIFICATION RESULTS TO REDIS
             const cacheValue = {
-              ...result,
+              ...lightweightResult,
               hash: currentHash,
               lastVerified: new Date().toISOString(),
               phoneMatch: result.status !== 'Not Found' ? true : false,
@@ -488,8 +498,8 @@ async function attachPoints(result) {
             // This ensures the form document itself has the latest verification status
             try {
               const updateData = {
-                verificationStatus: result.status,
-                verificationChecks: result,
+                verificationStatus: lightweightResult.status,
+                verificationChecks: lightweightResult,
                 verificationUpdatedAt: new Date()
               };
               
@@ -1036,6 +1046,30 @@ async function attachPoints(result) {
         message: err.message,
         timestamp: new Date().toISOString()
       });
+    }
+  });
+
+  // ---------- DETAILS API ----------
+  // Used by "View Details" popup to fetch the full raw record
+  router.get('/details', async (req, res) => {
+    try {
+      const { phone, product, name, month } = req.query;
+      if (!phone) return res.status(400).json({ error: 'Phone is required' });
+
+      const db = req.db;
+      const allRules = await VerificationRule.find().lean();
+      
+      const v = await verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || '', allRules);
+      
+      res.json({
+        success: true,
+        record: v.record || null,
+        checks: v.checks || [],
+        status: v.status
+      });
+    } catch (err) {
+      console.error('Details fetch error:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 

@@ -538,7 +538,19 @@ async function attachPoints(result) {
       const timestamp = Date.now();
       await redis.set('verification_rules_updated_at', timestamp.toString());
 
+      // 🔥 Clear the infinite admin cache so the dashboard fetches the newly computed data
+      try {
+        const keys = await redis.keys('admin_forms_all*');
+        if (keys.length > 0) {
+          await redis.del(...keys);
+          console.log(`🧹 Cleared ${keys.length} admin dashboard caches`);
+        }
+      } catch (err) {
+        console.error('❌ Failed to clear admin cache:', err.message);
+      }
+
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
       
       res.json({ 
         success: true, 

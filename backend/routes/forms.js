@@ -524,7 +524,7 @@ router.get('/admin/all', async (req, res) => {
     // Cache the result (5 minutes = 300 seconds)
     if (redis) {
       try {
-        await redis.setex(cacheKey, 300, JSON.stringify(response));
+        await redis.setex(cacheKey, 2592000, JSON.stringify(response)); // Cache for 30 days, will be cleared manually by precompute-all
       } catch (cacheErr) {
         console.error('Redis set error:', cacheErr.message);
       }

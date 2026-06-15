@@ -58,7 +58,20 @@ function exactPhoneQuery(phone) {
 }
 
 // ---------- FIND ----------
+const indexedCollections = new Set();
+
 async function findInCollection(collection, phone, name, strictPhone = false) {
+  // 🔥 AUTO-CREATE INDEXES TO PREVENT 30-SECOND QUERY DELAYS
+  // Python script drops collections frequently when syncing, stripping all indexes.
+  // We dynamically recreate them in the background so the Details API is instant.
+  if (!indexedCollections.has(collection.collectionName)) {
+    indexedCollections.add(collection.collectionName);
+    Promise.all(PHONE_COLS.map(col => 
+      collection.createIndex({ [col]: 1 }, { background: true, sparse: true })
+        .catch(() => {}) // Ignore errors if column doesn't exist
+    ));
+  }
+
   let records = await collection.find(exactPhoneQuery(phone)).toArray();
   if (records.length > 0) return { record: records[0], matchType: 'exact' };
 

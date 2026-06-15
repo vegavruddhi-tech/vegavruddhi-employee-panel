@@ -146,8 +146,9 @@ function calculateRecordPointsSync(form, monthLabel, pointsMap) {
   for (const [configProductName, config] of Object.entries(pointsMap)) {
     const productField = config.fieldMapping?.productField || 'formFillingFor';
     const actualProductName = String(form[productField] || form.tideProduct || form.brand || '').toLowerCase().trim();
+    const cleanConfigName = String(configProductName).toLowerCase().trim();
 
-    if (actualProductName === configProductName) {
+    if (actualProductName === cleanConfigName) {
       if (config.type === 'simple') return config.points || 0;
       if (config.type === 'mapped') {
         const mappedColumn = config.fieldMapping?.mappedColumn;
@@ -187,7 +188,7 @@ async function attachPoints(result) {
     const allConfigs = await PointsConfiguration.find().lean();
     const pointsMap = {};
     allConfigs.forEach(config => {
-      const productKey = config.productName.toLowerCase();
+      const productKey = String(config.productName).toLowerCase().trim();
       const configData = { type: config.productType, fieldMapping: config.fieldMapping || {} };
       if (config.productType === 'simple') configData.points = config.simplePoints;
       else if (config.productType === 'complex') {

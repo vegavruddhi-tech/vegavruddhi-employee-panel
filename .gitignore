@@ -107,3 +107,4 @@ jaas_private_key.pem
 *.md
 **/*.md
 
+employee-app/.env.production

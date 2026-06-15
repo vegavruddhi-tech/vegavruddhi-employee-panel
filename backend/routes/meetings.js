@@ -9,6 +9,7 @@ const fs = require('fs');
 const ScheduledMeeting = require('../models/ScheduledMeeting');
 const MeetingAttendance = require('../models/MeetingAttendance');
 const jwt = require('jsonwebtoken');
+const { sendPushToEmails } = require('../utils/pushNotifications');
 
 // Load service account credentials (lazy — only if file exists)
 let serviceAccount = null;
@@ -201,6 +202,15 @@ router.post('/create', async (req, res) => {
 
     await Promise.all(emailPromises);
     console.log('✅ Emails sent successfully to all recipients including admin');
+
+    // Send push notification to all attendees in background
+    try {
+      const emailsList = attendees.map(a => a.email);
+      const meetingTimeStr = new Date(formattedStart).toLocaleString('en-IN');
+      sendPushToEmails(emailsList, "New Meeting Scheduled", `Title: ${title} on ${meetingTimeStr}`, "/dashboard");
+    } catch (pushErr) {
+      console.error('Push notification failed for meeting:', pushErr);
+    }
 
     res.json({
       success: true,
@@ -397,6 +407,17 @@ router.post('/jitsi/create', async (req, res) => {
 
     await Promise.all(emailPromises);
     console.log('✅ Jitsi meeting invitations sent successfully to all recipients');
+
+    // Send push notification to all attendees in background
+    try {
+      const emailsList = attendees.map(a => a.email);
+      const detailsStr = isScheduled 
+        ? `Scheduled for: ${new Date(scheduledDateTime).toLocaleString('en-IN')}`
+        : "Live Call - Join now!";
+      sendPushToEmails(emailsList, "Jitsi Video Call Invitation", `Title: ${title}. ${detailsStr}`, "/dashboard");
+    } catch (pushErr) {
+      console.error('Push notification failed for Jitsi meeting:', pushErr);
+    }
 
     // Save meeting to database (both instant and scheduled)
     try {

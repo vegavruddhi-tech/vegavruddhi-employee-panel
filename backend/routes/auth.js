@@ -974,4 +974,30 @@ router.get('/tidebt-received-payments', verifyToken, async (req, res) => {
   }
 });
 
+// POST /api/auth/save-push-subscription - Save/Update user push notification subscription
+router.post('/save-push-subscription', verifyToken, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ message: 'Invalid subscription object' });
+    }
+
+    const UserSubscription = require('../models/UserSubscription');
+
+    // Save or update subscription
+    await UserSubscription.findOneAndUpdate(
+      { userId: req.user.id, 'subscription.endpoint': subscription.endpoint },
+      { 
+        userId: req.user.id, 
+        userEmail: req.user.email.toLowerCase().trim(), 
+        subscription 
+      },
+      { upsert: true, new: true }
+    );
+    res.status(200).json({ success: true, message: 'Push subscription saved successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 module.exports = router;

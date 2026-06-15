@@ -5,6 +5,7 @@ const Task = require('../models/Task');
 const FormResponse = require('../models/FormResponse');
 const Employee = require('../models/Employee');
 const TeamLead = require('../models/TeamLead');
+const { sendPushToUser } = require('../utils/pushNotifications');
 
 function verifyToken(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
@@ -50,6 +51,9 @@ router.post('/admin-to-tl', async (req, res) => {
       isUrgent: priority === 'urgent',
       deadline: deadline || null,
     });
+
+    // Send push notification to TL in background
+    sendPushToUser(tlId, "New Task Assigned", `Task: ${title}`, "/dashboard");
 
     res.status(201).json({ message: 'Task assigned to TL successfully', task });
   } catch (err) {
@@ -259,6 +263,9 @@ router.post('/create', verifyToken, async (req, res) => {
       deadline: isUrgent ? deadline : null,
       verificationDetails: verificationDetails || {},
     });
+
+    // Send push notification to FSE in background
+    sendPushToUser(form.submittedBy, "New Task Assigned", `Merchant: ${form.customerName} - ${reason}`, "/tasks");
 
     res.status(201).json({ message: 'Task created successfully', task });
   } catch (err) {
@@ -510,6 +517,9 @@ router.put('/:id/send-reminder', verifyToken, async (req, res) => {
     task.updatedAt = new Date();
 
     await task.save();
+
+    // Send push notification to FSE in background
+    sendPushToUser(task.fseId, "Task Reminder", `Reminder: ${task.title}`, "/tasks");
 
     res.json({ message: 'Reminder sent successfully', task });
   } catch (err) {

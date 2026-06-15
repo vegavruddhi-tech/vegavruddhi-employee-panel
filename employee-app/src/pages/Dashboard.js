@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 import TideMerchantTimeline from '../components/TideMerchantTimeline';
+import { subscribeUserToPush } from '../pushSubscriptionHelper';
 
 
 const STATUS_COLOR = {
@@ -123,6 +124,13 @@ export default function Dashboard() {
       .then(setEmp)
       .catch(console.error);
   }, [token, navigate, isImpersonating, viewAsEmail]);
+
+  // Subscribe to push notifications when profile is loaded
+  useEffect(() => {
+    if (token && emp && !isImpersonating) {
+      subscribeUserToPush(API_BASE, token);
+    }
+  }, [token, emp, isImpersonating]);
 
   // Load forms (modified to support impersonation)
   const loadForms = useCallback(() => {

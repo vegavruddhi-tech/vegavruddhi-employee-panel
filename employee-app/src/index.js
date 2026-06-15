@@ -25,9 +25,11 @@ if ('serviceWorker' in navigator) {
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               console.log('🔄 New version available! Refresh to update.');
-              // Optionally show a notification to the user
-              if (window.confirm('New version available! Refresh to update?')) {
-                window.location.reload();
+              // Avoid confirm reload loops on localhost during development
+              if (window.location.hostname !== 'localhost') {
+                if (window.confirm('New version available! Refresh to update?')) {
+                  window.location.reload();
+                }
               }
             }
           });

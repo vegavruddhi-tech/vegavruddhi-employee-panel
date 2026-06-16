@@ -454,11 +454,13 @@ export default function Navbar({ emp, taskCount, token }) {
               }}
             >
               <span style={{ fontSize: 16 }}>📱</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+              <span className="nav-text" style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
                 Install App
               </span>
             </div>
           )}
+
+
 
           {/* Tasks Link with Badge */}
           <div
@@ -479,7 +481,7 @@ export default function Navbar({ emp, taskCount, token }) {
             onMouseEnter={e => e.currentTarget.style.background = '#fff3e0'}
             onMouseLeave={e => e.currentTarget.style.background = taskCount > 0 ? '#fff3e0' : 'transparent'}>
             <span style={{ fontSize: 18 }}>📋</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: taskCount > 0 ? '#ff9800' : 'var(--text-mid)' }}>
+            <span className="nav-text" style={{ fontSize: 13, fontWeight: 700, color: taskCount > 0 ? '#ff9800' : 'var(--text-mid)' }}>
               Tasks
             </span>
             {taskCount > 0 && (

@@ -603,6 +603,7 @@ body {
 }
 
 @media (max-width: 480px) {
+  .nav-text { display: none !important; }
   .info-grid { grid-template-columns: 1fr 1fr; gap: 6px !important; }
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .kpi-row-5 { grid-template-columns: repeat(2, 1fr); }

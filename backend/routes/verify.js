@@ -13,6 +13,21 @@ const { getRedisClient } = require('../utils/redisClient');
  * for reliable database access with circuit breaker and health monitoring.
  */
 
+// Helper to get all keys using SCAN to avoid Upstash "too many keys" error
+async function getKeysByPattern(redis, pattern) {
+  return new Promise((resolve, reject) => {
+    const keys = [];
+    const stream = redis.scanStream({ match: pattern, count: 1000 });
+    stream.on('data', (resultKeys) => {
+      for (let i = 0; i < resultKeys.length; i++) {
+        keys.push(resultKeys[i]);
+      }
+    });
+    stream.on('end', () => resolve(keys));
+    stream.on('error', (err) => reject(err));
+  });
+}
+
 module.exports = (connectionManager, connectDB) => {
   const router = express.Router();
 
@@ -239,7 +254,7 @@ async function attachPoints(result) {
       
       // Search for all keys with this phone
       const pattern = `verification:${phone}*`;
-      const keys = await redis.keys(pattern);
+      const keys = await getKeysByPattern(redis, pattern);
       
       const results = {};
       for (const key of keys) {
@@ -541,7 +556,7 @@ async function attachPoints(result) {
 
       // 🔥 Clear the infinite admin cache so the dashboard fetches the newly computed data
       try {
-        const keys = await redis.keys('admin_forms_all*');
+        const keys = await getKeysByPattern(redis, 'admin_forms_all*');
         if (keys.length > 0) {
           await redis.del(...keys);
           console.log(`🧹 Cleared ${keys.length} admin dashboard caches`);
@@ -1236,7 +1251,7 @@ async function attachPoints(result) {
         
         // ✅ CLEAR ALL REDIS VERIFICATION CACHES
         const pattern = 'verification:*';
-        const keys = await redis.keys(pattern);
+        const keys = await getKeysByPattern(redis, pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
         }
@@ -1266,7 +1281,7 @@ async function attachPoints(result) {
         
         // ✅ CLEAR ALL REDIS VERIFICATION CACHES
         const pattern = 'verification:*';
-        const keys = await redis.keys(pattern);
+        const keys = await getKeysByPattern(redis, pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
         }
@@ -1294,7 +1309,7 @@ async function attachPoints(result) {
         
         // ✅ CLEAR ALL REDIS VERIFICATION CACHES
         const pattern = 'verification:*';
-        const keys = await redis.keys(pattern);
+        const keys = await getKeysByPattern(redis, pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
         }

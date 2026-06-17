@@ -78,6 +78,30 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
+  // Helper to clear admin forms cache
+  async function clearAdminCache() {
+    try {
+      const { getRedisClient } = require('../utils/redisClient');
+      const redis = getRedisClient();
+      if (redis) {
+        let cursor = '0';
+        const keys = [];
+        do {
+          const [newCursor, currentKeys] = await redis.scan(cursor, 'MATCH', 'admin_forms_all*', 'COUNT', '100');
+          cursor = newCursor;
+          keys.push(...currentKeys);
+        } while (cursor !== '0');
+        
+        if (keys.length > 0) {
+          await redis.del(...keys);
+          console.log(`🧹 Cleared ${keys.length} admin dashboard caches on form update`);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to clear admin cache:', err.message);
+    }
+  }
+
 // POST /api/forms/submit
 router.post('/submit', verifyToken, async (req, res) => {
   try {
@@ -202,6 +226,9 @@ router.post('/submit', verifyToken, async (req, res) => {
       updateManagerFormVerificationStatus(form._id.toString(), req.db).catch(console.error);
     }
     
+    // Clear admin cache so live forms show immediately
+    clearAdminCache();
+    
     res.status(201).json({ message: 'Form submitted successfully', id: form._id });
 
   } catch (err) {
@@ -280,6 +307,9 @@ router.put('/admin/update/:id', async (req, res) => {
       updateManagerFormVerificationStatus(req.params.id, req.db).catch(console.error);
     }
     
+    // Clear admin cache so live forms show immediately
+    clearAdminCache();
+    
     res.json({ message: 'Form updated successfully', form });
   } catch (err) {
     console.error('❌ Edit form error:', err);
@@ -325,6 +355,9 @@ router.delete('/admin/delete/:id', async (req, res) => {
       console.error(`❌ Form not found with ID: ${req.params.id} in any collection (FSE, TL, Manager)`);
       return res.status(404).json({ message: 'Form not found' });
     }
+    
+    // Clear admin cache so live forms show immediately
+    clearAdminCache();
     
     res.json({ message: `${formType} form deleted successfully`, formType });
   } catch (err) {
@@ -430,6 +463,9 @@ router.put('/update/:id', verifyToken, async (req, res) => {
       updateManagerFormVerificationStatus(req.params.id, req.db).catch(console.error);
     }
 
+    // Clear admin cache so live forms show immediately
+    clearAdminCache();
+
     res.json({ message: 'Updated successfully', form });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -457,6 +493,10 @@ router.delete('/delete/:id', verifyToken, async (req, res) => {
     }
     
     if (!form) return res.status(404).json({ message: 'Not found or not authorized' });
+    
+    // Clear admin cache so live forms show immediately
+    clearAdminCache();
+    
     res.json({ message: 'Deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });

@@ -104,6 +104,7 @@ const DEFAULT_CONFIG = {
 // GET /api/form-config
 router.get('/', async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     let config = await FormConfiguration.findOne();
     if (!config) {
       config = await FormConfiguration.create(DEFAULT_CONFIG);

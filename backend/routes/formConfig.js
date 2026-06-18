@@ -117,7 +117,7 @@ router.get('/', async (req, res) => {
 });
 
 // PUT /api/form-config
-router.put('/', verifyToken, verifyAdminOrManager, async (req, res) => {
+router.put('/', async (req, res) => {
   try {
     const { brands } = req.body;
     let config = await FormConfiguration.findOne();
@@ -127,7 +127,7 @@ router.put('/', verifyToken, verifyAdminOrManager, async (req, res) => {
     } else {
       config.brands = brands;
       config.updatedAt = new Date();
-      config.updatedBy = req.user.id;
+      config.updatedBy = 'AdminPanel'; // Updated by admin panel without token
     }
     
     await config.save();

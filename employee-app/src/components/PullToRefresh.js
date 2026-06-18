@@ -94,7 +94,7 @@ const PullToRefresh = ({ onRefresh, children }) => {
           </span>
         )}
       </div>
-      <div style={{ transform: `translateY(${isPullingRef.current ? pullDistance : (isRefreshing ? 60 : 0)}px)`, transition: isPullingRef.current ? 'none' : 'transform 0.3s ease' }}>
+      <div style={{ transform: (isPullingRef.current && pullDistance > 0) || isRefreshing ? `translateY(${isPullingRef.current ? pullDistance : 60}px)` : 'none', transition: isPullingRef.current ? 'none' : 'transform 0.3s ease' }}>
         {children}
       </div>
     </>

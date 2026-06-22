@@ -93,6 +93,10 @@ const openCamera = async () => {
     setPfErr(''); setPfOk(''); setProfModal(true);
   };
   const sendProfRequest = async () => {
+    if (pf.newJoinerPhone && !/^\d{10}$/.test(pf.newJoinerPhone)) {
+      setPfErr('Phone number must be exactly 10 digits.');
+      return;
+    }
     if (!pf.reason?.trim()) { setPfErr('Reason is required.'); return; }
     setPfSaving(true); setPfErr('');
     try {
@@ -693,9 +697,13 @@ const openCamera = async () => {
                     <input
                       type={type}
                       value={pf[key]}
-                      onChange={(e) =>
-                        setPf((f) => ({ ...f, [key]: e.target.value }))
-                      }
+                      onChange={(e) => {
+                        let value = e.target.value;
+                        if (key === 'newJoinerPhone') {
+                          value = value.replace(/\D/g, '').slice(0, 10);
+                        }
+                        setPf((f) => ({ ...f, [key]: value }));
+                      }}
                       style={{
                         width: "100%",
                         padding: "10px 14px",

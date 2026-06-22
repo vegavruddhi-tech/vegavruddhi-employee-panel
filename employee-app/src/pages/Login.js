@@ -92,7 +92,8 @@ export default function Login() {
     setShowTidePopup(false);
     // Redirect to Tide BT with token in URL
     const token = localStorage.getItem('token');
-    window.location.href = `http://localhost:3004?token=${encodeURIComponent(token)}`;
+    const tideBTUrl = process.env.REACT_APP_TIDEBT_URL || 'http://localhost:3004';
+    window.location.href = `${tideBTUrl}?token=${encodeURIComponent(token)}`;
   };
 
   return (

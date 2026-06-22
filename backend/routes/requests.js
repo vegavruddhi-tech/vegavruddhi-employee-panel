@@ -15,6 +15,11 @@ function verifyToken(req, res, next) {
 // POST /api/requests/profile — employee requests profile change
 router.post('/profile', verifyToken, async (req, res) => {
   try {
+    if (req.body.changes && req.body.changes.newJoinerPhone) {
+      if (!/^\d{10}$/.test(req.body.changes.newJoinerPhone)) {
+        return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
+      }
+    }
     const emp = await Employee.findById(req.user.id).select('newJoinerName');
     const request = await ChangeRequest.create({
       type: 'profile_change',

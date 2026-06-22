@@ -50,6 +50,10 @@ router.post(
         password
       } = req.body;
 
+      if (!/^\d{10}$/.test(newJoinerPhone)) {
+        return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
+      }
+
      const exists = await Employee.findOne({ email });
 if (exists && exists.approvalStatus !== 'rejected') {
   return res.status(400).json({ message: 'Email already registered' });
@@ -113,6 +117,10 @@ router.post(
         email, name, phone, emailId,
         reportingManager, location, dob, password
       } = req.body;
+
+      if (!/^\d{10}$/.test(phone)) {
+        return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
+      }
 
       if (!req.files?.photo) {
         return res.status(400).json({ message: 'Profile photo is required' });
@@ -577,6 +585,9 @@ router.get('/rejected', async (req, res) => {
 // PUT /api/auth/admin/update-employee/:id  (admin — can update position)
 router.put('/admin/update-employee/:id', async (req, res) => {
   try {
+    if (req.body.newJoinerPhone && !/^\d{10}$/.test(req.body.newJoinerPhone)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
+    }
     const allowed = ['newJoinerName', 'newJoinerPhone', 'newJoinerEmailId', 'location', 'reportingManager', 'position', 'status'];
     const update  = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) update[f] = req.body[f]; });
@@ -772,6 +783,9 @@ res.json({
 // PUT /api/auth/update-profile  (position is NOT allowed to be changed)
 router.put('/update-profile', verifyToken, async (req, res) => {
   try {
+    if (req.body.newJoinerPhone && !/^\d{10}$/.test(req.body.newJoinerPhone)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
+    }
     const allowed = ['newJoinerName', 'newJoinerPhone', 'newJoinerEmailId', 'reportingManager', 'location'];
     const update  = {};
     allowed.forEach(field => { if (req.body[field] !== undefined) update[field] = req.body[field]; });
@@ -787,7 +801,7 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
   try {
     console.log('🔍 Checking Tide BT access for employee...');
     
-    const employee = await Employee.findById(req.user.id).select('newJoinerName position');
+    const employee = await Employee.findById(req.user.id).select('newJoinerName position email newJoinerEmailId');
     if (!employee) {
       console.log('❌ Employee not found');
       return res.status(404).json({ message: 'Employee not found' });
@@ -803,23 +817,37 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
     const allRecords = await TideBTAccess.find({ hasTideBTAccess: true }).toArray();
     console.log('📊 Total records in TideBT_Access:', allRecords.length);
     
+    // Priority 0: Email match (most reliable — handles name mismatches)
+    const employeeEmail = (employee.email || employee.newJoinerEmailId || '').toLowerCase().trim();
+    let matchedRecord = null;
+    let matchType = null;
+
+    if (employeeEmail) {
+      matchedRecord = allRecords.find(record =>
+        record.fseEmail && record.fseEmail.toLowerCase().trim() === employeeEmail
+      );
+      if (matchedRecord) {
+        matchType = 'email';
+        console.log('✅ Email match found:', matchedRecord.fseName);
+      }
+    }
+
     // Fuzzy name matching with 3-tier priority
     const employeeName = employee.newJoinerName.toLowerCase().trim();
     const employeeParts = employeeName.split(/\s+/);
     const employeeFirstName = employeeParts[0];
     const employeeSurnameInitial = employeeParts[1] ? employeeParts[1][0] : null;
     
-    let matchedRecord = null;
-    let matchType = null;
-    
     // Priority 1: Exact full name match
-    matchedRecord = allRecords.find(record => 
-      record.fseName && 
-      record.fseName.toLowerCase().trim() === employeeName
-    );
-    if (matchedRecord) {
-      matchType = 'exact';
-      console.log('✅ Exact match found:', matchedRecord.fseName);
+    if (!matchedRecord) {
+      matchedRecord = allRecords.find(record => 
+        record.fseName && 
+        record.fseName.toLowerCase().trim() === employeeName
+      );
+      if (matchedRecord) {
+        matchType = 'exact';
+        console.log('✅ Exact match found:', matchedRecord.fseName);
+      }
     }
     
     // Priority 2: First name + first letter of surname match
@@ -951,24 +979,18 @@ router.get('/tidebt-received-payments', verifyToken, async (req, res) => {
 
     const db = require('mongoose').connection.db;
     const empName = emp.newJoinerName?.trim();
-    
-    // Match payments where transferTo contains the employee name OR employee name contains transferTo
-    // This handles "Niteesh kumar" matching "Niteesh Kumar Saroj" and vice versa
+
+    // Match payments where transferTo contains employee name (or vice versa),
+    // excluding payments explicitly marked for TL's & Managers
     const allPayments = await db.collection('TideBT_Payments')
-      .find({})
+      .find({
+        transferTo: { $regex: empName, $options: 'i' },
+        transferToWhom: { $not: { $regex: "^TL's & Managers$", $options: 'i' } }
+      })
       .sort({ createdAt: -1 })
       .toArray();
-    
-    // Filter: match if either name contains the other (case-insensitive)
-    const payments = allPayments.filter(p => {
-      const transferTo = (p.transferTo || '').toLowerCase().trim();
-      const myName = empName.toLowerCase();
-      return transferTo === myName || 
-             transferTo.includes(myName) || 
-             myName.includes(transferTo);
-    });
 
-    res.json({ success: true, payments });
+    res.json({ success: true, payments: allPayments });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

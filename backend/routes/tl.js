@@ -825,20 +825,16 @@ router.get('/tidebt-received-payments', verifyToken, async (req, res) => {
 
     const db = require('mongoose').connection.db;
     const tlName = tl.name?.trim();
-    
-    const allPayments = await db.collection('TideBT_Payments')
-      .find({})
+
+    // Match payments where transferTo contains the TL name,
+    // excluding payments explicitly marked for FSE Ground Team
+    const payments = await db.collection('TideBT_Payments')
+      .find({
+        transferTo: { $regex: tlName, $options: 'i' },
+        transferToWhom: { $not: { $regex: "^FSE Ground Team$", $options: 'i' } }
+      })
       .sort({ createdAt: -1 })
       .toArray();
-    
-    // Filter: match if either name contains the other (case-insensitive)
-    const payments = allPayments.filter(p => {
-      const transferTo = (p.transferTo || '').toLowerCase().trim();
-      const myName = tlName.toLowerCase();
-      return transferTo === myName || 
-             transferTo.includes(myName) || 
-             myName.includes(transferTo);
-    });
 
     res.json({ success: true, payments });
   } catch (err) {

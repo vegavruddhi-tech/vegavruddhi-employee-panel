@@ -28,7 +28,8 @@ if ('serviceWorker' in navigator) {
               // Avoid confirm reload loops on localhost during development
               if (window.location.hostname !== 'localhost') {
                 if (window.confirm('New version available! Refresh to update?')) {
-                  window.location.reload();
+                  // Tell the new service worker to take over immediately
+                  newWorker.postMessage({ type: 'SKIP_WAITING' });
                 }
               }
             }
@@ -38,5 +39,14 @@ if ('serviceWorker' in navigator) {
       .catch((error) => {
         console.error('❌ Service Worker registration failed:', error);
       });
+
+    // Automatically reload the page when the new service worker takes over
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
+    });
   });
 }

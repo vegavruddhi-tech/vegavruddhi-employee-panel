@@ -92,7 +92,9 @@ export default function Login() {
     setShowTidePopup(false);
     // Redirect to Tide BT with token in URL
     const token = localStorage.getItem('token');
-    window.location.href = `https://vegavruddhi-employee-tide-bt-4obl.vercel.app?token=${encodeURIComponent(token)}`;
+    const redirectionUrl = `https://vegavruddhi-employee-tide-bt-4obl.vercel.app?token=${encodeURIComponent(token)}`
+    alert(redirectionUrl)
+    window.location.href = redirectionUrl;
   };
 
   return (

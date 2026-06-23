@@ -24,10 +24,10 @@ function AutoLogoutHandler() {
     const checkAutoLogout = () => {
       const now = new Date();
       const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-      
+
       const hours = istTime.getHours();
       const minutes = istTime.getMinutes();
-      
+
       // Check if 11:59 PM IST
       if (hours === 23 && minutes === 59) {
         console.log('🕐 11:59 PM IST - Auto logout triggered');
@@ -37,13 +37,13 @@ function AutoLogoutHandler() {
 
     const handleAutoLogout = async () => {
       const token = localStorage.getItem('token');
-      
+
       if (!token) return;
-      
+
       try {
         await fetch(`${API_BASE}/api/auth/auto-logout`, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           }
@@ -51,21 +51,21 @@ function AutoLogoutHandler() {
       } catch (error) {
         console.error('Auto logout error:', error);
       }
-      
+
       localStorage.removeItem('token');
       localStorage.clear();
-      
+
       alert('Your session has ended at 11:59 PM. Please login again tomorrow.');
-      
+
       navigate('/');
       window.location.reload();
     };
-    
+
     // Check every 30 seconds
     const interval = setInterval(checkAutoLogout, 30000);
-    
+
     checkAutoLogout();
-    
+
     return () => clearInterval(interval);
   }, [navigate]);
 
@@ -79,15 +79,15 @@ export default function App() {
         <AutoLogoutHandler />
         <InstallPWA />
         <Routes>
-          <Route path="/"                  element={<Login />} />
-          <Route path="/register"          element={<Register />} />
-          <Route path="/dashboard"         element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-          <Route path="/profile"           element={<PrivateRoute><Profile /></PrivateRoute>} />
-          <Route path="/tasks"             element={<PrivateRoute><Tasks /></PrivateRoute>} />
-          <Route path="/my-salary"         element={<PrivateRoute><MySalary /></PrivateRoute>} />
-          <Route path="/merchant-form"     element={<PrivateRoute><MerchantForm /></PrivateRoute>} />
-          <Route path="/merchant/:id"      element={<PrivateRoute><MerchantDetail /></PrivateRoute>} />
-          <Route path="*"                  element={<Navigate to="/" replace />} />
+          <Route path="/" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+          <Route path="/tasks" element={<PrivateRoute><Tasks /></PrivateRoute>} />
+          <Route path="/my-salary" element={<PrivateRoute><MySalary /></PrivateRoute>} />
+          <Route path="/merchant-form" element={<PrivateRoute><MerchantForm /></PrivateRoute>} />
+          <Route path="/merchant/:id" element={<PrivateRoute><MerchantDetail /></PrivateRoute>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </PullToRefresh>

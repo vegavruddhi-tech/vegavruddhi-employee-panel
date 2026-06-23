@@ -1,9 +1,9 @@
-const express       = require('express');
-const router        = express.Router();
-const jwt           = require('jsonwebtoken');
+const express = require('express');
+const router = express.Router();
+const jwt = require('jsonwebtoken');
 const ChangeRequest = require('../models/ChangeRequest');
-const Employee      = require('../models/Employee');
-const FormResponse  = require('../models/FormResponse');
+const Employee = require('../models/Employee');
+const FormResponse = require('../models/FormResponse');
 
 function verifyToken(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
@@ -15,18 +15,24 @@ function verifyToken(req, res, next) {
 // POST /api/requests/profile — employee requests profile change
 router.post('/profile', verifyToken, async (req, res) => {
   try {
-    if (req.body.changes && req.body.changes.newJoinerPhone) {
-      if (!/^\d{10}$/.test(req.body.changes.newJoinerPhone)) {
-        return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
+    let empName = 'Unknown';
+    let emp = await Employee.findById(req.user.id).select('newJoinerName');
+    if (emp) { empName = emp.newJoinerName; }
+    else {
+      const tl = await require('../models/TeamLead').findById(req.user.id).select('name');
+      if (tl) { empName = tl.name; }
+      else {
+        const mgr = await require('../models/Manager').findById(req.user.id).select('name');
+        if (mgr) { empName = mgr.name; }
       }
     }
-    const emp = await Employee.findById(req.user.id).select('newJoinerName');
+
     const request = await ChangeRequest.create({
       type: 'profile_change',
-      employeeId:     req.user.id,
-      employeeName:   emp.newJoinerName,
+      employeeId: req.user.id,
+      employeeName: empName,
       profileChanges: req.body.changes,
-      reason:         req.body.reason || ''
+      reason: req.body.reason || ''
     });
     res.status(201).json({ message: 'Profile change request sent to admin', request });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -35,15 +41,26 @@ router.post('/profile', verifyToken, async (req, res) => {
 // POST /api/requests/merchant-edit — employee requests merchant edit
 router.post('/merchant-edit', verifyToken, async (req, res) => {
   try {
-    const emp = await Employee.findById(req.user.id).select('newJoinerName');
+    let empName = 'Unknown';
+    let emp = await Employee.findById(req.user.id).select('newJoinerName');
+    if (emp) { empName = emp.newJoinerName; }
+    else {
+      const tl = await require('../models/TeamLead').findById(req.user.id).select('name');
+      if (tl) { empName = tl.name; }
+      else {
+        const mgr = await require('../models/Manager').findById(req.user.id).select('name');
+        if (mgr) { empName = mgr.name; }
+      }
+    }
+
     const request = await ChangeRequest.create({
       type: 'merchant_edit',
-      employeeId:      req.user.id,
-      employeeName:    emp.newJoinerName,
-      merchantId:      req.body.merchantId,
-      merchantName:    req.body.merchantName,
+      employeeId: req.user.id,
+      employeeName: empName,
+      merchantId: req.body.merchantId,
+      merchantName: req.body.merchantName,
       merchantChanges: req.body.changes,
-      reason:          req.body.reason || ''
+      reason: req.body.reason || ''
     });
     res.status(201).json({ message: 'Merchant edit request sent to admin', request });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -52,14 +69,25 @@ router.post('/merchant-edit', verifyToken, async (req, res) => {
 // POST /api/requests/merchant-delete — employee requests merchant delete
 router.post('/merchant-delete', verifyToken, async (req, res) => {
   try {
-    const emp = await Employee.findById(req.user.id).select('newJoinerName');
+    let empName = 'Unknown';
+    let emp = await Employee.findById(req.user.id).select('newJoinerName');
+    if (emp) { empName = emp.newJoinerName; }
+    else {
+      const tl = await require('../models/TeamLead').findById(req.user.id).select('name');
+      if (tl) { empName = tl.name; }
+      else {
+        const mgr = await require('../models/Manager').findById(req.user.id).select('name');
+        if (mgr) { empName = mgr.name; }
+      }
+    }
+
     const request = await ChangeRequest.create({
       type: 'merchant_delete',
-      employeeId:   req.user.id,
-      employeeName: emp.newJoinerName,
-      merchantId:   req.body.merchantId,
+      employeeId: req.user.id,
+      employeeName: empName,
+      merchantId: req.body.merchantId,
       merchantName: req.body.merchantName,
-      reason:       req.body.reason || ''
+      reason: req.body.reason || ''
     });
     res.status(201).json({ message: 'Merchant delete request sent to admin', request });
   } catch (err) { res.status(500).json({ message: err.message }); }
@@ -79,14 +107,14 @@ router.post('/notify-duplicate', async (req, res) => {
     const notifications = await Promise.all(employees.map(emp => {
       const others = employees.filter(e => e._id.toString() !== emp._id.toString()).map(e => e.newJoinerName);
       return ChangeRequest.create({
-        type:                   'duplicate_alert',
-        employeeId:             emp._id,
-        employeeName:           emp.newJoinerName,
-        duplicateMerchantName:  merchantName,
+        type: 'duplicate_alert',
+        employeeId: emp._id,
+        employeeName: emp.newJoinerName,
+        duplicateMerchantName: merchantName,
         duplicateMerchantPhone: merchantPhone,
         duplicateOtherEmployee: others.join(', '),
-        status:                 'approved', // show immediately as a notification
-        acknowledged:           false,
+        status: 'approved', // show immediately as a notification
+        acknowledged: false,
       });
     }));
 
@@ -172,10 +200,22 @@ router.put('/:id/approve', async (req, res) => {
       await Employee.findByIdAndUpdate(request.employeeId, { $set: request.profileChanges });
     }
     if (request.type === 'merchant_edit' && request.merchantChanges) {
-      await FormResponse.findByIdAndUpdate(request.merchantId, { $set: request.merchantChanges });
+      const FormResponse = require('../models/FormResponse');
+      const TLFormResponse = require('../models/TLFormResponse');
+      const ManagerForm = require('../models/ManagerForm');
+
+      let updated = await FormResponse.findByIdAndUpdate(request.merchantId, { $set: request.merchantChanges });
+      if (!updated) updated = await TLFormResponse.findByIdAndUpdate(request.merchantId, { $set: request.merchantChanges });
+      if (!updated) updated = await ManagerForm.findByIdAndUpdate(request.merchantId, { $set: request.merchantChanges });
     }
     if (request.type === 'merchant_delete') {
-      await FormResponse.findByIdAndDelete(request.merchantId);
+      const FormResponse = require('../models/FormResponse');
+      const TLFormResponse = require('../models/TLFormResponse');
+      const ManagerForm = require('../models/ManagerForm');
+
+      let deleted = await FormResponse.findByIdAndDelete(request.merchantId);
+      if (!deleted) deleted = await TLFormResponse.findByIdAndDelete(request.merchantId);
+      if (!deleted) deleted = await ManagerForm.findByIdAndDelete(request.merchantId);
     }
 
     res.json({ message: 'Approved and applied' });

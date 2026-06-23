@@ -93,6 +93,7 @@ export default function Login() {
     // Redirect to Tide BT with token in URL
     const token = localStorage.getItem('token');
     const tideBTUrl = process.env.REACT_APP_TIDEBT_URL || 'https://vegavruddhi-employee-tide-bt-4obl.vercel.app';
+    // v2 - force fresh build
     window.location.href = `${tideBTUrl}?token=${encodeURIComponent(token)}`;
   };
 

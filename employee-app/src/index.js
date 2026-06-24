@@ -22,18 +22,14 @@ if ('serviceWorker' in navigator) {
         // Listen for updates
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('🔄 New version available! Refresh to update.');
-              // Avoid confirm reload loops on localhost during development
-              if (window.location.hostname !== 'localhost') {
-                if (window.confirm('New version available! Refresh to update?')) {
-                  // Tell the new service worker to take over immediately
-                  newWorker.postMessage({ type: 'SKIP_WAITING' });
-                }
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('🔄 New version available! Activating automatically...');
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
               }
-            }
-          });
+            });
+          }
         });
       })
       .catch((error) => {

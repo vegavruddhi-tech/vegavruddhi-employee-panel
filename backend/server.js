@@ -191,11 +191,11 @@ function setupErrorHandlers() {
 
   // Global error handler
   app.use((error, req, res, next) => {
-    console.error('🔴 Unhandled error:', error.message);
+    console.error('🔴 Express error:', error.message || error);
     
-    res.status(500).json({
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
+    const status = error.http_code || error.status || (error.message === 'Empty file' ? 400 : 500);
+    res.status(status).json({
+      message: error.message === 'Empty file' ? 'File upload failed: Please select a valid image/document.' : (error.message || 'Internal server error'),
       timestamp: new Date().toISOString()
     });
   });
@@ -285,7 +285,7 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('🔴 Unhandled Rejection at:', promise, 'reason:', reason);
-  gracefulShutdown('unhandledRejection');
+  // Do not kill the server process for operational library errors (like Cloudinary 400 Empty File)
 });
 
 // Start server for local development

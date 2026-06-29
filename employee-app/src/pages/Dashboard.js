@@ -9,53 +9,53 @@ import { subscribeUserToPush } from '../pushSubscriptionHelper';
 
 
 const STATUS_COLOR = {
-  'Ready for Onboarding':          { color: '#2e7d32', bg: '#e6f4ea' },
-  'Not Interested':                { color: '#c62828', bg: '#fdecea' },
+  'Ready for Onboarding': { color: '#2e7d32', bg: '#e6f4ea' },
+  'Not Interested': { color: '#c62828', bg: '#fdecea' },
   'Try but not done due to error': { color: '#e65100', bg: '#fff3e0' },
-  'Need to visit again':           { color: '#1565c0', bg: '#e3f2fd' },
+  'Need to visit again': { color: '#1565c0', bg: '#e3f2fd' },
 };
 
 const BADGE_MAP = {
-  'Fully Verified':   { bg: '#e6f4ea', color: '#2e7d32', icon: '✓' },
+  'Fully Verified': { bg: '#e6f4ea', color: '#2e7d32', icon: '✓' },
   'Critical Failure': { bg: '#ffebee', color: '#c62828', icon: '⚠' },
-  'Partially Done':   { bg: '#fff8e1', color: '#f57f17', icon: '◑' },
-  'Not Verified':     { bg: '#fdecea', color: '#c62828', icon: '✗' },
-  'Not Found':        { bg: '#f5f5f5', color: '#888',    icon: '–' },
+  'Partially Done': { bg: '#fff8e1', color: '#f57f17', icon: '◑' },
+  'Not Verified': { bg: '#fdecea', color: '#c62828', icon: '✗' },
+  'Not Found': { bg: '#f5f5f5', color: '#888', icon: '–' },
 };
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  
+
   // ✅ Check for impersonation parameters first
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [impersonationToken, setImpersonationToken] = useState(null);
   const [viewAsEmail, setViewAsEmail] = useState(null);
   const [authChecked, setAuthChecked] = useState(false); // Track if auth check is complete
-  
+
   const token = isImpersonating ? impersonationToken : localStorage.getItem('token');
 
-  const [emp,          setEmp]          = useState(null);
-  const [allForms,     setAllForms]     = useState([]);
-  const [verifiedMap,  setVerifiedMap]  = useState({});
-  const [activeKPI,    setActiveKPI]    = useState('all');
-  const [dateFilter,   setDateFilter]   = useState('all');
-  const [fromDate,     setFromDate]     = useState('');
-  const [toDate,       setToDate]       = useState('');
-  const [selYear,      setSelYear]      = useState(new Date().getFullYear().toString());
-  const [selMonth,     setSelMonth]     = useState(new Date().getMonth().toString());
-  const [selProduct,   setSelProduct]   = useState('');
-  const [adjustment,   setAdjustment]   = useState(0);
-  const [taskCounts,   setTaskCounts]   = useState({ pending: 0, completed: 0, total: 0 });
+  const [emp, setEmp] = useState(null);
+  const [allForms, setAllForms] = useState([]);
+  const [verifiedMap, setVerifiedMap] = useState({});
+  const [activeKPI, setActiveKPI] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [selYear, setSelYear] = useState(new Date().getFullYear().toString());
+  const [selMonth, setSelMonth] = useState(new Date().getMonth().toString());
+  const [selProduct, setSelProduct] = useState('');
+  const [adjustment, setAdjustment] = useState(0);
+  const [taskCounts, setTaskCounts] = useState({ pending: 0, completed: 0, total: 0 });
 
   // ✅ Check for impersonation on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const viewAs = params.get('viewAs');
     const adminToken = params.get('adminToken');
-    
+
     if (viewAs && adminToken) {
       console.log('🔐 Impersonation detected:', { viewAs, hasToken: !!adminToken });
-      
+
       // Validate admin impersonation
       fetch(`${API_BASE}/api/auth/verify-impersonation?viewAs=${encodeURIComponent(viewAs)}`, {
         headers: { Authorization: `Bearer ${adminToken}` }
@@ -69,11 +69,11 @@ export default function Dashboard() {
           setIsImpersonating(true);
           setImpersonationToken(adminToken);
           setViewAsEmail(viewAs);
-          
+
           // Store in sessionStorage (cleared when tab closes)
           sessionStorage.setItem('impersonationToken', adminToken);
           sessionStorage.setItem('viewAsEmail', viewAs);
-          
+
           // Clean URL (remove params)
           window.history.replaceState({}, '', window.location.pathname);
           setAuthChecked(true);
@@ -87,7 +87,7 @@ export default function Dashboard() {
       // Check sessionStorage for existing impersonation
       const sessionToken = sessionStorage.getItem('impersonationToken');
       const sessionEmail = sessionStorage.getItem('viewAsEmail');
-      
+
       if (sessionToken && sessionEmail) {
         console.log('🔄 Restoring impersonation from session');
         setIsImpersonating(true);
@@ -108,18 +108,18 @@ export default function Dashboard() {
   // Load profile (modified to use impersonation email if present)
   useEffect(() => {
     if (!token) return;
-    
-    const url = isImpersonating 
+
+    const url = isImpersonating
       ? `${API_BASE}/api/auth/profile-by-email?email=${encodeURIComponent(viewAsEmail)}`
       : `${API_BASE}/api/auth/profile`;
-    
+
     fetch(url, { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => { 
-        if (r.status === 401 && !isImpersonating) { 
-          localStorage.clear(); 
-          navigate('/'); 
-        } 
-        return r.json(); 
+      .then(r => {
+        if (r.status === 401 && !isImpersonating) {
+          localStorage.clear();
+          navigate('/');
+        }
+        return r.json();
       })
       .then(setEmp)
       .catch(console.error);
@@ -134,10 +134,10 @@ export default function Dashboard() {
 
   // Load forms (modified to support impersonation)
   const loadForms = useCallback(() => {
-    const url = isImpersonating 
+    const url = isImpersonating
       ? `${API_BASE}/api/forms/my?viewAs=${encodeURIComponent(viewAsEmail)}`
       : `${API_BASE}/api/forms/my`;
-    
+
     fetch(url, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json())
       .then(data => setAllForms(Array.isArray(data) ? data : []))
@@ -150,19 +150,19 @@ export default function Dashboard() {
   const [backendPoints, setBackendPoints] = useState(null);
   useEffect(() => {
     if (!token) return;
-    
-    const url = isImpersonating 
+
+    const url = isImpersonating
       ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}`
       : `${API_BASE}/api/forms/my-points`;
-    
-    fetch(url, { headers: { Authorization: 'Bearer ' + token } }) 
+
+    fetch(url, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json())
       .then(d => {
         console.log('📊 Backend points data:', d);
         setAdjustment(d.pointsAdjustment || 0);
         setBackendPoints(d.totalPoints || 0);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [token, isImpersonating, viewAsEmail]);
 
   // Load task counts
@@ -170,7 +170,7 @@ export default function Dashboard() {
     fetch(`${API_BASE}/api/tasks/my-tasks/count`, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json())
       .then(data => setTaskCounts(data))
-      .catch(() => {});
+      .catch(() => { });
   }, [token]);
 
   useEffect(() => {
@@ -188,7 +188,7 @@ export default function Dashboard() {
   // Filtered forms
   const filtered = useMemo(() => {
     let list = allForms?.slice();
-    const now   = new Date();
+    const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     if (dateFilter === 'today') list = list.filter(f => new Date(f.createdAt) >= today);
@@ -202,14 +202,14 @@ export default function Dashboard() {
       list = list.filter(f => {
         const d = new Date(f.createdAt);
         if (fromDate && d < new Date(fromDate)) return false;
-        if (toDate   && d > new Date(toDate + 'T23:59:59')) return false;
+        if (toDate && d > new Date(toDate + 'T23:59:59')) return false;
         return true;
       });
     }
 
     // Year / Month filter
-    if (selYear)  list = list.filter(f => new Date(f.createdAt).getFullYear() === parseInt(selYear));
-    if (selMonth) list = list.filter(f => new Date(f.createdAt).getMonth()    === parseInt(selMonth));
+    if (selYear) list = list.filter(f => new Date(f.createdAt).getFullYear() === parseInt(selYear));
+    if (selMonth) list = list.filter(f => new Date(f.createdAt).getMonth() === parseInt(selMonth));
 
     // Product filter
     if (selProduct) {
@@ -218,7 +218,7 @@ export default function Dashboard() {
         const p1 = (f.formFillingFor || '').toLowerCase().trim();
         const p2 = (f.tideProduct || '').toLowerCase().trim();
         const p3 = (f.brand || '').toLowerCase().trim();
-        
+
         if (sp === 'tide msme') {
           return p1.includes('msme') || p2.includes('msme') || p3.includes('msme');
         }
@@ -240,42 +240,42 @@ export default function Dashboard() {
       });
     }
 
-    if (activeKPI === 'onboard')  list = list.filter(f => f.status === 'Ready for Onboarding');
-    if (activeKPI === 'notint')   list = list.filter(f => f.status === 'Not Interested');
-    if (activeKPI === 'error')    list = list.filter(f => f.status === 'Try but not done due to error');
-    if (activeKPI === 'revisit')  list = list.filter(f => f.status === 'Need to visit again');
+    if (activeKPI === 'onboard') list = list.filter(f => f.status === 'Ready for Onboarding');
+    if (activeKPI === 'notint') list = list.filter(f => f.status === 'Not Interested');
+    if (activeKPI === 'error') list = list.filter(f => f.status === 'Try but not done due to error');
+    if (activeKPI === 'revisit') list = list.filter(f => f.status === 'Need to visit again');
     if (activeKPI === 'verified') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified');
     if (activeKPI === 'critical') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure');
-    if (activeKPI === 'partial')  list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done');
-    if (activeKPI === 'notver')   list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified');
-    if (activeKPI === 'phmatch')  list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
-    if (activeKPI === 'phnomatch')list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
+    if (activeKPI === 'partial') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done');
+    if (activeKPI === 'notver') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified');
+    if (activeKPI === 'phmatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
+    if (activeKPI === 'phnomatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
     return list;
   }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap]);
 
 
-// <<<<<<< Updated upstream
-//   // Exit impersonation handler
-//   const handleExitImpersonation = () => {
-//     // Clear session storage
-//     sessionStorage.removeItem('impersonationToken');
-//     sessionStorage.removeItem('viewAsEmail');
-    
-//     // Redirect back to admin panel
-//     window.location.href = 'http://localhost:3002/merchant-forms';
-//   };
+  // <<<<<<< Updated upstream
+  //   // Exit impersonation handler
+  //   const handleExitImpersonation = () => {
+  //     // Clear session storage
+  //     sessionStorage.removeItem('impersonationToken');
+  //     sessionStorage.removeItem('viewAsEmail');
 
-//   // Fetch verification for filtered forms (using Redis cache)
-// =======
-// Fetch verification for ALL forms (not filtered — so counts stay accurate)Stashed changes
+  //     // Redirect back to admin panel
+  //     window.location.href = 'http://localhost:3002/merchant-forms';
+  //   };
+
+  //   // Fetch verification for filtered forms (using Redis cache)
+  // =======
+  // Fetch verification for ALL forms (not filtered — so counts stay accurate)Stashed changes
   useEffect(() => {
     if (!allForms.length) {
       console.log('⚠️ No forms to verify');
       return;
     }
-    
-    console.log('🔍 Fetching verification (POST bulk-admin):', { 
-      formCount: allForms.length, 
+
+    console.log('🔍 Fetching verification (POST bulk-admin):', {
+      formCount: allForms.length,
       endpoint: '/api/verify/bulk-admin'
     });
 
@@ -284,10 +284,10 @@ export default function Dashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({
-        phones:   allForms.map(f => f.customerNumber || ''),
-        names:    allForms.map(f => f.customerName || ''),
+        phones: allForms.map(f => f.customerNumber || ''),
+        names: allForms.map(f => f.customerName || ''),
         products: allForms.map(f => (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase().trim()),
-        months:   allForms.map(f => f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : ''),
+        months: allForms.map(f => f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : ''),
       }),
     })
       .then(r => {
@@ -298,13 +298,13 @@ export default function Dashboard() {
         return r.json();
       })
       .then(vm => {
-        console.log('✅ Verification data received:', { 
+        console.log('✅ Verification data received:', {
           keys: Object.keys(vm).length,
           sample: Object.keys(vm).slice(0, 3),
           fullData: vm
         });
         setVerifiedMap(vm);
-        
+
         // Save verified points — matching admin panel (no deduplication)
         let autoPts = 0;
         let verifiedCount = 0;
@@ -315,29 +315,29 @@ export default function Dashboard() {
             verifiedCount++;
           }
         });
-        
+
         console.log('💰 Total calculated points:', autoPts);
         console.log('💰 Verified forms count:', verifiedCount);
-        
+
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ verifiedPoints: Math.round(autoPts * 10) / 10 })
         })
-        .then(() => {
-          // ✅ Reload backend points after saving to get fresh data
-          console.log('✅ Points saved, reloading from backend...');
-          return fetch(`${API_BASE}/api/forms/my-points`, { 
-            headers: { Authorization: 'Bearer ' + token } 
-          });
-        })
-        .then(r => r.json())
-        .then(d => {
-          console.log('📊 Reloaded backend points:', d);
-          setAdjustment(d.pointsAdjustment || 0);
-          setBackendPoints(d.totalPoints || 0);
-        })
-        .catch(() => {});
+          .then(() => {
+            // ✅ Reload backend points after saving to get fresh data
+            console.log('✅ Points saved, reloading from backend...');
+            return fetch(`${API_BASE}/api/forms/my-points`, {
+              headers: { Authorization: 'Bearer ' + token }
+            });
+          })
+          .then(r => r.json())
+          .then(d => {
+            console.log('📊 Reloaded backend points:', d);
+            setAdjustment(d.pointsAdjustment || 0);
+            setBackendPoints(d.totalPoints || 0);
+          })
+          .catch(() => { });
       })
       .catch(err => {
         console.error('❌ Verification fetch error:', err);
@@ -371,20 +371,20 @@ export default function Dashboard() {
   }, [backendPoints, allForms, verifiedMap, adjustment]);
 
   const kpis = [
-    { key: 'all',      label: 'Total Responses',      value: filtered.length,                                                                    cls: 'kpi-total' },
-    { key: 'onboard',  label: 'Ready for Onboarding', value: filtered.filter(f => f.status === 'Ready for Onboarding').length,                    cls: 'kpi-onboard' },
-    { key: 'notint',   label: 'Not Interested',        value: filtered.filter(f => f.status === 'Not Interested').length,                          cls: 'kpi-notint' },
-    { key: 'error',    label: 'Try but not done',      value: filtered.filter(f => f.status === 'Try but not done due to error').length,            cls: 'kpi-error' },
-    { key: 'revisit',  label: 'Need to visit again',   value: filtered.filter(f => f.status === 'Need to visit again').length,                     cls: 'kpi-revisit' },
+    { key: 'all', label: 'Total Responses', value: filtered.length, cls: 'kpi-total' },
+    { key: 'onboard', label: 'Ready for Onboarding', value: filtered.filter(f => f.status === 'Ready for Onboarding').length, cls: 'kpi-onboard' },
+    { key: 'notint', label: 'Not Interested', value: filtered.filter(f => f.status === 'Not Interested').length, cls: 'kpi-notint' },
+    { key: 'error', label: 'Try but not done', value: filtered.filter(f => f.status === 'Try but not done due to error').length, cls: 'kpi-error' },
+    { key: 'revisit', label: 'Need to visit again', value: filtered.filter(f => f.status === 'Need to visit again').length, cls: 'kpi-revisit' },
   ];
 
   const verifyKpis = [
-    { key: 'verified',  label: 'Fully Verified',       value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length,  cls: 'kpi-verified' },
-    { key: 'critical',  label: 'Critical Failure',     value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure').length, cls: 'kpi-critical' },
-    { key: 'partial',   label: 'Partially Verified',   value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length,   cls: 'kpi-error' },
-    { key: 'notver',    label: 'Not Verified',          value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length,     cls: 'kpi-notint' },
-    { key: 'phmatch',   label: 'Phone Matched',         value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length,           cls: 'kpi-onboard' },
-    { key: 'phnomatch', label: 'Phone Not Matched',     value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false).length, cls: 'kpi-revisit' },
+    { key: 'verified', label: 'Fully Verified', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length, cls: 'kpi-verified' },
+    { key: 'critical', label: 'Critical Failure', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure').length, cls: 'kpi-critical' },
+    { key: 'partial', label: 'Partially Verified', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length, cls: 'kpi-error' },
+    { key: 'notver', label: 'Not Verified', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length, cls: 'kpi-notint' },
+    { key: 'phmatch', label: 'Phone Matched', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length, cls: 'kpi-onboard' },
+    { key: 'phnomatch', label: 'Phone Not Matched', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false).length, cls: 'kpi-revisit' },
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
@@ -394,7 +394,7 @@ export default function Dashboard() {
   console.log('All forms count:', allForms.length);
   console.log('Verified forms:', allForms.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length);
 
-// Check what products are in the forms
+  // Check what products are in the forms
   allForms.forEach(f => {
     if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
       console.log('Verified form product:', f.formFillingFor);
@@ -417,7 +417,7 @@ export default function Dashboard() {
     <>
       <Navbar emp={emp} taskCount={taskCounts.pending} token={token} />
       <div className="main-content">
-        
+
         {/* Welcome card - Compact horizontal layout */}
         <div className="welcome-card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div className="welcome-avatar" style={{ width: 60, height: 60, fontSize: 24 }}>
@@ -447,10 +447,10 @@ export default function Dashboard() {
         <div className="section-title" style={{ marginTop: 20, marginBottom: 10 }}>Quick Overview</div>
         <div className="info-grid" style={{ gap: 10 }}>
           {[
-            { icon: '💼', label: 'Position',          value: emp?.position },
-            { icon: '📍', label: 'Location',           value: emp?.location },
-            { icon: '👤', label: 'Reporting Manager',  value: emp?.reportingManager },
-            { icon: '●',  label: 'Status',             value: emp?.status },
+            { icon: '💼', label: 'Position', value: emp?.position },
+            { icon: '📍', label: 'Location', value: emp?.location },
+            { icon: '👤', label: 'Reporting Manager', value: emp?.reportingManager },
+            { icon: '●', label: 'Status', value: emp?.status },
           ].map(c => (
             <div className="info-card dash-card" key={c.label} style={{ padding: '12px 14px' }}>
               <div className="dash-icon" style={{ fontSize: 18, marginBottom: 6 }}>{c.icon}</div>
@@ -512,7 +512,7 @@ export default function Dashboard() {
               <select value={selYear} onChange={e => setSelYear(e.target.value)}
                 style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selYear ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 100, outline: 'none' }}>
                 <option value=""></option>
-                {[2026,2025,2024,2023,2022,2021].map(y => <option key={y} value={y}>{y}</option>)}
+                {[2026, 2025, 2024, 2023, 2022, 2021].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
               <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#40916c', fontSize: 12 }}>▼</span>
             </div>
@@ -521,7 +521,7 @@ export default function Dashboard() {
               <select value={selMonth} onChange={e => setSelMonth(e.target.value)}
                 style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selMonth !== '' ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 130, outline: 'none' }}>
                 <option value="">All Months</option>
-                {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m,i) => (
+                {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => (
                   <option key={i} value={i.toString()}>{m}</option>
                 ))}
               </select>
@@ -543,17 +543,17 @@ export default function Dashboard() {
                   const formDate = new Date(f.createdAt);
                   if (formDate.getMonth() !== parseInt(selMonth)) return false;
                 }
-                
+
                 // Filter by Year dropdown (selYear) if selected
                 if (selYear) {
                   const formDate = new Date(f.createdAt);
                   if (formDate.getFullYear() !== parseInt(selYear)) return false;
                 }
-                
+
                 const p1 = (f.formFillingFor || '').toLowerCase().trim();
                 const p2 = (f.tideProduct || '').toLowerCase().trim();
                 const p3 = (f.brand || '').toLowerCase().trim();
-                
+
                 let match = false;
                 if (sp === 'tide msme') {
                   match = p1.includes('msme') || p2.includes('msme') || p3.includes('msme');
@@ -616,18 +616,18 @@ export default function Dashboard() {
           <div className="merchants-empty">No merchants found.</div>
         ) : (
           filtered.map(f => {
-              const info    = verifiedMap[getVerifyKey(f)] || {};
-              const vstatus = info.status || 'Not Found';
-              const b       = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
-              const sc      = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };
-              const product = f.formFillingFor 
-                || (f.attemptedProducts?.join(', ')) 
-                || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand) 
-                || '–';
+            const info = verifiedMap[getVerifyKey(f)] || {};
+            const vstatus = info.status || 'Not Found';
+            const b = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
+            const sc = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };
+            const product = f.formFillingFor
+              || (f.attemptedProducts?.join(', '))
+              || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand)
+              || '–';
 
-              const date    = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-              
-              const pts = (info.status === 'Fully Verified') ? (info.points || null) : null;
+            const date = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+            const pts = (info.status === 'Fully Verified') ? (info.points || null) : null;
 
 
             return (
@@ -647,11 +647,11 @@ export default function Dashboard() {
                       <span className="verify-badge" style={{ background: b.bg, color: b.color, borderColor: b.bg }}>
                         {b.icon} {vstatus}
                       </span>
-                        {pts !== null && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
-                            ⭐ {pts} pts
-                          </span>
-                        )}
+                      {pts !== null && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
+                          ⭐ {pts} pts
+                        </span>
+                      )}
                     </div>
                     <div className="mr-meta">
                       <span>📍 {f.location}</span>
@@ -661,16 +661,16 @@ export default function Dashboard() {
                   </div>
                   <div className="mr-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                     <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
-                    
+
                     <div className="mr-date">{date}</div>
                   </div>
                 </Link>
                 {/* Timeline icon - outside Link, positioned absolutely on the right */}
                 {(f.brand === 'Tide' && f.tideProduct === 'Tide') && (
-                  <div 
-                    onClick={(e) => e.stopPropagation()} 
-                    style={{ 
-                      position: 'absolute', 
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      position: 'absolute',
                       top: '12px',
                       right: '12px',
                       zIndex: 10
@@ -680,7 +680,8 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-            })
+            );
+          })
         )}
       </div>
       <Footer />

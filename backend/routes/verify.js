@@ -284,7 +284,7 @@ async function attachPoints(result) {
       await connectDB();
       const FormResponse = require('../models/FormResponse');
       
-      const forms = await FormResponse.find({}).lean();
+      const forms = await FormResponse.find({}).select('formFillingFor tideProduct brand').lean();
       
       const productCounts = {};
       forms.forEach(form => {
@@ -367,17 +367,17 @@ async function attachPoints(result) {
         };
         
         [fseForms, tlForms, managerForms] = await Promise.all([
-          FormResponse.find(query).lean(),
-          TLFormResponse.find(query).lean(),
-          ManagerForm.find(query).lean()
+          FormResponse.find(query).select('-verificationChecks.record').lean(),
+          TLFormResponse.find(query).select('-verificationChecks.record').lean(),
+          ManagerForm.find(query).select('-verificationChecks.record').lean()
         ]);
         
       } else {
         // First time OR force refresh: Get all forms
         [fseForms, tlForms, managerForms] = await Promise.all([
-          FormResponse.find({}).lean(),
-          TLFormResponse.find({}).lean(),
-          ManagerForm.find({}).lean()
+          FormResponse.find({}).select('-verificationChecks.record').lean(),
+          TLFormResponse.find({}).select('-verificationChecks.record').lean(),
+          ManagerForm.find({}).select('-verificationChecks.record').lean()
         ]);
         
       }

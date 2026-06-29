@@ -884,7 +884,7 @@ router.get('/admin/tl-overview', async (req, res) => {
     const [tls, users, forms] = await Promise.all([
       db.collection('TeamLeads').find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).toArray(),
       Employee.find({}).lean(),
-      FormResponse.find({}).sort({ createdAt: -1 }).lean(),
+      FormResponse.find({}).select('-verificationChecks.record').sort({ createdAt: -1 }).lean(),
     ]);
 
     // Also get FSEs from TeamLeads collection (role=fse)
@@ -951,11 +951,11 @@ router.get('/admin/overview', async (req, res) => {
 
     // ✅ Fetch ALL forms: FSE + TL + Manager (consistent with Merchant Forms page)
     const [fseForms, tlForms, mgrForms, employees, tls] = await Promise.all([
-      FormResponse.find({}).sort({ createdAt: -1 }),
-      TLFormResponse.find({}).sort({ createdAt: -1 }),
-      ManagerForm.find({}).sort({ createdAt: -1 }),
-      Employee.find({ approvalStatus: 'approved' }).select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager position location status'),
-      TeamLead.find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).select('name email phone location reportingManager status'),
+      FormResponse.find({}).select('-verificationChecks.record').sort({ createdAt: -1 }).lean(),
+      TLFormResponse.find({}).select('-verificationChecks.record').sort({ createdAt: -1 }).lean(),
+      ManagerForm.find({}).select('-verificationChecks.record').sort({ createdAt: -1 }).lean(),
+      Employee.find({ approvalStatus: 'approved' }).select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager position location status').lean(),
+      TeamLead.find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).select('name email phone location reportingManager status').lean(),
     ]);
 
     // ✅ Combine all forms from all 3 collections
@@ -1270,13 +1270,13 @@ router.post('/admin/recalculate-all-points', async (req, res) => {
     const db = req.db;
 
     // Get all forms from FSE, TL, and Manager
-    const allFSEForms = await FormResponse.find({}).lean();
-    const allTLForms  = await TLFormResponse.find({}).lean();
+    const allFSEForms = await FormResponse.find({}).select('-verificationChecks.record').lean();
+    const allTLForms  = await TLFormResponse.find({}).select('-verificationChecks.record').lean();
     
     let allForms;
     try {
       const ManagerForm = require('../models/ManagerForm');
-      const allManagerForms = await ManagerForm.find({}).lean();
+      const allManagerForms = await ManagerForm.find({}).select('-verificationChecks.record').lean();
       allForms = [...allFSEForms, ...allTLForms, ...allManagerForms];
     } catch (e) {
       allForms = [...allFSEForms, ...allTLForms];
@@ -1456,7 +1456,7 @@ router.get('/admin/monthly-points', async (req, res) => {
     const targetYear = parseInt(year);
     
     // ✅ Fetch ALL forms (we'll filter by month in JavaScript like frontend does)
-    const allFormsRaw = await FormResponse.find({}).lean();
+    const allFormsRaw = await FormResponse.find({}).select('-verificationChecks.record').lean();
     
     // ✅ EXACT SAME FILTER AS MERCHANT FORMS FRONTEND
     const allForms = allFormsRaw.filter(f => {

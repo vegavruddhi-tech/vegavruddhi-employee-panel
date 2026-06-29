@@ -219,12 +219,14 @@ async function attachPoints(result) {
     });
 
     Object.keys(result).forEach(key => {
-      if (result[key] && result[key].status === 'Fully Verified') {
+      if (result[key] && (result[key].status === 'Fully Verified' || result[key].status === 'Approved' || result[key].verified === true)) {
         const productParts = key.split('__');
         const product = productParts.length > 1 ? productParts[1] : key;
         const mockForm = {
           ...(result[key].record || {}),
           formFillingFor: product,
+          tideProduct: product,
+          brand: product,
           _month: result[key].monthLabel || ''
         };
         result[key].points = calculateRecordPointsSync(mockForm, result[key].monthLabel, pointsMap);
@@ -1064,6 +1066,7 @@ async function attachPoints(result) {
       
       const finalResult = await attachPoints(result);
       Object.keys(finalResult).forEach(k => {
+        if (finalResult[k]) delete finalResult[k].record;
       });
       res.json(finalResult);
 
@@ -1196,8 +1199,9 @@ async function attachPoints(result) {
 
       
       const finalResult = await attachPoints(result);
-      console.log('📤 OUTGOING BULK-ADMIN RESPONSE:', JSON.stringify(finalResult, null, 2));
+      // Strip heavy raw records before sending to frontend to prevent payload cutoff
       Object.keys(finalResult).forEach(k => {
+        if (finalResult[k]) delete finalResult[k].record;
       });
       res.json(finalResult);
 

@@ -21,6 +21,14 @@ const storage = new CloudinaryStorage({
   },
 });
 
-const upload = multer({ storage });  // 🔥 THIS LINE WAS MISSING
+const upload = multer({ 
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (!file || !file.originalname) {
+      return cb(new Error('Empty file'), false);
+    }
+    cb(null, true);
+  }
+});
 
 module.exports = upload;

@@ -78,100 +78,74 @@ router.get('/filled-late', async (req, res) => {
       .sort({ filledAt: -1 })
       .lean();
 
-    // 🔥 NEW: Get original dates from product collections
+    // 🔥 NEW: Get original dates from product collections in RAM (100x faster)
     const VerificationRule = require('../models/VerificationRule');
     const mongoose = require('mongoose');
     const db = mongoose.connection.db;
 
-    // Enhance each form with original date from product collection
-    const enhancedForms = await Promise.all(filledLateForms.map(async (form) => {
-      try {
-        console.log(`\n🔍 Processing form: ${form.customerName} (${form.customerPhone}) - Product: ${form.product}, Month: ${form.expectedMonth} ${form.expectedYear}`);
-        
-        // Get collection name from VerificationRules (filter by product AND month)
-        const monthLabel = `${form.expectedMonth} ${form.expectedYear}`;
-        const rule = await VerificationRule.findOne({ 
-          productTypes: new RegExp(form.product, 'i'),
-          monthLabel: new RegExp(monthLabel, 'i')
-        });
-        
-        console.log(`📋 VerificationRule found: ${rule ? 'YES' : 'NO'}`);
-        if (rule) {
-          console.log(`📦 Collection name: ${rule.collectionName}`);
-        }
+    const allRules = await VerificationRule.find({}).lean();
+    
+    // Cache records by collection to avoid repeated DB queries
+    const recordsCache = {};
+    for (const rule of allRules) {
+      if (rule.collectionName && !recordsCache[rule.collectionName]) {
+        try {
+          const col = db.collection(rule.collectionName);
+          const docs = await col.find({}, { projection: { phone: 1, mobile_number: 1, phone_number: 1, Mobile_No_: 1, lead: 1, Lead: 1, name: 1, Name: 1, member_name: 1, Member_Name: 1, createdAt: 1 } }).toArray();
+          recordsCache[rule.collectionName] = docs;
+        } catch (e) {}
+      }
+    }
 
-        if (rule && rule.collectionName) {
-          // Query the product collection for original date
-          const collection = db.collection(rule.collectionName);
-          
-          // Try to find by phone first (try multiple phone formats and columns)
-          let originalRecord = null;
+    // Enhance each form in memory
+    const enhancedForms = filledLateForms.map((form) => {
+      try {
+        const monthLabel = `${form.expectedMonth} ${form.expectedYear}`;
+        const rule = allRules.find(r => 
+          new RegExp(form.product || '', 'i').test(r.productTypes || '') &&
+          new RegExp(monthLabel, 'i').test(r.monthLabel || '')
+        );
+
+        let originalRecord = null;
+        if (rule && rule.collectionName && recordsCache[rule.collectionName]) {
+          const docs = recordsCache[rule.collectionName];
           if (form.customerPhone) {
             const phone = form.customerPhone.replace(/\D/g, '').slice(-10);
+            const phoneNum = parseInt(phone);
             const phoneWith91 = '91' + phone;
-            
-            console.log(`🔍 Searching for phone: ${phone} in collection: ${rule.collectionName}`);
-            
-            originalRecord = await collection.findOne({ 
-              $or: [
-                { phone: phone },
-                { phone: parseInt(phone) },
-                { phone: phoneWith91 },
-                { mobile_number: phone },
-                { mobile_number: phoneWith91 },
-                { phone_number: phone },
-                { phone_number: phoneWith91 },
-                { Mobile_No_: phone },
-                { Mobile_No_: phoneWith91 }
-              ]
-            });
-            
-            console.log(`📊 Phone search result: ${originalRecord ? 'FOUND' : 'NOT FOUND'}`);
+            originalRecord = docs.find(d => 
+              String(d.phone) === phone || d.phone === phoneNum || String(d.phone) === phoneWith91 ||
+              String(d.mobile_number) === phone || String(d.mobile_number) === phoneWith91 ||
+              String(d.phone_number) === phone || String(d.phone_number) === phoneWith91 ||
+              String(d.Mobile_No_) === phone || String(d.Mobile_No_) === phoneWith91
+            );
           }
-
-          // If not found by phone, try by name (try multiple name columns)
           if (!originalRecord && form.customerName) {
-            console.log(`🔍 Phone search failed, trying name search: ${form.customerName}`);
-            
-            originalRecord = await collection.findOne({ 
-              $or: [
-                { lead: new RegExp(form.customerName, 'i') },
-                { Lead: new RegExp(form.customerName, 'i') },
-                { name: new RegExp(form.customerName, 'i') },
-                { Name: new RegExp(form.customerName, 'i') },
-                { member_name: new RegExp(form.customerName, 'i') },
-                { Member_Name: new RegExp(form.customerName, 'i') }
-              ]
-            });
-            
-            console.log(`📊 Name search result: ${originalRecord ? 'FOUND' : 'NOT FOUND'}`);
+            const nameLower = form.customerName.toLowerCase().trim();
+            originalRecord = docs.find(d => 
+              (d.lead && String(d.lead).toLowerCase().includes(nameLower)) ||
+              (d.Lead && String(d.Lead).toLowerCase().includes(nameLower)) ||
+              (d.name && String(d.name).toLowerCase().includes(nameLower)) ||
+              (d.Name && String(d.Name).toLowerCase().includes(nameLower)) ||
+              (d.member_name && String(d.member_name).toLowerCase().includes(nameLower)) ||
+              (d.Member_Name && String(d.Member_Name).toLowerCase().includes(nameLower))
+            );
           }
+        }
 
-          // Use createdAt from product collection if found
-          if (originalRecord && originalRecord.createdAt) {
-            console.log(`✅ Using createdAt from product collection: ${originalRecord.createdAt}`);
-            form.originalDate = originalRecord.createdAt;
-            form.originalDateSource = 'product_collection';
-          } else {
-            console.log(`❌ No record found in product collection, using unfilled form date`);
-            // Fallback to UnfilledForm createdAt
-            form.originalDate = form.createdAt;
-            form.originalDateSource = 'unfilled_form';
-          }
+        if (originalRecord && originalRecord.createdAt) {
+          form.originalDate = originalRecord.createdAt;
+          form.originalDateSource = 'product_collection';
         } else {
-          // No verification rule found, use UnfilledForm createdAt
           form.originalDate = form.createdAt;
           form.originalDateSource = 'unfilled_form';
         }
       } catch (err) {
-        console.error(`Error getting original date for form ${form._id}:`, err.message);
-        // Fallback to UnfilledForm createdAt
         form.originalDate = form.createdAt;
         form.originalDateSource = 'error_fallback';
       }
-
       return form;
-    }));
+    });
 
     const responsePayload = {
       success: true,

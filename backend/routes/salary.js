@@ -21,15 +21,16 @@ router.post('/sync-points', async (req, res) => {
 
     console.log(`📊 [sync-points] Syncing ${employees.length} employees for ${month} ${year}`);
 
+    const EmployeePoints = require('../models/EmployeePoints');
     let saved = 0;
     
-    employees.forEach(emp => {
+    for (const emp of employees) {
       const basePoints  = Math.round((emp.basePoints || emp.autoPoints || 0) * 10) / 10;
       const slabPoints  = Math.round((emp.slabPoints || 0) * 10) / 10;
       const totalPoints = Math.round((basePoints + slabPoints) * 10) / 10;
       
       const normalizedName = (emp.employeeName || '').trim();
-      if (!normalizedName) return;
+      if (!normalizedName) continue;
       
       const cacheKey = `${normalizedName.toLowerCase()}__${month}__${year}`;
       pointsCache.set(cacheKey, {
@@ -41,8 +42,22 @@ router.post('/sync-points', async (req, res) => {
         syncedAt: new Date()
       });
       
+      try {
+        await EmployeePoints.findOneAndUpdate(
+          { newJoinerName: { $regex: new RegExp(`^${normalizedName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i') } },
+          {
+            $set: {
+              newJoinerName: normalizedName,
+              verifiedPoints: basePoints,
+              updatedAt: new Date()
+            }
+          },
+          { upsert: true }
+        );
+      } catch (dbErr) {}
+
       saved++;
-    });
+    }
 
     console.log(`✅ [sync-points] Synced ${saved} employees to cache`);
     console.log(`🔍 Cache sample:`, Array.from(pointsCache.entries()).slice(0, 3).map(([k, v]) => ({

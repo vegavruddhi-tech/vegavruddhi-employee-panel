@@ -59,6 +59,16 @@ router.get('/filled-late', async (req, res) => {
   try {
     const { month, year } = req.query;
 
+    const { getRedisClient } = require('../utils/redisClient');
+    const redis = getRedisClient();
+    const cacheKey = `filled_late:${month || 'all'}:${year || 'all'}`;
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) return res.json(JSON.parse(cached));
+      } catch (e) { console.error('Redis filled-late get error:', e.message); }
+    }
+
     const query = { status: 'filled_late' };
     if (month) query.expectedMonth = month;
     if (year) query.expectedYear = parseInt(year);
@@ -163,11 +173,18 @@ router.get('/filled-late', async (req, res) => {
       return form;
     }));
 
-    res.json({
+    const responsePayload = {
       success: true,
       filledLateForms: enhancedForms,
       total: enhancedForms.length
-    });
+    };
+
+    if (redis) {
+      try { await redis.setex(cacheKey, 300, JSON.stringify(responsePayload)); }
+      catch (e) { console.error('Redis filled-late set error:', e.message); }
+    }
+
+    res.json(responsePayload);
   } catch (error) {
     console.error('Error fetching filled late forms:', error);
     res.status(500).json({ error: error.message });

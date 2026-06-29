@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 // Same schema as FormResponse but saves to 'TL Form Responses' collection
 const tlFormResponseSchema = new mongoose.Schema({
-  submittedBy:    { type: mongoose.Schema.Types.ObjectId },
+  submittedBy:    { type: mongoose.Schema.Types.ObjectId, index: true },
   employeeName:   { type: String },
   customerName:   { type: String, required: true },
   customerNumber: { type: String, required: true },
@@ -34,7 +34,7 @@ const tlFormResponseSchema = new mongoose.Schema({
   settledBy: { type: String },
   settledAt: { type: Date },
   
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now, index: true }
 }, { collection: 'TL Form Responses', strict: false });
 
 module.exports = mongoose.model('TLFormResponse', tlFormResponseSchema);

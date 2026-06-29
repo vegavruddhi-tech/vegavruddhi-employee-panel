@@ -508,7 +508,7 @@ router.delete('/delete/:id', verifyToken, async (req, res) => {
 // GET /api/forms/admin/all — all forms grouped by employee (with role filter and caching)
 router.get('/admin/all', async (req, res) => {
   try {
-    const { role = 'FSE', limit, skip, page } = req.query; // Pagination params
+    const { role = 'FSE', limit, skip, page, month, year } = req.query; // Pagination & Date params
     const { getRedisClient } = require('../utils/redisClient');
     const redis = getRedisClient();
     
@@ -517,10 +517,24 @@ router.get('/admin/all', async (req, res) => {
     const pageNum = page ? parseInt(page) : 1;
     const skipCount = skip ? parseInt(skip) : (pageNum - 1) * (pageSize || 0);
     
-    // 🔥 Cache key includes pagination params
-    const cacheKey = pageSize 
-      ? `admin_forms_all:${role}:page${pageNum}:limit${pageSize}`
-      : `admin_forms_all:${role}`;
+    // Build date filter query
+    const queryFilter = {};
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    if (month && year && month !== 'All') {
+      const monthIdx = monthNames.indexOf(month);
+      if (monthIdx !== -1) {
+        const startDate = new Date(parseInt(year), monthIdx, 1);
+        const endDate = new Date(parseInt(year), monthIdx + 1, 0, 23, 59, 59, 999);
+        queryFilter.createdAt = { $gte: startDate, $lte: endDate };
+      }
+    } else if (year && (!month || month === 'All')) {
+      const startDate = new Date(parseInt(year), 0, 1);
+      const endDate = new Date(parseInt(year), 11, 31, 23, 59, 59, 999);
+      queryFilter.createdAt = { $gte: startDate, $lte: endDate };
+    }
+
+    // 🔥 Cache key includes pagination and date params
+    const cacheKey = `admin_forms_all:${role}:${year || 'all'}:${month || 'all'}:page${pageNum}:limit${pageSize || 'all'}`;
     
     // Try Redis cache first (expires in 5 minutes)
     if (redis) {
@@ -539,10 +553,10 @@ router.get('/admin/all', async (req, res) => {
     const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
     
     // 🔥 NEW: Get total count for pagination metadata
-    const totalCount = await Model.countDocuments({});
+    const totalCount = await Model.countDocuments(queryFilter);
     
     // 🔥 NEW: Apply pagination if limit is provided
-    let query = Model.find({}).select('-verificationChecks.record').sort({ createdAt: -1 });
+    let query = Model.find(queryFilter).select('-verificationChecks.record').sort({ createdAt: -1 });
     if (pageSize) {
       query = query.skip(skipCount).limit(pageSize);
     }
@@ -580,6 +594,16 @@ router.get('/admin/all', async (req, res) => {
 // GET /api/forms/admin/duplicates — merchants submitted by multiple employees (cross-employee duplicates)
 router.get('/admin/duplicates', async (req, res) => {
   try {
+    const { getRedisClient } = require('../utils/redisClient');
+    const redis = getRedisClient();
+    const cacheKey = 'admin_duplicates_list';
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) return res.json(JSON.parse(cached));
+      } catch (e) { console.error('Redis duplicates get error:', e.message); }
+    }
+
     const DuplicateSettlement = require('../models/DuplicateSettlement');
 
     // Get all settled phone+product combos to mark them (NOT exclude)
@@ -617,6 +641,11 @@ router.get('/admin/duplicates', async (req, res) => {
       return { ...g, settled: !!settlement, settlementInfo: settlement };
     });
 
+    if (redis) {
+      try { await redis.setex(cacheKey, 300, JSON.stringify(result)); }
+      catch (e) { console.error('Redis duplicates set error:', e.message); }
+    }
+
     res.json(result);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -636,6 +665,14 @@ router.post('/admin/settle-duplicate', async (req, res) => {
       { customerNumber, customerName, product, employees, note: note || '', settledAt: new Date() },
       { upsert: true, new: true }
     );
+
+    const { getRedisClient } = require('../utils/redisClient');
+    const redis = getRedisClient();
+    if (redis) {
+      try { await redis.del('admin_duplicates_list'); }
+      catch (e) { console.error('Redis duplicates del error:', e.message); }
+    }
+
     res.json({ message: 'Duplicate marked as settled' });
   } catch (err) {
     res.status(500).json({ message: err.message });

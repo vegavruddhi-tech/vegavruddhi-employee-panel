@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const managerFormSchema = new mongoose.Schema({
-  submittedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'Manager' },
+  submittedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'Manager', index: true },
   employeeName:   { type: String },
 
   customerName:   { type: String, required: true },
@@ -40,7 +40,7 @@ const managerFormSchema = new mongoose.Schema({
   settledBy: { type: String },
   settledAt: { type: Date },
 
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now, index: true }
 }, { collection: 'ManagerForms', strict: false });
 
 module.exports = mongoose.model('ManagerForm', managerFormSchema);

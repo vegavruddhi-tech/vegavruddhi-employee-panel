@@ -108,3 +108,5 @@ jaas_private_key.pem
 **/*.md
 
 employee-app/.env.production
+backend/clear_cache.js
+backend/test_points.js

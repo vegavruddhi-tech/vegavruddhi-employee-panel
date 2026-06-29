@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const formResponseSchema = new mongoose.Schema({
   // Submitted by
-  submittedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
+  submittedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', index: true },
   employeeName:   { type: String },
 
   // Page 1 - Basic info
@@ -81,7 +81,7 @@ formFillingFor: { type: String, },
   settledBy: { type: String },
   settledAt: { type: Date },
 
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now, index: true }
 }, { collection: 'Forms_respones', strict: false });
 
 module.exports = mongoose.model('FormResponse', formResponseSchema);

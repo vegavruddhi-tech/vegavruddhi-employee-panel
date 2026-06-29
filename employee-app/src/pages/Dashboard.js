@@ -305,22 +305,19 @@ export default function Dashboard() {
         });
         setVerifiedMap(vm);
         
-        // Save verified points — deduplicate by customerNumber+product
-        const counted = new Set();
+        // Save verified points — matching admin panel (no deduplication)
         let autoPts = 0;
+        let verifiedCount = 0;
         allForms.forEach(f => {
           if (vm[getVerifyKey(f)]?.status === 'Fully Verified') {
-            const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
-            if (counted.has(dedupKey)) return;
-            counted.add(dedupKey);
             const vInfo = vm[getVerifyKey(f)];
-            const points = vInfo?.points || 0;
-            autoPts += points;
+            autoPts += vInfo?.points || 0;
+            verifiedCount++;
           }
         });
         
         console.log('💰 Total calculated points:', autoPts);
-        console.log('💰 Verified forms count:', counted.size);
+        console.log('💰 Verified forms count:', verifiedCount);
         
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
@@ -359,25 +356,19 @@ export default function Dashboard() {
     return product;
   };
 
-  // Use backend points if available (includes slabs), otherwise calculate from verified forms
+  // Use backend points if available (includes slabs), otherwise calculate from all verified forms
   const totalPoints = useMemo(() => {
-    // Calculate from verified forms filtered by selected month/year
-    const counted = new Set();
+    if (backendPoints !== null && backendPoints !== undefined && backendPoints > 0) {
+      return backendPoints;
+    }
     let auto = 0;
     allForms.forEach(f => {
-      // Filter by selected month/year
-      if (selYear && new Date(f.createdAt).getFullYear() !== parseInt(selYear)) return;
-      if (selMonth !== '' && new Date(f.createdAt).getMonth() !== parseInt(selMonth)) return;
       if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
-        const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}__${(f.tideIns_type || f.ins_insuranceType || '').toLowerCase().trim()}`;
-        if (counted.has(dedupKey)) return;
-        counted.add(dedupKey);
         auto += verifiedMap[getVerifyKey(f)]?.points || 0;
       }
     });
-    const calculated = Math.round((auto + adjustment) * 10) / 10;
-    return calculated;
-  }, [allForms, verifiedMap, adjustment, selYear, selMonth]);
+    return Math.round((auto + adjustment) * 10) / 10;
+  }, [backendPoints, allForms, verifiedMap, adjustment]);
 
   const kpis = [
     { key: 'all',      label: 'Total Responses',      value: filtered.length,                                                                    cls: 'kpi-total' },
@@ -624,9 +615,7 @@ export default function Dashboard() {
         ) : filtered.length === 0 ? (
           <div className="merchants-empty">No merchants found.</div>
         ) : (
-          (() => {
-            const seenDedup = new Set();
-            return filtered.map(f => {
+          filtered.map(f => {
               const info    = verifiedMap[getVerifyKey(f)] || {};
               const vstatus = info.status || 'Not Found';
               const b       = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
@@ -638,17 +627,7 @@ export default function Dashboard() {
 
               const date    = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
               
-              const dedupKey = `${f.customerNumber}__${(f.formFillingFor || '').toLowerCase().trim()}`;
-              let isDuplicateForPoints = false;
-              if (vstatus === 'Fully Verified') {
-                if (seenDedup.has(dedupKey)) {
-                  isDuplicateForPoints = true;
-                } else {
-                  seenDedup.add(dedupKey);
-                }
-              }
-
-              const pts = (info.status === 'Fully Verified' && !isDuplicateForPoints) ? (info.points || null) : null;
+              const pts = (info.status === 'Fully Verified') ? (info.points || null) : null;
 
 
             return (
@@ -701,9 +680,7 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-            );
-            });
-          })()
+            })
         )}
       </div>
       <Footer />

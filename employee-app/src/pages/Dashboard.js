@@ -150,20 +150,23 @@ export default function Dashboard() {
   const [backendPoints, setBackendPoints] = useState(null);
   useEffect(() => {
     if (!token) return;
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
+    const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
 
     const url = isImpersonating
-      ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}`
-      : `${API_BASE}/api/forms/my-points`;
+      ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
+      : `${API_BASE}/api/forms/my-points?1=1${monthParam}${yearParam}`;
 
     fetch(url, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json())
       .then(d => {
         console.log('📊 Backend points data:', d);
         setAdjustment(d.pointsAdjustment || 0);
-        setBackendPoints(d.totalPoints || 0);
+        setBackendPoints(d.totalPoints);
       })
       .catch(() => { });
-  }, [token, isImpersonating, viewAsEmail]);
+  }, [token, isImpersonating, viewAsEmail, selMonth, selYear]);
 
   // Load task counts
   const loadTaskCounts = useCallback(() => {
@@ -356,19 +359,21 @@ export default function Dashboard() {
     return product;
   };
 
-  // Use backend points if available (includes slabs), otherwise calculate from all verified forms
+  // Calculate total points dynamically according to selected month/period filter
   const totalPoints = useMemo(() => {
     if (backendPoints !== null && backendPoints !== undefined && backendPoints > 0) {
       return backendPoints;
     }
     let auto = 0;
-    allForms.forEach(f => {
+    const listToCount = (selMonth !== '' || (dateFilter && dateFilter !== 'all')) ? filtered : allForms;
+    listToCount.forEach(f => {
       if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
         auto += verifiedMap[getVerifyKey(f)]?.points || 0;
       }
     });
-    return Math.round((auto + adjustment) * 10) / 10;
-  }, [backendPoints, allForms, verifiedMap, adjustment]);
+    const adj = (selMonth === '' && dateFilter === 'all') ? adjustment : 0;
+    return Math.round((auto + adj) * 10) / 10;
+  }, [backendPoints, filtered, allForms, verifiedMap, adjustment, selMonth, dateFilter]);
 
   const kpis = [
     { key: 'all', label: 'Total Responses', value: filtered.length, cls: 'kpi-total' },

@@ -552,9 +552,11 @@ module.exports = (connectionManager, connectDB) => {
       const ManagerForm = require('../models/ManagerForm');
       const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
 
-      // Exclude raw records and heavy detailed logs from list query to prevent Vercel payload/timeout limits
+      // 🔥 STRICT PROJECTION: Fetch ONLY UI-critical fields (~180 bytes per form vs 2500 bytes unprojected)
+      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
+
       let query = Model.find(queryFilter)
-        .select('-verificationChecks.record -verificationChecks.checks')
+        .select(UI_FIELDS)
         .sort({ createdAt: -1 });
         
       if (pageSize) {
@@ -583,10 +585,10 @@ module.exports = (connectionManager, connectDB) => {
         }
       } : forms; // Backward compat: return array if no pagination
 
-      // Cache the result in Redis
+      // Cache the result in Redis for 30 minutes (1800s) to guarantee we never hit free memory limits
       if (redis) {
         try {
-          await redis.setex(cacheKey, 2592000, JSON.stringify(response));
+          await redis.setex(cacheKey, 1800, JSON.stringify(response));
         } catch (cacheErr) {
           console.error('Redis set error:', cacheErr.message);
         }
@@ -999,11 +1001,14 @@ module.exports = (connectionManager, connectDB) => {
       const TeamLead = require('../models/TeamLead');
       const ManagerForm = require('../models/ManagerForm');
 
-      // ✅ Fetch ALL forms: FSE + TL + Manager (consistent with Merchant Forms page)
+      // 🔥 STRICT PROJECTION: Fetch ONLY UI-critical fields (~180 bytes per form vs 2500 bytes unprojected)
+      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
+
+      // ✅ Fetch ALL forms with ultra-fast UI projection: FSE + TL + Manager
       const [fseForms, tlForms, mgrForms, employees, tls] = await Promise.all([
-        FormResponse.find({}).select('-verificationChecks.record').sort({ createdAt: -1 }).lean(),
-        TLFormResponse.find({}).select('-verificationChecks.record').sort({ createdAt: -1 }).lean(),
-        ManagerForm.find({}).select('-verificationChecks.record').sort({ createdAt: -1 }).lean(),
+        FormResponse.find({}).select(UI_FIELDS).sort({ createdAt: -1 }).lean(),
+        TLFormResponse.find({}).select(UI_FIELDS).sort({ createdAt: -1 }).lean(),
+        ManagerForm.find({}).select(UI_FIELDS).sort({ createdAt: -1 }).lean(),
         Employee.find({ approvalStatus: 'approved' }).select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager position location status').lean(),
         TeamLead.find({ $or: [{ approvalStatus: 'approved' }, { approvalStatus: { $exists: false } }] }).select('name email phone location reportingManager status').lean(),
       ]);
@@ -1241,7 +1246,7 @@ module.exports = (connectionManager, connectDB) => {
       const EmployeePoints = require('../models/EmployeePoints');
       const Employee = require('../models/Employee');
 
-      const { viewAs } = req.query;
+      const { viewAs, month, year } = req.query;
       let empName;
 
       // If admin is impersonating, fetch points for the target user
@@ -1264,6 +1269,35 @@ module.exports = (connectionManager, connectDB) => {
       }
 
       const trimmedName = empName.trim();
+
+      // If month and year are specified, lookup in EmployeeMonthlyPoints
+      if (month && year) {
+        const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
+        const monthlyDoc = await EmployeeMonthlyPoints.findOne({
+          employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') },
+          month: month,
+          year: parseInt(year)
+        }).lean();
+        if (monthlyDoc) {
+          return res.json({
+            newJoinerName: empName,
+            verifiedPoints: monthlyDoc.basePoints || 0,
+            slabBonus: monthlyDoc.slabPoints || 0,
+            pointsAdjustment: 0,
+            totalPoints: monthlyDoc.totalPoints || 0,
+            adjustmentHistory: []
+          });
+        }
+        // If no monthly record exists yet, return null so frontend calculates dynamically from filtered forms
+        return res.json({
+          newJoinerName: empName,
+          verifiedPoints: 0,
+          slabBonus: 0,
+          pointsAdjustment: 0,
+          totalPoints: null,
+          adjustmentHistory: []
+        });
+      }
 
       // Find the record with slabs if multiple exist
       const docs = await EmployeePoints.find({

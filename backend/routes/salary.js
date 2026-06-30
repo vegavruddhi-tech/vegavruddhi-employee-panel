@@ -54,6 +54,27 @@ router.post('/sync-points', async (req, res) => {
           },
           { upsert: true }
         );
+
+        const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
+        await EmployeeMonthlyPoints.findOneAndUpdate(
+          { 
+            employeeName: { $regex: new RegExp(`^${normalizedName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i') },
+            month: month,
+            year: parseInt(year)
+          },
+          {
+            $set: {
+              employeeName: normalizedName,
+              month: month,
+              year: parseInt(year),
+              basePoints: basePoints,
+              slabPoints: slabPoints,
+              totalPoints: totalPoints,
+              updatedAt: new Date()
+            }
+          },
+          { upsert: true }
+        );
       } catch (dbErr) {}
 
       saved++;

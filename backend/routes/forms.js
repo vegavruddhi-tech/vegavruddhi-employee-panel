@@ -523,13 +523,16 @@ module.exports = (connectionManager, connectDB) => {
       if (month && year && month !== 'All') {
         const monthIdx = monthNames.indexOf(month);
         if (monthIdx !== -1) {
-          const startDate = new Date(parseInt(year), monthIdx, 1);
-          const endDate = new Date(parseInt(year), monthIdx + 1, 0, 23, 59, 59, 999);
+          const mm = String(monthIdx + 1).padStart(2, '0');
+          const nextYear = monthIdx === 11 ? parseInt(year) + 1 : parseInt(year);
+          const nextMm = String((monthIdx + 1) % 12 + 1).padStart(2, '0');
+          const startDate = new Date(`${year}-${mm}-01T00:00:00.000+05:30`);
+          const endDate = new Date(new Date(`${nextYear}-${nextMm}-01T00:00:00.000+05:30`).getTime() - 1);
           queryFilter.createdAt = { $gte: startDate, $lte: endDate };
         }
       } else if (year && (!month || month === 'All')) {
-        const startDate = new Date(parseInt(year), 0, 1);
-        const endDate = new Date(parseInt(year), 11, 31, 23, 59, 59, 999);
+        const startDate = new Date(`${year}-01-01T00:00:00.000+05:30`);
+        const endDate = new Date(`${year}-12-31T23:59:59.999+05:30`);
         queryFilter.createdAt = { $gte: startDate, $lte: endDate };
       }
 
@@ -1270,7 +1273,7 @@ module.exports = (connectionManager, connectDB) => {
 
       const trimmedName = empName.trim();
 
-      // If month and year are specified, lookup in EmployeeMonthlyPoints
+      // If month and year are specified, lookup in EmployeeMonthlyPoints first
       if (month && year) {
         const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
         const monthlyDoc = await EmployeeMonthlyPoints.findOne({
@@ -1278,7 +1281,7 @@ module.exports = (connectionManager, connectDB) => {
           month: month,
           year: parseInt(year)
         }).lean();
-        if (monthlyDoc) {
+        if (monthlyDoc && (monthlyDoc.totalPoints || monthlyDoc.basePoints || monthlyDoc.slabPoints)) {
           return res.json({
             newJoinerName: empName,
             verifiedPoints: monthlyDoc.basePoints || 0,
@@ -1288,15 +1291,7 @@ module.exports = (connectionManager, connectDB) => {
             adjustmentHistory: []
           });
         }
-        // If no monthly record exists yet, return null so frontend calculates dynamically from filtered forms
-        return res.json({
-          newJoinerName: empName,
-          verifiedPoints: 0,
-          slabBonus: 0,
-          pointsAdjustment: 0,
-          totalPoints: null,
-          adjustmentHistory: []
-        });
+        // If not found in EmployeeMonthlyPoints, fall through to check EmployeePoints below
       }
 
       // Find the record with slabs if multiple exist

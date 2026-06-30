@@ -552,17 +552,26 @@ module.exports = (connectionManager, connectDB) => {
       const ManagerForm = require('../models/ManagerForm');
       const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
 
-      let query = Model.find(queryFilter).select('-verificationChecks.record').sort({ createdAt: -1 });
+      // Exclude raw records and heavy detailed logs from list query to prevent Vercel payload/timeout limits
+      let query = Model.find(queryFilter)
+        .select('-verificationChecks.record -verificationChecks.checks')
+        .sort({ createdAt: -1 });
+        
       if (pageSize) {
         query = query.skip(skipCount).limit(pageSize);
       }
-      const [totalCount, forms] = await Promise.all([
-        Model.countDocuments(queryFilter),
-        query.lean()
-      ]);
+      
+      const forms = await query.lean();
+      
+      // Calculate totalCount without blocking connection pool
+      let totalCount = forms.length;
+      if (pageSize && (forms.length === pageSize || skipCount > 0)) {
+        totalCount = await Model.countDocuments(queryFilter);
+      } else if (skipCount > 0) {
+        totalCount = skipCount + forms.length;
+      }
 
-
-      // 🔥 NEW: Response includes pagination metadata
+      // 🔥 Response includes pagination metadata
       const response = pageSize ? {
         forms,
         pagination: {
@@ -574,10 +583,10 @@ module.exports = (connectionManager, connectDB) => {
         }
       } : forms; // Backward compat: return array if no pagination
 
-      // Cache the result (5 minutes = 300 seconds)
+      // Cache the result in Redis
       if (redis) {
         try {
-          await redis.setex(cacheKey, 2592000, JSON.stringify(response)); // Cache for 30 days, will be cleared manually by precompute-all
+          await redis.setex(cacheKey, 2592000, JSON.stringify(response));
         } catch (cacheErr) {
           console.error('Redis set error:', cacheErr.message);
         }

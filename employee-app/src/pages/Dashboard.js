@@ -343,7 +343,13 @@ export default function Dashboard() {
           .then(() => {
             // ✅ Reload backend points after saving to get fresh data
             console.log('✅ Points saved, reloading from backend...');
-            return fetch(`${API_BASE}/api/forms/my-points`, {
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
+            const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
+            const url = isImpersonating
+              ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
+              : `${API_BASE}/api/forms/my-points?1=1${monthParam}${yearParam}`;
+            return fetch(url, {
               headers: { Authorization: 'Bearer ' + token }
             });
           })
@@ -359,7 +365,7 @@ export default function Dashboard() {
         console.error('❌ Verification fetch error:', err);
         setVerifiedMap({});
       });
-  }, [allForms.length, token]); // eslint-disable-line
+  }, [allForms.length, token, selMonth, selYear, isImpersonating, viewAsEmail]); // eslint-disable-line
   const normalizeProduct = (product) => {
     const p = (product || '').toLowerCase().trim();
     if (p === 'tide insurance' || p === 'insurance') return 'Tide Insurance';
@@ -372,21 +378,21 @@ export default function Dashboard() {
     return product;
   };
 
-  // Calculate total points dynamically according to selected month/period filter
+  // Calculate total points dynamically according to selected month/period filter and search bar
   const totalPoints = useMemo(() => {
-    if (backendPoints !== null && backendPoints !== undefined && backendPoints > 0) {
+    const isCustomFiltered = searchQuery.trim() !== '' || selProduct !== '' || (dateFilter && dateFilter !== 'all') || activeKPI !== 'all';
+    if (!isCustomFiltered && backendPoints !== null && backendPoints !== undefined) {
       return backendPoints;
     }
     let auto = 0;
-    const listToCount = (selMonth !== '' || (dateFilter && dateFilter !== 'all')) ? filtered : allForms;
-    listToCount.forEach(f => {
+    filtered.forEach(f => {
       if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
         auto += verifiedMap[getVerifyKey(f)]?.points || 0;
       }
     });
-    const adj = (selMonth === '' && dateFilter === 'all') ? adjustment : 0;
+    const adj = (!isCustomFiltered && selMonth === '') ? adjustment : 0;
     return Math.round((auto + adj) * 10) / 10;
-  }, [backendPoints, filtered, allForms, verifiedMap, adjustment, selMonth, dateFilter]);
+  }, [backendPoints, filtered, verifiedMap, adjustment, selMonth, dateFilter, searchQuery, selProduct, activeKPI]);
 
   const kpis = [
     { key: 'all', label: 'Total Responses', value: filtered.length, cls: 'kpi-total' },

@@ -90,11 +90,13 @@ export default function Login() {
 
   const handleSelectTideBT = () => {
     setShowTidePopup(false);
-    // Redirect to Tide BT with token in URL
+    // Redirect to Tide BT with token in URL — localhost in dev, Vercel in production
     const token = localStorage.getItem('token');
-    const redirectionUrl = `https://vegavruddhi-employee-tide-bt-4obl.vercel.app?token=${encodeURIComponent(token)}`
-    alert(redirectionUrl)
-    window.location.href = redirectionUrl;
+    const tideBTUrl = process.env.REACT_APP_TIDEBT_URL
+      || (window.location.hostname === 'localhost'
+          ? 'http://localhost:3004'
+          : 'https://vegavruddhi-employee-tide-bt-4obl.vercel.app');
+    window.location.href = `${tideBTUrl}?token=${encodeURIComponent(token)}`;
   };
 
   return (

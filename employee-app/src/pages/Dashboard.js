@@ -44,6 +44,7 @@ export default function Dashboard() {
   const [selYear, setSelYear] = useState(new Date().getFullYear().toString());
   const [selMonth, setSelMonth] = useState(new Date().getMonth().toString());
   const [selProduct, setSelProduct] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [adjustment, setAdjustment] = useState(0);
   const [taskCounts, setTaskCounts] = useState({ pending: 0, completed: 0, total: 0 });
 
@@ -253,8 +254,20 @@ export default function Dashboard() {
     if (activeKPI === 'notver') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified');
     if (activeKPI === 'phmatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
     if (activeKPI === 'phnomatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(f => {
+        const name = (f.customerName || '').toLowerCase();
+        const phone = (f.customerNumber || '').toLowerCase();
+        const loc = (f.location || '').toLowerCase();
+        const product = (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase();
+        return name.includes(q) || phone.includes(q) || loc.includes(q) || product.includes(q);
+      });
+    }
+
     return list;
-  }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap]);
+  }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap, searchQuery]);
 
 
   // <<<<<<< Updated upstream
@@ -607,6 +620,45 @@ export default function Dashboard() {
               </>
             );
           })()}
+        </div>
+
+        {/* Search Bar */}
+        <div style={{ marginBottom: 16, position: 'relative' }}>
+          <input
+            type="text"
+            placeholder="🔍 Search by merchant name, phone number, location or product..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '12px 36px 12px 16px',
+              borderRadius: '12px',
+              border: '1.5px solid #c8e6c9',
+              fontSize: '14px',
+              outline: 'none',
+              background: '#fff',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+              transition: 'border-color 0.2s'
+            }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              style={{
+                position: 'absolute',
+                right: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'transparent',
+                border: 'none',
+                color: '#888',
+                fontSize: '16px',
+                cursor: 'pointer'
+              }}
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Merchant count */}

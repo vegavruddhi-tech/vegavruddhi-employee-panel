@@ -1273,34 +1273,12 @@ module.exports = (connectionManager, connectDB) => {
 
       const trimmedName = empName.trim();
 
-      // If month and year are specified, lookup in EmployeeMonthlyPoints first
-      if (month && year) {
-        const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
-        const monthlyDoc = await EmployeeMonthlyPoints.findOne({
-          employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') },
-          month: month,
-          year: parseInt(year)
-        }).lean();
-        if (monthlyDoc && (monthlyDoc.totalPoints || monthlyDoc.basePoints || monthlyDoc.slabPoints)) {
-          return res.json({
-            newJoinerName: empName,
-            verifiedPoints: monthlyDoc.basePoints || 0,
-            slabBonus: monthlyDoc.slabPoints || 0,
-            pointsAdjustment: 0,
-            totalPoints: monthlyDoc.totalPoints || 0,
-            adjustmentHistory: []
-          });
-        }
-        // If not found in EmployeeMonthlyPoints, fall through to check EmployeePoints below
-      }
-
-      // Find the record with slabs if multiple exist
+      // Find the record with slabs and adjustments if available
       const docs = await EmployeePoints.find({
         newJoinerName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') }
       }).lean();
       const doc = docs.find(d => d.productSlabs && Object.keys(d.productSlabs).length > 0) || docs[0];
 
-      // Calculate slab bonus
       let slabBonus = 0;
       if (doc?.productSlabs) {
         Object.values(doc.productSlabs).forEach(ps => {
@@ -1310,13 +1288,59 @@ module.exports = (connectionManager, connectDB) => {
       }
       slabBonus = Math.round(slabBonus * 100) / 100;
 
-      const verifiedPoints = doc?.verifiedPoints || 0;
+      // Check if EmployeeMonthlyPoints has any slab bonus overrides for specific month
+      if (month && year) {
+        const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
+        const monthlyDoc = await EmployeeMonthlyPoints.findOne({
+          employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') },
+          month: month,
+          year: parseInt(year)
+        }).lean();
+        if (monthlyDoc && monthlyDoc.slabPoints) {
+          slabBonus = monthlyDoc.slabPoints;
+        }
+      }
+
+      // 🔥 Option 1: Live Server-Side Dynamic Calculation
+      // Dynamically count points from verified FormResponse / TLFormResponse records
+      const FormResponse = require('../models/FormResponse');
+      const TLFormResponse = require('../models/TLFormResponse');
+
+      const formQuery = { employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') } };
+      if (month && year) {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const monthIdx = monthNames.indexOf(month);
+        if (monthIdx !== -1) {
+          const mm = String(monthIdx + 1).padStart(2, '0');
+          const nextYear = monthIdx === 11 ? parseInt(year) + 1 : parseInt(year);
+          const nextMm = String((monthIdx + 1) % 12 + 1).padStart(2, '0');
+          formQuery.createdAt = {
+            $gte: new Date(`${year}-${mm}-01T00:00:00.000+05:30`),
+            $lte: new Date(new Date(`${nextYear}-${nextMm}-01T00:00:00.000+05:30`).getTime() - 1)
+          };
+        }
+      }
+
+      const [fseForms, tlForms] = await Promise.all([
+        FormResponse.find(formQuery).select('verificationStatus verificationChecks').lean(),
+        TLFormResponse.find(formQuery).select('verificationStatus verificationChecks').lean()
+      ]);
+
+      const allForms = [...fseForms, ...tlForms];
+      let liveVerifiedPoints = 0;
+      allForms.forEach(f => {
+        if (f.verificationStatus === 'Fully Verified' || f.verificationChecks?.status === 'Fully Verified') {
+          liveVerifiedPoints += parseFloat(f.verificationChecks?.points) || 0;
+        }
+      });
+      liveVerifiedPoints = Math.round(liveVerifiedPoints * 10) / 10;
+
       const pointsAdjustment = doc?.pointsAdjustment || 0;
-      const totalPoints = Math.round((verifiedPoints + slabBonus + pointsAdjustment) * 10) / 10;
+      const totalPoints = Math.round((liveVerifiedPoints + slabBonus + pointsAdjustment) * 10) / 10;
 
       res.json({
         newJoinerName: empName,
-        verifiedPoints,
+        verifiedPoints: liveVerifiedPoints,
         slabBonus,
         pointsAdjustment,
         totalPoints,

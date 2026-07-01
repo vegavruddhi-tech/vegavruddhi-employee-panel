@@ -253,6 +253,9 @@ module.exports = (connectionManager, connectDB) => {
 
 
       const { reason, ...updateData } = req.body;
+      if (updateData.createdAt) {
+        updateData.createdAt = new Date(updateData.createdAt);
+      }
 
       // 🔥 NEW: Try to update in all three collections (FSE, TL, Manager)
       const TLFormResponse = require('../models/TLFormResponse');
@@ -262,7 +265,7 @@ module.exports = (connectionManager, connectDB) => {
       let form = await FormResponse.findByIdAndUpdate(
         req.params.id,
         { $set: updateData },
-        { new: true }
+        { new: true, timestamps: false }
       );
       let formType = 'FSE';
 
@@ -271,7 +274,7 @@ module.exports = (connectionManager, connectDB) => {
         form = await TLFormResponse.findByIdAndUpdate(
           req.params.id,
           { $set: updateData },
-          { new: true }
+          { new: true, timestamps: false }
         );
         formType = 'TL';
       }
@@ -281,7 +284,7 @@ module.exports = (connectionManager, connectDB) => {
         form = await ManagerForm.findByIdAndUpdate(
           req.params.id,
           { $set: updateData },
-          { new: true }
+          { new: true, timestamps: false }
         );
         formType = 'Manager';
       }

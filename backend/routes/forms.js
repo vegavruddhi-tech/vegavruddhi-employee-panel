@@ -1251,14 +1251,16 @@ module.exports = (connectionManager, connectDB) => {
 
       const { viewAs, month, year } = req.query;
       let empName;
+      let targetId = req.user.id;
 
       // If admin is impersonating, fetch points for the target user
       if (viewAs && (req.user.isAdmin || req.user.role === 'admin')) {
-        const targetUser = await Employee.findOne({ newJoinerEmailId: viewAs }).select('newJoinerName');
+        const targetUser = await Employee.findOne({ newJoinerEmailId: viewAs }).select('newJoinerName _id');
         if (!targetUser) {
           return res.status(404).json({ message: 'Target user not found' });
         }
         empName = targetUser.newJoinerName;
+        targetId = targetUser._id;
       } else {
         // Try Employee first, then TeamLead
         const emp = await Employee.findById(req.user.id).select('newJoinerName');
@@ -1306,7 +1308,7 @@ module.exports = (connectionManager, connectDB) => {
       const FormResponse = require('../models/FormResponse');
       const TLFormResponse = require('../models/TLFormResponse');
 
-      const formQuery = { employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') } };
+      const dateFilter = {};
       if (month && year) {
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         const monthIdx = monthNames.indexOf(month);
@@ -1314,12 +1316,20 @@ module.exports = (connectionManager, connectDB) => {
           const mm = String(monthIdx + 1).padStart(2, '0');
           const nextYear = monthIdx === 11 ? parseInt(year) + 1 : parseInt(year);
           const nextMm = String((monthIdx + 1) % 12 + 1).padStart(2, '0');
-          formQuery.createdAt = {
+          dateFilter.createdAt = {
             $gte: new Date(`${year}-${mm}-01T00:00:00.000+05:30`),
             $lte: new Date(new Date(`${nextYear}-${nextMm}-01T00:00:00.000+05:30`).getTime() - 1)
           };
         }
       }
+
+      const formQuery = {
+        ...dateFilter,
+        $or: [
+          { submittedBy: targetId },
+          { employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') } }
+        ]
+      };
 
       const [fseForms, tlForms] = await Promise.all([
         FormResponse.find(formQuery).select('verificationStatus verificationChecks').lean(),

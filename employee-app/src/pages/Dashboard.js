@@ -182,13 +182,7 @@ export default function Dashboard() {
     const interval = setInterval(loadTaskCounts, 10000);
     return () => clearInterval(interval);
   }, [loadTaskCounts]);
-  const getVerifyKey = (f) => {
-    // ✅ MATCH BACKEND PRIORITY: formFillingFor → tideProduct → brand
-    const p = f.formFillingFor || f.tideProduct || f.brand || '';
-    // ✅ NORMALIZE: Convert to lowercase and append month to match cache keys
-    const month = f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : '';
-    return p ? `${f.customerNumber}__${p.toLowerCase().trim()}__${month}` : `${f.customerNumber}__${month}`;
-  };
+  const getVerifyKey = (f) => f._id || f.customerNumber;
   // Filtered forms
   const filtered = useMemo(() => {
     let list = allForms?.slice();
@@ -290,12 +284,33 @@ export default function Dashboard() {
       return;
     }
 
-    console.log('🔍 Fetching verification (POST bulk-admin):', {
+    // 1️⃣ Build initial verification map instantly from database fields (0 latency, 0 timeouts)
+    const initialMap = {};
+    let dbAutoPts = 0;
+    allForms.forEach(f => {
+      const vstatus = f.verificationStatus || f.verificationChecks?.status || 'Not Found';
+      const vpoints = f.verificationChecks?.points || 0;
+      const vinfo = {
+        status: vstatus,
+        points: vpoints,
+        phoneMatch: f.verificationChecks?.phoneMatch || false,
+        inSheet: f.verificationChecks?.inSheet || (vstatus !== 'Not Found'),
+        ...f.verificationChecks
+      };
+      initialMap[f._id] = vinfo;
+      if (f.customerNumber) initialMap[f.customerNumber] = vinfo;
+      if (vstatus === 'Fully Verified') {
+        dbAutoPts += vpoints;
+      }
+    });
+    setVerifiedMap(initialMap);
+
+    console.log('🔍 Fetching verification update (POST bulk-admin):', {
       formCount: allForms.length,
       endpoint: '/api/verify/bulk-admin'
     });
 
-    // ✅ Use POST bulk-admin to avoid URL length limits
+    // 2️⃣ Background fetch from bulk-admin to catch newly verified records
     fetch(`${API_BASE}/api/verify/bulk-admin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
@@ -307,64 +322,60 @@ export default function Dashboard() {
       }),
     })
       .then(r => {
-        console.log('📡 Verification response status:', r.status);
-        if (!r.ok) {
-          throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-        }
+        if (!r.ok) return null;
         return r.json();
       })
       .then(vm => {
-        console.log('✅ Verification data received:', {
-          keys: Object.keys(vm).length,
-          sample: Object.keys(vm).slice(0, 3),
-          fullData: vm
-        });
-        setVerifiedMap(vm);
-
-        // Save verified points — matching admin panel (no deduplication)
+        if (!vm || Object.keys(vm).length === 0) return;
+        const updatedMap = { ...initialMap };
         let autoPts = 0;
-        let verifiedCount = 0;
+
         allForms.forEach(f => {
-          if (vm[getVerifyKey(f)]?.status === 'Fully Verified') {
-            const vInfo = vm[getVerifyKey(f)];
-            autoPts += vInfo?.points || 0;
-            verifiedCount++;
+          const rawP = (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase().trim();
+          const normP = rawP === 'msme' ? 'tide msme' : rawP;
+          const month = f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : '';
+
+          const k1 = normP ? `${f.customerNumber}__${normP}__${month}` : `${f.customerNumber}__${month}`;
+          const k2 = normP ? `${f.customerNumber}__${normP}` : f.customerNumber;
+          const k3 = rawP ? `${f.customerNumber}__${rawP}__${month}` : `${f.customerNumber}__${month}`;
+          const k4 = rawP ? `${f.customerNumber}__${rawP}` : f.customerNumber;
+
+          const backendInfo = vm[k1] || vm[k2] || vm[k3] || vm[k4] || vm[f.customerNumber];
+          if (backendInfo) {
+            updatedMap[f._id] = backendInfo;
+            if (f.customerNumber) updatedMap[f.customerNumber] = backendInfo;
+          }
+
+          if ((updatedMap[f._id]?.status || 'Not Found') === 'Fully Verified') {
+            autoPts += (updatedMap[f._id]?.points || 0);
           }
         });
 
-        console.log('💰 Total calculated points:', autoPts);
-        console.log('💰 Verified forms count:', verifiedCount);
+        setVerifiedMap(updatedMap);
 
+        // Save verified points
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
           body: JSON.stringify({ verifiedPoints: Math.round(autoPts * 10) / 10 })
         })
           .then(() => {
-            // ✅ Reload backend points after saving to get fresh data
-            console.log('✅ Points saved, reloading from backend...');
             const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
             const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
             const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
             const url = isImpersonating
               ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
               : `${API_BASE}/api/forms/my-points?1=1${monthParam}${yearParam}`;
-            return fetch(url, {
-              headers: { Authorization: 'Bearer ' + token }
-            });
+            return fetch(url, { headers: { Authorization: 'Bearer ' + token } });
           })
           .then(r => r.json())
           .then(d => {
-            console.log('📊 Reloaded backend points:', d);
             setAdjustment(d.pointsAdjustment || 0);
             setBackendPoints(d.totalPoints || 0);
           })
-          .catch(() => { });
+          .catch(() => {});
       })
-      .catch(err => {
-        console.error('❌ Verification fetch error:', err);
-        setVerifiedMap({});
-      });
+      .catch(() => {});
   }, [allForms.length, token, selMonth, selYear, isImpersonating, viewAsEmail]); // eslint-disable-line
   const normalizeProduct = (product) => {
     const p = (product || '').toLowerCase().trim();

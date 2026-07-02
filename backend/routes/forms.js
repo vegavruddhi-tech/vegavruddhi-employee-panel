@@ -515,10 +515,15 @@ module.exports = (connectionManager, connectDB) => {
       const { getRedisClient } = require('../utils/redisClient');
       const redis = getRedisClient();
 
-      // 🔥 NEW: Pagination support
-      const pageSize = limit ? parseInt(limit) : null; // null = no pagination (backward compat)
-      const pageNum = page ? parseInt(page) : 1;
-      const skipCount = skip ? parseInt(skip) : (pageNum - 1) * (pageSize || 0);
+      // 🔥 FIX: hard cap on page size — NEVER allow an unbounded query.
+      const MAX_PAGE_SIZE = 200;
+      const DEFAULT_PAGE_SIZE = 50;
+      const pageSize = limit
+        ? Math.min(Math.max(parseInt(limit) || DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE)
+        : DEFAULT_PAGE_SIZE;
+
+      const pageNum = page ? Math.max(parseInt(page) || 1, 1) : 1;
+      const skipCount = skip ? parseInt(skip) : (pageNum - 1) * pageSize;
 
       // Build date filter query
       const queryFilter = {};
@@ -539,10 +544,10 @@ module.exports = (connectionManager, connectDB) => {
         queryFilter.createdAt = { $gte: startDate, $lte: endDate };
       }
 
-      // 🔥 Cache key includes pagination and date params
-      const cacheKey = `admin_forms_all:${role}:${year || 'all'}:${month || 'all'}:page${pageNum}:limit${pageSize || 'all'}`;
+      // Cache key includes pagination and date params
+      const cacheKey = `admin_forms_all:${role}:${year || 'all'}:${month || 'all'}:page${pageNum}:limit${pageSize}`;
 
-      // Try Redis cache first (expires in 5 minutes)
+      // Try Redis cache first
       if (redis) {
         try {
           const cached = await redis.get(cacheKey);
@@ -554,33 +559,30 @@ module.exports = (connectionManager, connectDB) => {
         }
       }
 
-      // 🔥 Fetch from appropriate collection based on role
+      // Fetch from appropriate collection based on role
       const ManagerForm = require('../models/ManagerForm');
       const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
 
-      // 🔥 STRICT PROJECTION: Fetch ONLY UI-critical fields (~180 bytes per form vs 2500 bytes unprojected)
+      // Exclude raw records and heavy detailed logs from list query to prevent Vercel payload/timeout limits
       const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
 
-      let query = Model.find(queryFilter)
+      const forms = await Model.find(queryFilter)
         .select(UI_FIELDS)
-        .sort({ createdAt: -1 });
-        
-      if (pageSize) {
-        query = query.skip(skipCount).limit(pageSize);
-      }
-      
-      const forms = await query.lean();
-      
-      // Calculate totalCount without blocking connection pool
-      let totalCount = forms.length;
-      if (pageSize && (forms.length === pageSize || skipCount > 0)) {
+        .sort({ createdAt: -1 })
+        .skip(skipCount)
+        .limit(pageSize)
+        .lean();
+
+      // Calculate totalCount without blocking connection pool unnecessarily
+      let totalCount;
+      if (forms.length === pageSize || skipCount > 0) {
         totalCount = await Model.countDocuments(queryFilter);
-      } else if (skipCount > 0) {
+      } else {
         totalCount = skipCount + forms.length;
       }
 
-      // 🔥 Response includes pagination metadata
-      const response = pageSize ? {
+      // Response always includes pagination metadata now
+      const response = {
         forms,
         pagination: {
           total: totalCount,
@@ -589,23 +591,18 @@ module.exports = (connectionManager, connectDB) => {
           pages: Math.ceil(totalCount / pageSize),
           hasMore: skipCount + forms.length < totalCount
         }
-      } : forms; // Backward compat: return array if no pagination
+      };
 
-      // Cache the result in Redis for 30 minutes (1800s) to guarantee we never hit free memory limits
+      // Cache the result in Redis for 300s (5 minutes)
       if (redis) {
         try {
-          await redis.setex(cacheKey, 1800, JSON.stringify(response));
+          await redis.setex(cacheKey, 300, JSON.stringify(response));
         } catch (cacheErr) {
           console.error('Redis set error:', cacheErr.message);
         }
       }
 
       res.json(response);
-      // console.log("*************************************************")
-      // console.log("*************************************************")
-      // console.log(response.length);
-      // console.log("*************************************************")
-      // console.log("*************************************************")
     } catch (err) {
       console.error(`Error fetching ${req.query.role || 'FSE'} forms:`, err.message);
       res.status(500).json({ message: err.message });

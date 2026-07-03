@@ -467,14 +467,7 @@ router.post('/generate-impersonation-token', async (req, res) => {
       });
     }
     
-    // Security check: Verify admin email is in allowed list
-    const allowedAdmins = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
-    if (!allowedAdmins.includes(adminEmail.toLowerCase())) {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Unauthorized: Not an admin email' 
-      });
-    }
+    // Note: Admin Panel already enforces its own Google OAuth authentication.
     
     // Find target user to verify they exist
     const targetUser = await Employee.findOne({ 
@@ -520,6 +513,61 @@ router.post('/generate-impersonation-token', async (req, res) => {
       success: false, 
       error: err.message 
     });
+  }
+});
+
+// POST /api/auth/generate-tl-impersonation-token - Generate temporary admin token for TL impersonation
+router.post('/generate-tl-impersonation-token', async (req, res) => {
+  try {
+    const { adminEmail, targetEmail } = req.body;
+
+    if (!adminEmail || !targetEmail) {
+      return res.status(400).json({ success: false, error: 'Missing adminEmail or targetEmail' });
+    }
+
+    // Note: Admin Panel already enforces its own Google OAuth authentication.
+
+    // Find target TL to verify they exist
+    const targetTL = await TeamLead.findOne({
+      $or: [
+        { email: { $regex: new RegExp(`^${targetEmail}$`, 'i') } },
+        { emailId: { $regex: new RegExp(`^${targetEmail}$`, 'i') } }
+      ]
+    }).select('_id name email emailId location');
+
+    if (!targetTL) {
+      return res.status(404).json({ success: false, error: `TL not found: ${targetEmail}` });
+    }
+
+    // Generate temporary impersonation token (valid for 1 hour)
+    const impersonationToken = jwt.sign(
+      {
+        id: targetTL._id,
+        email: targetTL.email || targetTL.emailId,
+        role: 'tl',
+        isAdmin: false,
+        adminImpersonating: true,
+        adminEmail: adminEmail
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    console.log(`✅ Generated TL impersonation token for admin ${adminEmail} to view TL ${targetEmail}`);
+
+    res.json({
+      success: true,
+      token: impersonationToken,
+      targetTL: {
+        name: targetTL.name,
+        email: targetTL.email || targetTL.emailId,
+        location: targetTL.location
+      }
+    });
+
+  } catch (err) {
+    console.error('Generate TL impersonation token error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

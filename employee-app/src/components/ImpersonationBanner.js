@@ -7,19 +7,20 @@ export default function ImpersonationBanner({ isImpersonating, targetName, targe
   return (
     <Alert 
       severity="info" 
-      sx={{ mb: 2, fontWeight: 600 }}
+      sx={{ mb: 2, fontWeight: 600, bgcolor: '#e3f2fd', border: '1px solid #90caf9', color: '#0d47a1', display: 'flex', alignItems: 'center' }}
       action={
         <Button 
-          color="inherit" 
+          variant="contained"
+          color="primary" 
           size="small" 
           onClick={onExit}
-          sx={{ fontWeight: 700 }}
+          sx={{ fontWeight: 700, bgcolor: '#1976d2', color: '#fff', '&:hover': { bgcolor: '#115293' }, textTransform: 'none' }}
         >
-          Exit View
+          ⬅ Return to Admin Approvals
         </Button>
       }
     >
-      👁️ Viewing as <strong>{targetName}</strong> ({targetEmail}) - Admin Mode
+      👁️ Viewing FSE Dashboard as <strong>{targetName}</strong> ({targetEmail}) — Admin Mode
     </Alert>
   );
 }

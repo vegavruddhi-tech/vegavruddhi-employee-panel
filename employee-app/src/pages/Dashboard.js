@@ -121,7 +121,7 @@ export default function Dashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const viewAs = params.get('viewAs');
-    const adminToken = params.get('adminToken');
+    const adminToken = params.get('adminToken') || params.get('token');
 
     if (viewAs && adminToken) {
       console.log('🔐 Impersonation detected:', { viewAs, hasToken: !!adminToken });
@@ -376,20 +376,19 @@ export default function Dashboard() {
   }, [dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, searchQuery]);
 
 
-  // <<<<<<< Updated upstream
-  //   // Exit impersonation handler
-  //   const handleExitImpersonation = () => {
-  //     // Clear session storage
-  //     sessionStorage.removeItem('impersonationToken');
-  //     sessionStorage.removeItem('viewAsEmail');
-
-  //     // Redirect back to admin panel
-  //     window.location.href = 'http://localhost:3002/merchant-forms';
-  //   };
-
-  //   // Fetch verification for filtered forms (using Redis cache)
-  // =======
-  // Fetch verification for ALL forms (not filtered — so counts stay accurate)Stashed changes
+  // Exit impersonation handler
+  const handleExitImpersonation = () => {
+    sessionStorage.removeItem('impersonationToken');
+    sessionStorage.removeItem('viewAsEmail');
+    if (window.opener && !window.opener.closed) {
+      window.close();
+    } else {
+      const adminAppUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? 'http://localhost:3000'
+        : 'https://vegavruddhi-admin-tide-bt-cyej.vercel.app';
+      window.location.href = adminAppUrl;
+    }
+  };
   useEffect(() => {
     if (!allForms.length) {
       console.log('⚠️ No forms to verify');
@@ -576,6 +575,12 @@ export default function Dashboard() {
     <>
       <Navbar emp={emp} taskCount={taskCounts.pending} token={token} />
       <div className="main-content">
+        <ImpersonationBanner
+          isImpersonating={isImpersonating}
+          targetName={emp?.newJoinerName || viewAsEmail}
+          targetEmail={viewAsEmail}
+          onExit={handleExitImpersonation}
+        />
 
         {/* Welcome card - Compact horizontal layout */}
         <div className="welcome-card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>

@@ -23,6 +23,74 @@ const BADGE_MAP = {
   'Not Found': { bg: '#f5f5f5', color: '#888', icon: '–' },
 };
 
+function formatProductDisplay(f, info) {
+  const baseProduct = f.formFillingFor
+    || (f.attemptedProducts?.join(', '))
+    || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand)
+    || '–';
+
+  if (baseProduct === '–') return baseProduct;
+  if (baseProduct.includes('(')) return baseProduct;
+
+  let subType = '';
+  const productKey = baseProduct.toLowerCase().trim();
+  const cfg = window.dynamicPointsMap?.[productKey];
+
+  if (cfg) {
+    if (cfg.type === 'mapped' && cfg.fieldMapping?.mappedColumn) {
+      const col = cfg.fieldMapping.mappedColumn;
+      let val = String(f[col] || '').trim();
+      if (!val && info?.record) {
+        val = String(info.record[col] || info.record[col.toLowerCase()] || '').trim();
+      }
+      if (!val && info?.checks && Array.isArray(info.checks)) {
+        const match = info.checks.find(c => c.field && c.field.toLowerCase() === col.toLowerCase());
+        if (match?.sheetValue) val = String(match.sheetValue).trim();
+        if (!val) {
+          const broader = info.checks.find(c => c.field && c.field.toLowerCase().includes(col.toLowerCase()));
+          if (broader?.sheetValue) val = String(broader.sheetValue).trim();
+        }
+      }
+      if (!val && info?.points !== undefined && Array.isArray(cfg.valueMapping)) {
+        const mapped = cfg.valueMapping.find(m => Number(m.points) === Number(info.points));
+        if (mapped && mapped.value) val = String(mapped.value).trim();
+      }
+      if (val) {
+        const num = parseFloat(val);
+        subType = !isNaN(num) ? `${num}` : val;
+      }
+    } else if (cfg.type === 'complex' && cfg.fieldMapping) {
+      const planField = cfg.fieldMapping.planField || 'planName';
+      const tierField = cfg.fieldMapping.tierField || 'tierName';
+      const planVal = String(f[planField] || '').trim();
+      const tierVal = String(f[tierField] || '').trim();
+      if (planVal && tierVal) subType = `${planVal} - ${tierVal}`;
+      else if (planVal) subType = planVal;
+      else if (tierVal) subType = tierVal;
+    }
+  }
+
+  // Generic fallback if cfg didn't catch it or wasn't loaded (specifically for Tide Insurance)
+  if (!subType && productKey === 'tide insurance') {
+    let val = String(f.ins_amount || f.tideIns_amount || f.amount || '').trim();
+    if (!val && info?.checks && Array.isArray(info.checks)) {
+      const match = info.checks.find(c => c.field && (c.field.toLowerCase() === 'amount' || c.field.toLowerCase().includes('amount') || c.field.toLowerCase().includes('plan')));
+      if (match?.sheetValue) val = String(match.sheetValue).trim();
+    }
+    if (!val && info?.record) {
+      val = String(info.record.amount || info.record.Amount || '').trim();
+    }
+    if (val) {
+      const num = parseFloat(val);
+      subType = !isNaN(num) ? `${num}` : val;
+    } else if (f.tideIns_type) {
+      subType = f.tideIns_type;
+    }
+  }
+
+  return subType ? `${baseProduct} (${subType})` : baseProduct;
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
 
@@ -47,6 +115,7 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [adjustment, setAdjustment] = useState(0);
   const [taskCounts, setTaskCounts] = useState({ pending: 0, completed: 0, total: 0 });
+  const [page, setPage] = useState(1);
 
   // ✅ Check for impersonation on mount
   useEffect(() => {
@@ -132,6 +201,45 @@ export default function Dashboard() {
       subscribeUserToPush(API_BASE, token);
     }
   }, [token, emp, isImpersonating]);
+
+  // Load dynamic points map for formatting product badges (e.g. Tide Insurance (699))
+  useEffect(() => {
+    fetch(`${API_BASE}/api/points-config`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.configs) {
+          const map = {};
+          data.configs.forEach(cfg => {
+            const productKey = cfg.productName.toLowerCase().trim();
+            const configData = {
+              type: cfg.productType,
+              fieldMapping: cfg.fieldMapping || {},
+            };
+            if (cfg.productType === 'simple') {
+              configData.points = cfg.simplePoints;
+            } else if (cfg.productType === 'complex') {
+              configData.plans = {};
+              (cfg.plans || []).forEach(plan => {
+                const planKey = plan.planName.toLowerCase();
+                configData.plans[planKey] = {};
+                (plan.tiers || []).forEach(tier => {
+                  const tierKey = tier.name.toLowerCase();
+                  configData.plans[planKey][tierKey] = {
+                    points: tier.points,
+                    price: tier.price
+                  };
+                });
+              });
+            } else if (cfg.productType === 'mapped') {
+              configData.valueMapping = cfg.valueMapping || [];
+            }
+            map[productKey] = configData;
+          });
+          window.dynamicPointsMap = map;
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   // Load forms (modified to support impersonation)
   const loadForms = useCallback(() => {
@@ -263,6 +371,10 @@ export default function Dashboard() {
     return list;
   }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap, searchQuery]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, searchQuery]);
+
 
   // <<<<<<< Updated upstream
   //   // Exit impersonation handler
@@ -290,13 +402,19 @@ export default function Dashboard() {
     allForms.forEach(f => {
       const vstatus = f.verificationStatus || f.verificationChecks?.status || 'Not Found';
       const vpoints = f.verificationChecks?.points || 0;
+      const isFound = vstatus !== 'Not Found';
       const vinfo = {
         status: vstatus,
         points: vpoints,
-        phoneMatch: f.verificationChecks?.phoneMatch || false,
-        inSheet: f.verificationChecks?.inSheet || (vstatus !== 'Not Found'),
-        ...f.verificationChecks
+        phoneMatch: isFound ? true : (f.verificationChecks?.phoneMatch || false),
+        inSheet: isFound ? true : (f.verificationChecks?.inSheet || false),
+        ...f.verificationChecks,
+        status: vstatus
       };
+      if (isFound) {
+        vinfo.phoneMatch = true;
+        vinfo.inSheet = true;
+      }
       initialMap[f._id] = vinfo;
       if (f.customerNumber) initialMap[f.customerNumber] = vinfo;
       if (vstatus === 'Fully Verified') {
@@ -305,8 +423,14 @@ export default function Dashboard() {
     });
     setVerifiedMap(initialMap);
 
+    const formsToCheck = allForms.filter(f => !f.verificationStatus || f.verificationStatus === 'Not Found').slice(0, 30);
+    if (formsToCheck.length === 0) {
+      console.log('✅ All forms loaded with verification status from DB');
+      return;
+    }
+
     console.log('🔍 Fetching verification update (POST bulk-admin):', {
-      formCount: allForms.length,
+      formCount: formsToCheck.length,
       endpoint: '/api/verify/bulk-admin'
     });
 
@@ -315,10 +439,10 @@ export default function Dashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({
-        phones: allForms.map(f => f.customerNumber || ''),
-        names: allForms.map(f => f.customerName || ''),
-        products: allForms.map(f => (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase().trim()),
-        months: allForms.map(f => f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : ''),
+        phones: formsToCheck.map(f => f.customerNumber || ''),
+        names: formsToCheck.map(f => f.customerName || ''),
+        products: formsToCheck.map(f => (f.formFillingFor || f.tideProduct || f.brand || '').toLowerCase().trim()),
+        months: formsToCheck.map(f => f.createdAt ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' }) : ''),
       }),
     })
       .then(r => {
@@ -684,80 +808,114 @@ export default function Dashboard() {
         )}
 
         {/* Merchant list */}
-        {allForms.length === 0 ? (
-          <div className="merchants-empty">No merchant visits yet. Fill your first form above.</div>
-        ) : filtered.length === 0 ? (
-          <div className="merchants-empty">No merchants found.</div>
-        ) : (
-          filtered.map(f => {
-            const info = verifiedMap[getVerifyKey(f)] || {};
-            const vstatus = info.status || 'Not Found';
-            const b = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
-            const sc = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };
-            const product = f.formFillingFor
-              || (f.attemptedProducts?.join(', '))
-              || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand)
-              || '–';
+        {(() => {
+          if (allForms.length === 0) {
+            return <div className="merchants-empty">No merchant visits yet. Fill your first form above.</div>;
+          }
+          if (filtered.length === 0) {
+            return <div className="merchants-empty">No merchants found.</div>;
+          }
 
-            const date = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+          const pageSize = 10;
+          const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+          const currentPage = Math.min(page, totalPages);
+          const paginatedList = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-            const pts = (info.status === 'Fully Verified') ? (info.points || null) : null;
+          return (
+            <>
+              {paginatedList.map(f => {
+                const info = verifiedMap[getVerifyKey(f)] || {};
+                const vstatus = info.status || 'Not Found';
+                const b = BADGE_MAP[vstatus] || BADGE_MAP['Not Found'];
+                const sc = STATUS_COLOR[f.status] || { color: '#333', bg: '#f5f5f5' };
+                const product = formatProductDisplay(f, info);
+                const date = new Date(f.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+                const pts = (info.status === 'Fully Verified') ? (info.points || null) : null;
 
-
-            return (
-              <div key={f._id} style={{ marginBottom: '12px', position: 'relative' }}>
-                <Link to={`/merchant/${f._id}`} className="merchant-row" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div className="mr-avatar">{f.customerName.charAt(0).toUpperCase()}</div>
-                  <div className="mr-info" style={{ flex: 1 }}>
-                    <div className="mr-name">{f.customerName}</div>
-                    <div className="mr-badges">
-                      {vstatus === 'Not Found' ? (
-                        <span className="phone-match-badge notfound">📞 Not in Sheet</span>
-                      ) : (
-                        <span className={`phone-match-badge ${info.phoneMatch ? 'match' : 'mismatch'}`}>
-                          📞 {info.phoneMatch ? 'Number Matched' : 'Number Mismatch'}
-                        </span>
-                      )}
-                      <span className="verify-badge" style={{ background: b.bg, color: b.color, borderColor: b.bg }}>
-                        {b.icon} {vstatus}
-                      </span>
-                      {pts !== null && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
-                          ⭐ {pts} pts
-                        </span>
-                      )}
-                    </div>
-                    <div className="mr-meta">
-                      <span>📍 {f.location}</span>
-                      <span>📄 {product}</span>
-                      <span>📞 {f.customerNumber}</span>
-                    </div>
+                return (
+                  <div key={f._id} style={{ marginBottom: '12px', position: 'relative' }}>
+                    <Link to={`/merchant/${f._id}`} className="merchant-row" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div className="mr-avatar">{f.customerName.charAt(0).toUpperCase()}</div>
+                      <div className="mr-info" style={{ flex: 1 }}>
+                        <div className="mr-name">{f.customerName}</div>
+                        <div className="mr-badges">
+                          {vstatus === 'Not Found' ? (
+                            <span className="phone-match-badge notfound">📞 Not in Sheet</span>
+                          ) : (
+                            <span className={`phone-match-badge ${(info.phoneMatch !== false || vstatus === 'Fully Verified') ? 'match' : 'mismatch'}`}>
+                              📞 {(info.phoneMatch !== false || vstatus === 'Fully Verified') ? 'Number Matched' : 'Number Mismatch'}
+                            </span>
+                          )}
+                          <span className="verify-badge" style={{ background: b.bg, color: b.color, borderColor: b.bg }}>
+                            {b.icon} {vstatus}
+                          </span>
+                          {pts !== null && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e6f4ea', color: '#2e7d32', border: '1.5px solid #a8d5b5', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 800 }}>
+                              ⭐ {pts} pts
+                            </span>
+                          )}
+                        </div>
+                        <div className="mr-meta">
+                          <span>📍 {f.location}</span>
+                          <span>📄 {product}</span>
+                          <span>📞 {f.customerNumber}</span>
+                        </div>
+                      </div>
+                      <div className="mr-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                        <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
+                        <div className="mr-date">{date}</div>
+                      </div>
+                    </Link>
+                    {/* Timeline icon - outside Link, positioned absolutely on the right */}
+                    {(f.brand === 'Tide' && f.tideProduct === 'Tide') && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          position: 'absolute',
+                          top: '12px',
+                          right: '12px',
+                          zIndex: 10
+                        }}
+                      >
+                        <TideMerchantTimeline phone={f.customerNumber} customerName={f.customerName} />
+                      </div>
+                    )}
                   </div>
-                  <div className="mr-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                    <span className="mr-status" style={{ color: sc.color, background: sc.bg }}>{f.status}</span>
+                );
+              })}
 
-                    <div className="mr-date">{date}</div>
+              {/* Pagination Bar */}
+              {totalPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: '#fbfbfb', border: '1.5px solid #e0e0e0', borderRadius: '12px', marginTop: '16px' }}>
+                  <span style={{ fontSize: '13px', color: '#555', fontWeight: 600 }}>
+                    Showing {Math.min((currentPage - 1) * pageSize + 1, filtered.length)} - {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} forms
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button 
+                      disabled={currentPage <= 1} 
+                      onClick={() => setPage(p => Math.max(1, p - 1))} 
+                      style={{ padding: '6px 14px', borderRadius: '8px', border: '1.5px solid #dde8dd', background: currentPage <= 1 ? '#f5f5f5' : '#fff', color: currentPage <= 1 ? '#aaa' : '#1b4332', fontWeight: 700, fontSize: '13px', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer' }}
+                    >
+                      Previous
+                    </button>
+                    <span style={{ fontWeight: 800, fontSize: '13px', color: '#1b4332', padding: '0 6px' }}>
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <button 
+                      disabled={currentPage >= totalPages} 
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                      style={{ padding: '6px 14px', borderRadius: '8px', border: '1.5px solid #dde8dd', background: currentPage >= totalPages ? '#f5f5f5' : '#fff', color: currentPage >= totalPages ? '#aaa' : '#1b4332', fontWeight: 700, fontSize: '13px', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
+                    >
+                      Next
+                    </button>
                   </div>
-                </Link>
-                {/* Timeline icon - outside Link, positioned absolutely on the right */}
-                {(f.brand === 'Tide' && f.tideProduct === 'Tide') && (
-                  <div
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                      position: 'absolute',
-                      top: '12px',
-                      right: '12px',
-                      zIndex: 10
-                    }}
-                  >
-                    <TideMerchantTimeline phone={f.customerNumber} customerName={f.customerName} />
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
+
       <Footer />
     </>
   );

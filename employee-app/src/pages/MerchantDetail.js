@@ -39,6 +39,33 @@ function Section({ icon, title, children }) {
   );
 }
 
+function formatProductDisplay(f, vData) {
+  const baseProduct = f.formFillingFor || (f.attemptedProducts?.join(', ')) || '–';
+  if (baseProduct === '–' || baseProduct.includes('(')) return baseProduct;
+
+  let subType = '';
+  const productKey = baseProduct.toLowerCase().trim();
+  const info = vData?.verification || {};
+
+  if (productKey === 'tide insurance') {
+    let val = String(f.ins_amount || f.tideIns_amount || f.amount || '').trim();
+    if (!val && info.checks && Array.isArray(info.checks)) {
+      const match = info.checks.find(c => c.field && (c.field.toLowerCase().includes('amount') || c.field.toLowerCase().includes('plan')));
+      if (match?.sheetValue) val = String(match.sheetValue).trim();
+    }
+    if (!val && info.record) {
+      val = String(info.record.amount || info.record.Amount || '').trim();
+    }
+    if (val) {
+      const num = parseFloat(val);
+      subType = !isNaN(num) ? `${num}` : val;
+    } else if (f.tideIns_type) {
+      subType = f.tideIns_type;
+    }
+  }
+  return subType ? `${baseProduct} (${subType})` : baseProduct;
+}
+
 export default function MerchantDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -145,7 +172,7 @@ const openDelete = () => {
             <h2>{form.customerName}</h2>
             <p>📞 {form.customerNumber} &nbsp;·&nbsp; 📍 {form.location}</p>
             <div className="detail-hero-badges">
-              <span className="detail-badge">📄 {form.formFillingFor || form.attemptedProducts?.join(', ') || '–'}</span>
+              <span className="detail-badge">📄 {formatProductDisplay(form, vData)}</span>
               <span className="detail-badge" style={{ background: sc.bg, color: sc.color, borderColor: sc.bg }}>{form.status}</span>
             </div>
           </div>
@@ -160,7 +187,7 @@ const openDelete = () => {
         </Section>
 
         <Section icon="📋" title="Visit Information">
-          <Field label="Form Filled For">{form.formFillingFor || form.attemptedProducts?.join(', ') || '–'}</Field>
+          <Field label="Form Filled For">{formatProductDisplay(form, vData)}</Field>
           <Field label="Visit Status" full>
             <span style={{ display: 'inline-block', padding: '4px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, color: sc.color, background: sc.bg }}>{form.status}</span>
           </Field>

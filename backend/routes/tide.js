@@ -130,8 +130,11 @@ module.exports = (connectionManager, connectDB) => {
         phoneVariants.push(Number(without91));
       }
 
-      // Query each month
-      for (const month of months) {
+      // Pre-fetch rules once for all months
+      const activeRules = await VerificationRule.find({ active: true });
+
+      // Query all months concurrently
+      const timelineResults = await Promise.all(months.map(async (month) => {
         const monthKey = month.toLowerCase();
         const collectionName = `tl_connect_${monthKey}`;
         const monthYear = `${month} ${currentYear}`;
@@ -147,7 +150,6 @@ module.exports = (connectionManager, connectDB) => {
           }
 
           if (record) {
-            // Record exists - verify THIS month's data
             let verificationStatus = 'Not Verified';
             let verificationDetails = null;
             
@@ -160,28 +162,27 @@ module.exports = (connectionManager, connectDB) => {
                 VerificationRule,
                 'tide',
                 monthYear,
-                null
+                activeRules
               );
               verificationStatus = verification.status || 'Not Verified';
-              verificationDetails = verification; // Store full verification object
+              verificationDetails = verification;
             } catch (verifyErr) {
               console.error(`[${month}] Verification error:`, verifyErr.message);
             }
             
-            timeline.push({
+            return {
               month: month,
               monthKey: monthKey,
               status: verificationStatus,
               priorityPass: record.priority_pass_pro || null,
               hasData: true,
-              verification: verificationDetails, // Include full verification details
+              verification: verificationDetails,
               merchantName: record.merchant_name || record.customer_name || null,
               location: record.location || null,
               lastUpdated: record._synced_at || null
-            });
+            };
           } else {
-            // No data found for this month
-            timeline.push({
+            return {
               month: month,
               monthKey: monthKey,
               status: 'Not Found',
@@ -191,11 +192,11 @@ module.exports = (connectionManager, connectDB) => {
               merchantName: null,
               location: null,
               lastUpdated: null
-            });
+            };
           }
         } catch (monthErr) {
           console.error(`[${month}] Error:`, monthErr.message);
-          timeline.push({
+          return {
             month: month,
             monthKey: monthKey,
             status: 'Not Found',
@@ -205,13 +206,13 @@ module.exports = (connectionManager, connectDB) => {
             merchantName: null,
             location: null,
             lastUpdated: null
-          });
+          };
         }
-      }
+      }));
 
       res.json({
         phone,
-        timeline,
+        timeline: timelineResults,
         currentMonth: new Date().toLocaleString('en-US', { month: 'long' }).toLowerCase()
       });
 

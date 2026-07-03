@@ -467,7 +467,14 @@ router.post('/generate-impersonation-token', async (req, res) => {
       });
     }
     
-    // Note: Admin Panel already enforces its own Google OAuth authentication.
+    // Security check: Verify admin email is in allowed list
+    const allowedAdmins = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    if (!allowedAdmins.includes((adminEmail || '').toLowerCase())) {
+      return res.status(403).json({ 
+        success: false, 
+        error: `Unauthorized: ${adminEmail} is not an authorized admin email` 
+      });
+    }
     
     // Find target user to verify they exist
     const targetUser = await Employee.findOne({ 
@@ -525,7 +532,11 @@ router.post('/generate-tl-impersonation-token', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing adminEmail or targetEmail' });
     }
 
-    // Note: Admin Panel already enforces its own Google OAuth authentication.
+    // Security check: Verify admin email is in allowed list
+    const allowedAdmins = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    if (!allowedAdmins.includes((adminEmail || '').toLowerCase())) {
+      return res.status(403).json({ success: false, error: `Unauthorized: ${adminEmail} is not an authorized admin email` });
+    }
 
     // Find target TL to verify they exist
     const targetTL = await TeamLead.findOne({

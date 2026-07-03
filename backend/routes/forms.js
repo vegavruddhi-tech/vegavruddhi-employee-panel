@@ -394,6 +394,104 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
+  // GET /api/forms/directory — Global lightweight merchant directory for duplicate prevention
+  router.get('/directory', verifyToken, async (req, res) => {
+    try {
+      const { page = 1, limit = 100, search = '', product = '' } = req.query;
+      const pageNum = Math.max(parseInt(page) || 1, 1);
+      const pageSize = Math.min(Math.max(parseInt(limit) || 100, 1), 200);
+      const skipCount = (pageNum - 1) * pageSize;
+
+      // Security / Privacy Rule: Do not dump all merchant data. Require at least 4 characters.
+      if (!search || search.trim().length < 4) {
+        return res.json({
+          merchants: [],
+          pagination: { total: 0, page: pageNum, limit: pageSize, pages: 1, hasMore: false }
+        });
+      }
+
+      // Exclude forms marked as 'Not Found' so FSEs can re-onboard those merchants without being blocked
+      const queryFilter = { verificationStatus: { $ne: 'Not Found' } };
+
+      // Filter by product if specified
+      if (product && product !== 'All') {
+        queryFilter.$or = [
+          { formFillingFor: { $regex: new RegExp(product.trim(), 'i') } },
+          { tideProduct: { $regex: new RegExp(product.trim(), 'i') } },
+          { brand: { $regex: new RegExp(product.trim(), 'i') } }
+        ];
+      }
+
+      // Filter by search term (merchant name, phone number, or FSE name)
+      if (search && search.trim()) {
+        const searchRegex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const searchFilter = { $or: [{ customerName: searchRegex }, { customerNumber: searchRegex }, { employeeName: searchRegex }] };
+        if (queryFilter.$or) {
+          queryFilter.$and = [ { $or: queryFilter.$or }, searchFilter ];
+          delete queryFilter.$or;
+        } else {
+          Object.assign(queryFilter, searchFilter);
+        }
+      }
+
+      // Query FormResponse, TLFormResponse, and ManagerForm in parallel for blazing speed
+      const ManagerForm = require('../models/ManagerForm');
+      const SELECT_FIELDS = '_id customerName customerNumber employeeName formFillingFor tideProduct brand tideIns_type ins_insuranceType createdAt submittedAt';
+
+      const [fseForms, tlForms, mgrForms] = await Promise.all([
+        FormResponse.find(queryFilter).select(SELECT_FIELDS).sort({ createdAt: -1 }).skip(skipCount).limit(pageSize).lean(),
+        TLFormResponse.find(queryFilter).select(SELECT_FIELDS).sort({ createdAt: -1 }).skip(skipCount).limit(pageSize).lean(),
+        ManagerForm.find(queryFilter).select(SELECT_FIELDS).sort({ createdAt: -1 }).skip(skipCount).limit(pageSize).lean()
+      ]);
+
+      // Combine, sort, and cap at max 5 records to prevent bulk data harvesting
+      const maxResults = 5;
+      const combined = [...fseForms, ...tlForms, ...mgrForms]
+        .sort((a, b) => new Date(b.createdAt || b.submittedAt || 0) - new Date(a.createdAt || a.submittedAt || 0))
+        .slice(0, maxResults);
+
+      // Get count (if first page without filter or fast estimation)
+      let totalCount = combined.length;
+      if (combined.length === pageSize || skipCount > 0) {
+        const [c1, c2, c3] = await Promise.all([
+          FormResponse.countDocuments(queryFilter),
+          TLFormResponse.countDocuments(queryFilter),
+          ManagerForm.countDocuments(queryFilter)
+        ]);
+        totalCount = c1 + c2 + c3;
+      }
+
+      // Normalize records for clean frontend consumption
+      const directory = combined.map(f => {
+        const prod = f.formFillingFor || f.tideProduct || f.brand || 'Other';
+        const subProd = f.tideIns_type || f.ins_insuranceType || '';
+        return {
+          _id: f._id,
+          merchantName: f.customerName || 'Unknown Merchant',
+          merchantPhone: f.customerNumber || '–',
+          filledBy: f.employeeName || 'Unknown FSE',
+          product: prod,
+          subProduct: subProd,
+          filledDate: f.createdAt || f.submittedAt || null
+        };
+      });
+
+      res.json({
+        merchants: directory,
+        pagination: {
+          total: totalCount,
+          page: pageNum,
+          limit: pageSize,
+          pages: Math.ceil(totalCount / pageSize) || 1,
+          hasMore: skipCount + directory.length < totalCount
+        }
+      });
+    } catch (err) {
+      console.error('Error in /api/forms/directory:', err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // GET /api/forms/detail/:id
   router.get('/detail/:id', verifyToken, async (req, res) => {
     try {
@@ -563,8 +661,8 @@ module.exports = (connectionManager, connectDB) => {
       const ManagerForm = require('../models/ManagerForm');
       const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
 
-      // Exclude raw records and heavy detailed logs from list query to prevent Vercel payload/timeout limits
-      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
+      // Include all product details so spreadsheet export contains complete information
+      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason tide_qrPosted tide_upiTxnDone tideBt_txnDone ins_vehicleNumber ins_vehicleType ins_insuranceType pine_cardTxn pine_wifiConnected cc_cardName tideIns_type verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
 
       const forms = await Model.find(queryFilter)
         .select(UI_FIELDS)
@@ -1004,8 +1102,8 @@ module.exports = (connectionManager, connectDB) => {
       const TeamLead = require('../models/TeamLead');
       const ManagerForm = require('../models/ManagerForm');
 
-      // 🔥 STRICT PROJECTION: Fetch ONLY UI-critical fields (~180 bytes per form vs 2500 bytes unprojected)
-      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
+      // 🔥 STRICT PROJECTION: Include UI fields and all product details for spreadsheet export
+      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason tide_qrPosted tide_upiTxnDone tideBt_txnDone ins_vehicleNumber ins_vehicleType ins_insuranceType pine_cardTxn pine_wifiConnected cc_cardName tideIns_type verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
 
       // ✅ Fetch ALL forms with ultra-fast UI projection: FSE + TL + Manager
       const [fseForms, tlForms, mgrForms, employees, tls] = await Promise.all([

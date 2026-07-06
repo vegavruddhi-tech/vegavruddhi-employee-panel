@@ -6,6 +6,8 @@ import Footer from '../components/Footer';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 import TideMerchantTimeline from '../components/TideMerchantTimeline';
 import { subscribeUserToPush } from '../pushSubscriptionHelper';
+import MerchantDirectoryModal from '../components/MerchantDirectoryModal';
+
 
 
 const STATUS_COLOR = {
@@ -116,6 +118,8 @@ export default function Dashboard() {
   const [adjustment, setAdjustment] = useState(0);
   const [taskCounts, setTaskCounts] = useState({ pending: 0, completed: 0, total: 0 });
   const [page, setPage] = useState(1);
+  const [showDirectoryModal, setShowDirectoryModal] = useState(false);
+
 
   // ✅ Check for impersonation on mount
   useEffect(() => {
@@ -634,6 +638,14 @@ export default function Dashboard() {
           </div>
           <div className="action-arrow">›</div>
         </Link>
+        <div onClick={() => setShowDirectoryModal(true)} className="action-card" style={{ cursor: 'pointer', marginTop: 12 }}>
+          <div className="action-icon">🏢</div>
+          <div className="action-text">
+            <div className="action-title">Global Merchant Check</div>
+            <div className="action-sub">Verify shop name or phone before visit to avoid filling duplicate forms</div>
+          </div>
+          <div className="action-arrow">›</div>
+        </div>
 
         {/* KPI cards */}
         <div className="kpi-row kpi-row-5" style={{ marginTop: 24 }}>
@@ -920,6 +932,12 @@ export default function Dashboard() {
           );
         })()}
       </div>
+
+      <MerchantDirectoryModal
+        isOpen={showDirectoryModal}
+        onClose={() => setShowDirectoryModal(false)}
+        token={token}
+      />
 
       <Footer />
     </>

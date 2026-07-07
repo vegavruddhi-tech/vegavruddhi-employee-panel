@@ -179,7 +179,12 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     : await VerificationRule.find({ active: true });
 
   const allRules = month
-    ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
+    ? allRulesRaw.filter(r => {
+        const rM = normalize(r.monthLabel);
+        const qM = normalize(month);
+        if (!rM || !qM) return true;
+        return rM === qM || rM.includes(qM) || qM.includes(rM) || (rM.split(' ')[0] && rM.split(' ')[0] === qM.split(' ')[0]);
+      })
     : allRulesRaw;
 
   // ✅ Filter rules by product with EXACT matching (case-insensitive)
@@ -273,7 +278,12 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
     : await VerificationRule.find({ active: true });
 
   const allRules = month
-    ? allRulesRaw.filter(r => normalize(r.monthLabel) === normalize(month))
+    ? allRulesRaw.filter(r => {
+        const rM = normalize(r.monthLabel);
+        const qM = normalize(month);
+        if (!rM || !qM) return true;
+        return rM === qM || rM.includes(qM) || qM.includes(rM) || (rM.split(' ')[0] && rM.split(' ')[0] === qM.split(' ')[0]);
+      })
     : allRulesRaw;
 
   // ✅ Filter rules by product with EXACT matching (case-insensitive)

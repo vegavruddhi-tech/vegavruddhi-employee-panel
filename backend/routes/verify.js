@@ -654,7 +654,7 @@ async function attachPoints(result) {
   // ---------- BULK (NORMAL) - OPTIMIZED ----------
   router.get('/bulk', verifyToken, async (req, res) => {
     try {
-      const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
+      const phones   = (req.query.phones   || '').split(',').map(p => p.trim());
       const names    = (req.query.names    || '').split(',').map(n => n.trim());
       const products = (req.query.products || '').split(',').map(p => p.trim());
       const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
@@ -717,7 +717,7 @@ async function attachPoints(result) {
   // ---------- BULK CACHED (REDIS CACHED VERSION FOR EMPLOYEES) ----------
   router.get('/bulk-cached', verifyToken, async (req, res) => {
     try {
-      const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
+      const phones   = (req.query.phones   || '').split(',').map(p => p.trim());
       const names    = (req.query.names    || '').split(',').map(n => n.trim());
       const products = (req.query.products || '').split(',').map(p => normalizeProduct(p));
       const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
@@ -861,7 +861,7 @@ async function attachPoints(result) {
   router.post('/bulk-cached', verifyToken, async (req, res) => {
     try {
       const { phones: phonesArr, names: namesArr, products: productsArr, months: monthsArr } = req.body;
-      const phones   = (Array.isArray(phonesArr) ? phonesArr : (phonesArr || '').split(',')).map(p => String(p).trim()).filter(Boolean);
+      const phones   = (Array.isArray(phonesArr) ? phonesArr : (phonesArr || '').split(',')).map(p => String(p).trim());
       const names    = (Array.isArray(namesArr) ? namesArr : (namesArr || '').split(',')).map(n => String(n).trim());
       const products = (Array.isArray(productsArr) ? productsArr : (productsArr || '').split(',')).map(p => normalizeProduct(p));
       const months   = (Array.isArray(monthsArr) ? monthsArr : (monthsArr || '').split(',')).map(m => String(m).trim());
@@ -880,14 +880,18 @@ async function attachPoints(result) {
 
       const missedIndices = [];
       phones.forEach((phone, i) => {
+        if (!phone) return;
         const product = products[i] || '';
         const month = months[i] || '';
         const key = product ? `${phone}__${product}` : phone;
+        const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
         const cached = cachedValues[i];
         if (cached) {
           try {
             const d = JSON.parse(cached);
-            result[key] = { status: d.status, verified: d.verified, passed: d.passed, total: d.total, checks: d.checks || [], collection: d.collection, matchType: d.matchType, phoneMatch: d.status !== 'Not Found' ? true : (d.phoneMatch || false), inSheet: d.status !== 'Not Found' ? true : (d.matched || false), monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
+            const dataObj = { status: d.status, verified: d.verified, passed: d.passed, total: d.total, checks: d.checks || [], collection: d.collection, matchType: d.matchType, phoneMatch: d.status !== 'Not Found' ? true : (d.phoneMatch || false), inSheet: d.status !== 'Not Found' ? true : (d.matched || false), monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
+            result[key] = dataObj;
+            result[monthKey] = dataObj;
           } catch { missedIndices.push(i); }
         } else { missedIndices.push(i); }
       });
@@ -900,14 +904,22 @@ async function attachPoints(result) {
           const chunk = missedIndices.slice(idx, idx + chunkSize);
           await Promise.all(chunk.map(async (i) => {
             const phone = phones[i], name = names[i] || '', product = products[i] || '', month = months[i] || '';
+            if (!phone) return;
             const key = product ? `${phone}__${product}` : phone;
+            const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
             try {
               const [v, pc] = await Promise.all([
                 verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
                 crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
               ]);
-              result[key] = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch: v.status !== 'Not Found' ? true : pc.phoneMatch, inSheet: v.status !== 'Not Found' ? true : pc.matched, monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
-            } catch (err) { result[key] = { status: 'Error', verified: false, passed: 0, total: 0, checks: [], error: err.message }; }
+              const dataObj = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch: v.status !== 'Not Found' ? true : pc.phoneMatch, inSheet: v.status !== 'Not Found' ? true : pc.matched, monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
+              result[key] = dataObj;
+              result[monthKey] = dataObj;
+            } catch (err) {
+              const errObj = { status: 'Error', verified: false, passed: 0, total: 0, checks: [], error: err.message };
+              result[key] = errObj;
+              result[monthKey] = errObj;
+            }
           }));
         }
       }
@@ -932,7 +944,7 @@ async function attachPoints(result) {
       res.setHeader('Expires', '0');
       res.setHeader('Surrogate-Control', 'no-store');
 
-      const phones   = (req.query.phones   || '').split(',').map(p => p.trim()).filter(Boolean);
+      const phones   = (req.query.phones   || '').split(',').map(p => p.trim());
       const names    = (req.query.names    || '').split(',').map(n => n.trim());
       // ✅ NORMALIZE: Convert all products to lowercase, trim, handle empty/null/undefined
       const products = (req.query.products || '').split(',').map(p => normalizeProduct(p));
@@ -1122,7 +1134,7 @@ async function attachPoints(result) {
 
       const { phones: phonesArr, names: namesArr, products: productsArr, months: monthsArr } = req.body;
 
-      const phones   = (Array.isArray(phonesArr)   ? phonesArr   : (phonesArr   || '').split(',')).map(p => String(p).trim()).filter(Boolean);
+      const phones   = (Array.isArray(phonesArr)   ? phonesArr   : (phonesArr   || '').split(',')).map(p => String(p).trim());
       const names    = (Array.isArray(namesArr)    ? namesArr    : (namesArr    || '').split(',')).map(n => String(n).trim());
       const products = (Array.isArray(productsArr) ? productsArr : (productsArr || '').split(',')).map(p => normalizeProduct(p));
       const months   = (Array.isArray(monthsArr)   ? monthsArr   : (monthsArr   || '').split(',')).map(m => String(m).trim());
@@ -1153,6 +1165,7 @@ async function attachPoints(result) {
       const missedIndices = [];
 
       phones.forEach((phone, i) => {
+        if (!phone) return;
         const product = products[i] || '';
         const month   = months[i]   || '';
         const key     = product ? `${phone}__${product}` : phone;
@@ -1184,6 +1197,7 @@ async function attachPoints(result) {
           const chunk = missedIndices.slice(idx, idx + chunkSize);
           await Promise.all(chunk.map(async (i) => {
             const phone   = phones[i];
+            if (!phone) return;
             const name    = names[i]    || '';
             const product = products[i] || '';
             const month   = months[i]   || '';

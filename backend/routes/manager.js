@@ -163,7 +163,35 @@ router.get('/kpi-detail', verifyToken, async (req, res) => {
     const now        = new Date();
     const todayIST   = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const todayStr   = todayIST.toISOString().split('T')[0];
-    const monthStart = new Date(todayIST.getFullYear(), todayIST.getMonth(), 1);
+
+    const { year, month, dateFilter, fromDate, toDate } = req.query;
+    let monthStart = new Date(todayIST.getFullYear(), todayIST.getMonth(), 1);
+    if (dateFilter === 'all' || dateFilter === 'alltime') {
+      monthStart = new Date(2020, 0, 1);
+    } else if (dateFilter === 'custom' && fromDate) {
+      monthStart = new Date(fromDate);
+    } else if (year || (month !== undefined && month !== '')) {
+      const y = year ? parseInt(year) : todayIST.getFullYear();
+      if (month !== undefined && month !== '') {
+        const m = parseInt(month);
+        monthStart = new Date(y, m, 1);
+      } else {
+        monthStart = new Date(y, 0, 1);
+      }
+    }
+
+    let dateEnd = null;
+    if (dateFilter === 'custom' && toDate) {
+      dateEnd = new Date(toDate + 'T23:59:59');
+    } else if (year && month !== undefined && month !== '') {
+      dateEnd = new Date(parseInt(year), parseInt(month) + 1, 0, 23, 59, 59);
+    } else if (year && (month === undefined || month === '')) {
+      dateEnd = new Date(parseInt(year), 11, 31, 23, 59, 59);
+    }
+
+    const dateQuery = dateEnd
+      ? { createdAt: { $gte: monthStart, $lte: dateEnd } }
+      : { createdAt: { $gte: monthStart } };
 
     if (type === 'totalTLs') {
       return res.json(tls.map(t => ({
@@ -173,8 +201,8 @@ router.get('/kpi-detail', verifyToken, async (req, res) => {
 
     if (type === 'activeTLs') {
       const [fForms, tForms] = await Promise.all([
-        FormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
-        TLFormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
+        FormResponse.find({ employeeName: { $in: allFSENames }, ...dateQuery }).select('employeeName'),
+        TLFormResponse.find({ employeeName: { $in: allFSENames }, ...dateQuery }).select('employeeName'),
       ]);
       const activeNames = new Set([...fForms, ...tForms].map(f => f.employeeName));
       const activeTLs = tls.filter(tl => {
@@ -199,8 +227,8 @@ router.get('/kpi-detail', verifyToken, async (req, res) => {
 
     if (type === 'activeFSEs') {
       const [fForms, tForms] = await Promise.all([
-        FormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
-        TLFormResponse.find({ employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } }).select('employeeName'),
+        FormResponse.find({ employeeName: { $in: allFSENames }, ...dateQuery }).select('employeeName'),
+        TLFormResponse.find({ employeeName: { $in: allFSENames }, ...dateQuery }).select('employeeName'),
       ]);
       const activeNames = new Set([...fForms, ...tForms].map(f => f.employeeName));
       const all = [
@@ -210,15 +238,9 @@ router.get('/kpi-detail', verifyToken, async (req, res) => {
       return res.json(all);
     }
 
-    // Forms-based KPIs
-    const { dateFilter } = req.query;
-    const dateQuery = dateFilter === 'alltime'
-      ? { employeeName: { $in: allFSENames } }
-      : { employeeName: { $in: allFSENames }, createdAt: { $gte: monthStart } };
-
     const [fForms, tForms] = await Promise.all([
-      FormResponse.find(dateQuery).select('employeeName customerName customerNumber status verificationStatus formFillingFor createdAt'),
-      TLFormResponse.find(dateQuery).select('employeeName customerName customerNumber status formFillingFor createdAt'),
+      FormResponse.find({ employeeName: { $in: allFSENames }, ...dateQuery }).select('employeeName customerName customerNumber status verificationStatus formFillingFor createdAt'),
+      TLFormResponse.find({ employeeName: { $in: allFSENames }, ...dateQuery }).select('employeeName customerName customerNumber status formFillingFor createdAt'),
     ]);
     let allForms = [...fForms, ...tForms].map(f => ({
       fse: f.employeeName,
@@ -504,12 +526,18 @@ router.get('/tl/:id/tl-forms', verifyToken, async (req, res) => {
 
     const { year, month } = req.query;
     let dateFilter = {};
-    if (year || month !== undefined) {
+    if (year || (month !== undefined && month !== '')) {
       const y = year ? parseInt(year) : new Date().getFullYear();
-      const m = (month !== undefined && month !== '') ? parseInt(month) : 0;
-      const start = new Date(y, m, 1);
-      const end = new Date(y, m + 1, 0, 23, 59, 59);
-      dateFilter = { createdAt: { $gte: start, $lte: end } };
+      if (month !== undefined && month !== '') {
+        const m = parseInt(month);
+        const start = new Date(y, m, 1);
+        const end = new Date(y, m + 1, 0, 23, 59, 59);
+        dateFilter = { createdAt: { $gte: start, $lte: end } };
+      } else if (year) {
+        const start = new Date(y, 0, 1);
+        const end = new Date(y, 11, 31, 23, 59, 59);
+        dateFilter = { createdAt: { $gte: start, $lte: end } };
+      }
     }
 
     const forms = await TLFormResponse.find({ employeeName: tl.name, ...dateFilter }).sort({ createdAt: -1 }).lean();
@@ -545,12 +573,18 @@ router.get('/tl/:id/fse-forms', verifyToken, async (req, res) => {
     // Date filter
     const { year, month } = req.query;
     let dateFilter = {};
-    if (year || month !== undefined) {
+    if (year || (month !== undefined && month !== '')) {
       const y = year ? parseInt(year) : new Date().getFullYear();
-      const m = (month !== undefined && month !== '') ? parseInt(month) : 0;
-      const start = new Date(y, m, 1);
-      const end = new Date(y, m + 1, 0, 23, 59, 59);
-      dateFilter = { createdAt: { $gte: start, $lte: end } };
+      if (month !== undefined && month !== '') {
+        const m = parseInt(month);
+        const start = new Date(y, m, 1);
+        const end = new Date(y, m + 1, 0, 23, 59, 59);
+        dateFilter = { createdAt: { $gte: start, $lte: end } };
+      } else if (year) {
+        const start = new Date(y, 0, 1);
+        const end = new Date(y, 11, 31, 23, 59, 59);
+        dateFilter = { createdAt: { $gte: start, $lte: end } };
+      }
     }
 
     // Get all forms by these FSEs

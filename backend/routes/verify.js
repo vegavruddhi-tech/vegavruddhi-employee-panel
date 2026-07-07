@@ -599,10 +599,8 @@ async function attachPoints(result) {
       // ✅ OPTIMIZATION: Fetch rules once for admin check
       const allRules = await VerificationRule.find().lean();
       
-      const [verification, phoneCheck] = await Promise.all([
-        verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || '', allRules),
-        crossCheckPhone(db, phone, name || '', VerificationRule, product || '', month || '', allRules)
-      ]);
+      const verification = await verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || '', allRules);
+      const phoneCheck = { matched: verification.status !== 'Not Found', phoneMatch: verification.status !== 'Not Found' };
       
       res.json({ verification, phoneCheck });
     } catch (err) {
@@ -635,10 +633,8 @@ async function attachPoints(result) {
       // ✅ OPTIMIZATION: Fetch rules once for single check
       const allRules = await VerificationRule.find().lean();
 
-      const [verification, phoneCheck] = await Promise.all([
-        verifyMerchant(db, phone, name || '', VerificationRule, product || '', '', allRules),
-        crossCheckPhone(db, phone, name || '', VerificationRule, product || '', '', allRules)
-      ]);
+      const verification = await verifyMerchant(db, phone, name || '', VerificationRule, product || '', '', allRules);
+      const phoneCheck = { matched: verification.status !== 'Not Found', phoneMatch: verification.status !== 'Not Found' };
 
       res.json({ verification, phoneCheck });
 
@@ -804,14 +800,9 @@ async function attachPoints(result) {
           const key = product ? `${phone}__${product}` : phone;
 
           try {
-            const [v, pc] = await Promise.all([
-              verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
-              crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
-            ]);
-
-            // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
-            const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
-            const inSheet = v.status !== 'Not Found' ? true : pc.matched;
+            const v = await verifyMerchant(db, phone, name, VerificationRule, product, month, allRules);
+            const phoneMatch = v.status !== 'Not Found';
+            const inSheet = v.status !== 'Not Found';
 
             result[key] = {
               status:     v.status,
@@ -899,7 +890,7 @@ async function attachPoints(result) {
       if (missedIndices.length > 0) {
         const db = req.db;
         const allRules = await VerificationRule.find().lean();
-        const chunkSize = 5;
+        const chunkSize = 100;
         for (let idx = 0; idx < missedIndices.length; idx += chunkSize) {
           const chunk = missedIndices.slice(idx, idx + chunkSize);
           await Promise.all(chunk.map(async (i) => {
@@ -908,11 +899,8 @@ async function attachPoints(result) {
             const key = product ? `${phone}__${product}` : phone;
             const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
             try {
-              const [v, pc] = await Promise.all([
-                verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
-                crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
-              ]);
-              const dataObj = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch: v.status !== 'Not Found' ? true : pc.phoneMatch, inSheet: v.status !== 'Not Found' ? true : pc.matched, monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
+              const v = await verifyMerchant(db, phone, name, VerificationRule, product, month, allRules);
+              const dataObj = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch: v.status !== 'Not Found', inSheet: v.status !== 'Not Found', monthLabel: month, record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null))) };
               result[key] = dataObj;
               result[monthKey] = dataObj;
             } catch (err) {
@@ -1029,7 +1017,7 @@ async function attachPoints(result) {
         const db = req.db;
         const allRules = await VerificationRule.find().lean();
 
-        const chunkSize = 5;
+        const chunkSize = 100;
         for (let idx = 0; idx < missedIndices.length; idx += chunkSize) {
           const chunk = missedIndices.slice(idx, idx + chunkSize);
           await Promise.all(chunk.map(async (i) => {
@@ -1041,14 +1029,9 @@ async function attachPoints(result) {
             const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
 
             try {
-              const [v, pc] = await Promise.all([
-                verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
-                crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
-              ]);
-
-              // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
-              const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
-              const inSheet = v.status !== 'Not Found' ? true : pc.matched;
+              const v = await verifyMerchant(db, phone, name, VerificationRule, product, month, allRules);
+              const phoneMatch = v.status !== 'Not Found';
+              const inSheet = v.status !== 'Not Found';
 
               const data = {
                 status:     v.status,
@@ -1192,7 +1175,7 @@ async function attachPoints(result) {
         const db = req.db;
         const allRules = await VerificationRule.find().lean();
 
-        const chunkSize = 5;
+        const chunkSize = 100;
         for (let idx = 0; idx < missedIndices.length; idx += chunkSize) {
           const chunk = missedIndices.slice(idx, idx + chunkSize);
           await Promise.all(chunk.map(async (i) => {
@@ -1205,12 +1188,9 @@ async function attachPoints(result) {
             const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
 
             try {
-              const [v, pc] = await Promise.all([
-                verifyMerchant(db, phone, name, VerificationRule, product, month, allRules),
-                crossCheckPhone(db, phone, name, VerificationRule, product, month, allRules)
-              ]);
-              const phoneMatch = v.status !== 'Not Found' ? true : pc.phoneMatch;
-              const inSheet    = v.status !== 'Not Found' ? true : pc.matched;
+              const v = await verifyMerchant(db, phone, name, VerificationRule, product, month, allRules);
+              const phoneMatch = v.status !== 'Not Found';
+              const inSheet    = v.status !== 'Not Found';
               const data = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch, inSheet, monthLabel: month, record: v.record };
               result[key] = data;
               result[monthKey] = data;

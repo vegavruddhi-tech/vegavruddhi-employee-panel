@@ -43,4 +43,8 @@ const managerFormSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, index: true }
 }, { collection: 'ManagerForms', strict: false });
 
+// ✅ Indexes for fast verification & dashboard queries
+managerFormSchema.index({ customerNumber: 1 });
+managerFormSchema.index({ verificationStatus: 1 });
+
 module.exports = mongoose.model('ManagerForm', managerFormSchema);

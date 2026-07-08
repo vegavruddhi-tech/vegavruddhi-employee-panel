@@ -1,5 +1,4 @@
 const express  = require('express');
-const router   = express.Router();
 const jwt      = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const upload   = require('../middleware/multer');
@@ -13,6 +12,37 @@ const ManagerChangeRequest = require('../models/ManagerChangeRequest');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+module.exports = (connectionManager, connectDB) => {
+  const router = express.Router();
+
+  // ---------- CONNECTION MIDDLEWARE ----------
+  router.use(async (req, res, next) => {
+    try {
+      if (typeof connectDB === 'function') {
+        const mongooseConn = await connectDB();
+        if (!mongooseConn) {
+          return res.status(503).json({
+            message: 'Database connection unavailable, please try again',
+            error: 'mongodb_connection_failed',
+            retryAfter: 5
+          });
+        }
+      }
+      if (connectionManager && typeof connectionManager.ensureInitialized === 'function') {
+        await connectionManager.ensureInitialized();
+        req.db = connectionManager.getConnection();
+      }
+      next();
+    } catch (error) {
+      console.error('🔴 Database connection error in manager routes:', error.message);
+      return res.status(503).json({
+        message: 'Database temporarily unavailable, please try again',
+        error: 'database_unavailable',
+        retryAfter: 5
+      });
+    }
+  });
+
 // ── JWT middleware ──────────────────────────────────────────────
 function verifyToken(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
@@ -25,23 +55,93 @@ function verifyToken(req, res, next) {
   }
 }
 
+function formatManagerRegistrationError(err, contextName = 'Manager Registration (/api/manager/register)') {
+  console.error(`🔴 [${contextName} Error]:`, err);
+  
+  if (err.name === 'ValidationError') {
+    const fields = Object.keys(err.errors || {});
+    const details = Object.values(err.errors || {}).map(e => `${e.path}: ${e.message}`).join('; ');
+    return {
+      status: 400,
+      body: {
+        message: `[Validation Error in ${contextName}]: ${details}`,
+        errorPart: `Database Field Validation (${fields.join(', ')})`,
+        errorType: err.name
+      }
+    };
+  }
+
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || err.keyValue || {})[0] || 'unique field';
+    const value = err.keyValue ? err.keyValue[field] : '';
+    return {
+      status: 400,
+      body: {
+        message: `[Duplicate Entry in ${contextName}]: ${field} "${value}" is already registered.`,
+        errorPart: `Database Unique Check (${field})`,
+        errorType: 'DuplicateKeyError'
+      }
+    };
+  }
+
+  if (err.name === 'MongoServerError' || err.name === 'MongooseError' || err.name === 'MongooseServerSelectionError') {
+    return {
+      status: 503,
+      body: {
+        message: `[Database Error in ${contextName}]: ${err.message}`,
+        errorPart: `MongoDB Connection / Operation (${err.name})`,
+        errorType: err.name
+      }
+    };
+  }
+
+  return {
+    status: 500,
+    body: {
+      message: `[${contextName} Error]: ${err.message || 'Unknown error occurred'}`,
+      errorPart: err.stack ? err.stack.split('\n')[1]?.trim() : 'Server Route Execution',
+      errorType: err.name || 'Error'
+    }
+  };
+}
+
+// Upload fields definition and error-handling wrapper for Manager
+const managerUploadFields = upload.fields([{ name: 'photo', maxCount: 1 }]);
+
+const handleManagerUploadErrors = (req, res, next) => {
+  managerUploadFields(req, res, (err) => {
+    if (err) {
+      console.error('File upload error during Manager registration:', err.message || err);
+      const msg = err.message === 'Empty file'
+        ? 'Please select a valid image file.'
+        : (err.message || err.toString());
+      return res.status(400).json({
+        message: `[File Upload Error]: ${msg}`,
+        errorPart: `Multer / Cloudinary Storage Upload (${err.field || 'photo'})`,
+        errorType: err.name || 'UploadError'
+      });
+    }
+    next();
+  });
+};
+
 // ── POST /api/manager/register ──────────────────────────────────
-router.post('/register', upload.fields([{ name: 'photo', maxCount: 1 }]), async (req, res) => {
+router.post('/register', handleManagerUploadErrors, async (req, res) => {
   try {
     const { name, phone, email, emailId, location, dob } = req.body;
-    const emailValue = email || emailId || '';
+    const cleanEmail = (email || emailId || '').trim().toLowerCase();
     if (!name)              return res.status(400).json({ message: 'Name is required' });
-    if (!emailValue)        return res.status(400).json({ message: 'Email is required' });
+    if (!cleanEmail)        return res.status(400).json({ message: 'Email is required' });
     if (!req.files?.photo)  return res.status(400).json({ message: 'Profile photo is required' });
 
-    const exists = await Manager.findOne({ email: emailValue });
+    const exists = await Manager.findOne({ email: cleanEmail });
     if (exists && exists.approvalStatus === 'approved') {
       return res.status(400).json({ message: 'Email already registered and approved' });
     }
     if (exists) await Manager.findByIdAndDelete(exists._id);
 
     await Manager.create({
-      email:    emailValue,
+      email:    cleanEmail,
       name,
       phone:    phone    || '',
       location: location || '',
@@ -51,7 +151,8 @@ router.post('/register', upload.fields([{ name: 'photo', maxCount: 1 }]), async 
 
     res.status(201).json({ message: 'Registration successful. Awaiting admin approval.' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    const formatted = formatManagerRegistrationError(err, 'Manager Registration (/api/manager/register)');
+    res.status(formatted.status).json(formatted.body);
   }
 });
 
@@ -804,4 +905,5 @@ router.put('/change-requests/:id/reject', async (req, res) => {
   }
 });
 
-module.exports = router;
+  return router;
+};

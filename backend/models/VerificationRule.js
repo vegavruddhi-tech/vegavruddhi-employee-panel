@@ -39,4 +39,7 @@ const verificationRuleSchema = new mongoose.Schema({
   updatedAt:      { type: Date, default: Date.now }
 }, { collection: 'VerificationRules' });
 
+// ✅ Indexes for fast verification rule lookups
+verificationRuleSchema.index({ monthLabel: 1, active: 1 });
+
 module.exports = mongoose.model('VerificationRule', verificationRuleSchema);

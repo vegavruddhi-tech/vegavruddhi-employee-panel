@@ -37,4 +37,8 @@ const tlFormResponseSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, index: true }
 }, { collection: 'TL Form Responses', strict: false });
 
+// ✅ Indexes for fast verification & dashboard queries
+tlFormResponseSchema.index({ customerNumber: 1 });
+tlFormResponseSchema.index({ verificationStatus: 1 });
+
 module.exports = mongoose.model('TLFormResponse', tlFormResponseSchema);

@@ -84,4 +84,8 @@ formFillingFor: { type: String, },
   createdAt: { type: Date, default: Date.now, index: true }
 }, { collection: 'Forms_respones', strict: false });
 
+// ✅ Indexes for fast verification & dashboard queries
+formResponseSchema.index({ customerNumber: 1 });
+formResponseSchema.index({ verificationStatus: 1 });
+
 module.exports = mongoose.model('FormResponse', formResponseSchema);

@@ -160,9 +160,9 @@ function registerRoutes() {
   app.use('/api/forms', require('./routes/forms')(connectionManager, connectDB));
   app.use('/api/tl', require('./routes/tl')(connectionManager, connectDB));
   
-  // Application routes (will be converted to use connectionManager)
-  app.use('/api/auth',    require('./routes/auth'));
-  app.use('/api/manager', require('./routes/manager'));
+  // Application routes with connection checking (`ConnectionManager`)
+  app.use('/api/auth',    require('./routes/auth')(connectionManager, connectDB));
+  app.use('/api/manager', require('./routes/manager')(connectionManager, connectDB));
   app.use('/api/requests', require('./routes/requests'));
   app.use('/api/tasks', require('./routes/tasks'));
   app.use('/api/manual-verification', require('./routes/manualVerification'));

@@ -1,15 +1,43 @@
 const upload = require('../middleware/multer');
 const express  = require('express');
-const router   = express.Router();
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
-// const multer   = require('multer');
-// const path     = require('path');
 const Employee = require('../models/Employee');
 const Attendance = require('../models/Attendance');
 const { OAuth2Client } = require('google-auth-library');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+module.exports = (connectionManager, connectDB) => {
+  const router = express.Router();
+
+  // ---------- CONNECTION MIDDLEWARE ----------
+  router.use(async (req, res, next) => {
+    try {
+      if (typeof connectDB === 'function') {
+        const mongooseConn = await connectDB();
+        if (!mongooseConn) {
+          return res.status(503).json({
+            message: 'Database connection unavailable, please try again',
+            error: 'mongodb_connection_failed',
+            retryAfter: 5
+          });
+        }
+      }
+      if (connectionManager && typeof connectionManager.ensureInitialized === 'function') {
+        await connectionManager.ensureInitialized();
+        req.db = connectionManager.getConnection();
+      }
+      next();
+    } catch (error) {
+      console.error('🔴 Database connection error in auth routes:', error.message);
+      return res.status(503).json({
+        message: 'Database temporarily unavailable, please try again',
+        error: 'database_unavailable',
+        retryAfter: 5
+      });
+    }
+  });
 
 // Storage for cv + photo
 // const storage = multer.diskStorage({
@@ -30,13 +58,83 @@ function verifyToken(req, res, next) {
   }
 }
 
+// Upload fields definition and error-handling wrapper
+const registerUploadFields = upload.fields([
+  { name: 'cv', maxCount: 1 },
+  { name: 'photo', maxCount: 1 }
+]);
+
+function formatRegistrationError(err, contextName = 'Employee Registration') {
+  console.error(`🔴 [${contextName} Error]:`, err);
+  
+  if (err.name === 'ValidationError') {
+    const fields = Object.keys(err.errors || {});
+    const details = Object.values(err.errors || {}).map(e => `${e.path}: ${e.message}`).join('; ');
+    return {
+      status: 400,
+      body: {
+        message: `[Validation Error in ${contextName}]: ${details}`,
+        errorPart: `Database Field Validation (${fields.join(', ')})`,
+        errorType: err.name
+      }
+    };
+  }
+
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || err.keyValue || {})[0] || 'unique field';
+    const value = err.keyValue ? err.keyValue[field] : '';
+    return {
+      status: 400,
+      body: {
+        message: `[Duplicate Entry in ${contextName}]: ${field} "${value}" is already registered.`,
+        errorPart: `Database Unique Check (${field})`,
+        errorType: 'DuplicateKeyError'
+      }
+    };
+  }
+
+  if (err.name === 'MongoServerError' || err.name === 'MongooseError' || err.name === 'MongooseServerSelectionError') {
+    return {
+      status: 503,
+      body: {
+        message: `[Database Error in ${contextName}]: ${err.message}`,
+        errorPart: `MongoDB Connection / Operation (${err.name})`,
+        errorType: err.name
+      }
+    };
+  }
+
+  return {
+    status: 500,
+    body: {
+      message: `[${contextName} Error]: ${err.message || 'Unknown error occurred'}`,
+      errorPart: err.stack ? err.stack.split('\n')[1]?.trim() : 'Server Route Execution',
+      errorType: err.name || 'Error'
+    }
+  };
+}
+
+const handleUploadErrors = (req, res, next) => {
+  registerUploadFields(req, res, (err) => {
+    if (err) {
+      console.error('File upload error during registration:', err.message || err);
+      const msg = err.message === 'Empty file'
+        ? 'Please select a valid image/document file.'
+        : (err.message || err.toString());
+      return res.status(400).json({
+        message: `[File Upload Error]: ${msg}`,
+        errorPart: `Multer / Cloudinary Storage Upload (${err.field || 'photo/cv'})`,
+        errorType: err.name || 'UploadError'
+      });
+    }
+    next();
+  });
+};
+
 // POST /api/auth/register
 router.post(
   '/register',
-  upload.fields([
-    { name: 'cv', maxCount: 1 },
-    { name: 'photo', maxCount: 1 }
-  ]),
+  handleUploadErrors,
   async (req, res) => {
     try {
       const {
@@ -54,42 +152,73 @@ router.post(
         return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
       }
 
-     const exists = await Employee.findOne({ email });
-if (exists && exists.approvalStatus !== 'rejected') {
-  return res.status(400).json({ message: 'Email already registered' });
-}
-if (exists && exists.approvalStatus === 'rejected') {
-  await Employee.findByIdAndDelete(exists._id); // delete the rejected record
-}
-
-
       if (!req.files?.photo) {
         return res.status(400).json({ message: 'Profile photo is required' });
       }
 
-      const rawPassword = password || Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10);
-const hashed = await bcrypt.hash(rawPassword, 10);
+      const cleanEmail = (email || newJoinerEmailId || '').trim().toLowerCase();
+      const cleanJoinerEmail = (newJoinerEmailId || cleanEmail).trim().toLowerCase();
 
+      if (!cleanEmail) {
+        return res.status(400).json({ message: 'Email address is required.' });
+      }
 
-      const employee = await Employee.create({
-        email,
-        newJoinerName,
-        newJoinerPhone,
-        newJoinerEmailId,
-        reportingManager,
-        position,
-        location,
-        password: hashed,
-
-        // ✅ Cloudinary URLs
-        image: req.files?.photo?.[0]?.path || '',
-        cv: req.files?.cv?.[0]?.path || ''
+      const exists = await Employee.findOne({
+        $or: [
+          { email: cleanEmail },
+          { newJoinerEmailId: cleanJoinerEmail }
+        ]
       });
 
-      // ✅ Auto-assign employee ID
+      if (exists && exists.approvalStatus !== 'rejected') {
+        return res.status(400).json({ message: 'Email already registered' });
+      }
+      if (exists && exists.approvalStatus === 'rejected') {
+        await Employee.findByIdAndDelete(exists._id); // delete the rejected record
+      }
+
+      const rawPassword = password || Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10);
+      const hashed = await bcrypt.hash(rawPassword, 10);
+
       const { generateNextEmployeeId } = require('../utils/employeeIdGenerator');
-      const empId = await generateNextEmployeeId();
-      await Employee.findByIdAndUpdate(employee._id, { employeeId: empId });
+
+      // ✅ Retry loop to assign employee ID safely without E11000 race conditions
+      let employee = null;
+      let empId = null;
+      
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          empId = await generateNextEmployeeId();
+          employee = await Employee.create({
+            employeeId: empId,
+            email: cleanEmail,
+            newJoinerName,
+            newJoinerPhone,
+            newJoinerEmailId: cleanJoinerEmail,
+            reportingManager,
+            position,
+            location,
+            password: hashed,
+
+            // ✅ Cloudinary URLs
+            image: req.files?.photo?.[0]?.path || '',
+            cv: req.files?.cv?.[0]?.path || ''
+          });
+          break; // success
+        } catch (createErr) {
+          if (createErr.code === 11000 && createErr.message && createErr.message.includes('employeeId')) {
+            console.warn(`⚠️ Collision on employeeId ${empId}, retrying attempt ${attempt + 1}...`);
+            await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+            continue;
+          }
+          throw createErr;
+        }
+      }
+
+      if (!employee) {
+        return res.status(500).json({ message: 'Could not assign unique employee ID after multiple attempts. Please try again.' });
+      }
+
       console.log(`✅ New employee ${newJoinerName} assigned ID: ${empId}`);
 
       res.status(201).json({
@@ -98,19 +227,18 @@ const hashed = await bcrypt.hash(rawPassword, 10);
       });
 
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      const formatted = formatRegistrationError(err, 'Employee Registration (/api/auth/register)');
+      res.status(formatted.status).json(formatted.body);
     }
   }
 );
+
 // POST /api/auth/register-tl — TL registration → saves to TeamLeads collection
 const TeamLead = require('../models/TeamLead');
 
 router.post(
   '/register-tl',
-  upload.fields([
-    { name: 'cv', maxCount: 1 },
-    { name: 'photo', maxCount: 1 }
-  ]),
+  handleUploadErrors,
   async (req, res) => {
     try {
       const {
@@ -123,10 +251,23 @@ router.post(
       }
 
       if (!req.files?.photo) {
-        return res.status(400).json({ message: 'Profile photo is required' });
+        return res.status(400).json({ message: 'Profile photo is required.' });
       }
 
-      const exists = await TeamLead.findOne({ email });
+      const cleanEmail = (email || emailId || '').trim().toLowerCase();
+      const cleanEmailId = (emailId || cleanEmail).trim().toLowerCase();
+
+      if (!cleanEmail) {
+        return res.status(400).json({ message: 'Email address is required.' });
+      }
+
+      const exists = await TeamLead.findOne({
+        $or: [
+          { email: cleanEmail },
+          { emailId: cleanEmailId }
+        ]
+      });
+
       if (exists && exists.approvalStatus !== 'rejected') {
         return res.status(400).json({ message: 'Email already registered' });
       }
@@ -140,10 +281,10 @@ router.post(
       );
 
       const tl = await TeamLead.create({
-        email,
+        email: cleanEmail,
         name,
         phone,
-        emailId,
+        emailId: cleanEmailId,
         reportingManager,
         location,
         dob: dob || '',
@@ -155,7 +296,8 @@ router.post(
       res.status(201).json({ message: 'Registered successfully', id: tl._id });
 
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      const formatted = formatRegistrationError(err, 'TL Registration (/api/auth/register-tl)');
+      res.status(formatted.status).json(formatted.body);
     }
   }
 );
@@ -1081,4 +1223,5 @@ router.post('/save-push-subscription', verifyToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+  return router;
+};

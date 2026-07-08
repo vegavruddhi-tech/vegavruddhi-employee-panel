@@ -88,10 +88,83 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
+function formatTlRegistrationError(err, contextName = 'TL Registration (/api/tl/register)') {
+  console.error(`🔴 [${contextName} Error]:`, err);
+  
+  if (err.name === 'ValidationError') {
+    const fields = Object.keys(err.errors || {});
+    const details = Object.values(err.errors || {}).map(e => `${e.path}: ${e.message}`).join('; ');
+    return {
+      status: 400,
+      body: {
+        message: `[Validation Error in ${contextName}]: ${details}`,
+        errorPart: `Database Field Validation (${fields.join(', ')})`,
+        errorType: err.name
+      }
+    };
+  }
+
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || err.keyValue || {})[0] || 'unique field';
+    const value = err.keyValue ? err.keyValue[field] : '';
+    return {
+      status: 400,
+      body: {
+        message: `[Duplicate Entry in ${contextName}]: ${field} "${value}" is already registered.`,
+        errorPart: `Database Unique Check (${field})`,
+        errorType: 'DuplicateKeyError'
+      }
+    };
+  }
+
+  if (err.name === 'MongoServerError' || err.name === 'MongooseError' || err.name === 'MongooseServerSelectionError') {
+    return {
+      status: 503,
+      body: {
+        message: `[Database Error in ${contextName}]: ${err.message}`,
+        errorPart: `MongoDB Connection / Operation (${err.name})`,
+        errorType: err.name
+      }
+    };
+  }
+
+  return {
+    status: 500,
+    body: {
+      message: `[${contextName} Error]: ${err.message || 'Unknown error occurred'}`,
+      errorPart: err.stack ? err.stack.split('\n')[1]?.trim() : 'Server Route Execution',
+      errorType: err.name || 'Error'
+    }
+  };
+}
+
+// Upload fields definition and error-handling wrapper for TL
+const tlUploadFields = upload.fields([
+  { name: 'photo', maxCount: 1 },
+  { name: 'cv', maxCount: 1 }
+]);
+
+const handleTlUploadErrors = (req, res, next) => {
+  tlUploadFields(req, res, (err) => {
+    if (err) {
+      console.error('File upload error during TL registration:', err.message || err);
+      const msg = err.message === 'Empty file'
+        ? 'Please select a valid image/document file.'
+        : (err.message || err.toString());
+      return res.status(400).json({
+        message: `[File Upload Error]: ${msg}`,
+        errorPart: `Multer / Cloudinary Storage Upload (${err.field || 'photo/cv'})`,
+        errorType: err.name || 'UploadError'
+      });
+    }
+    next();
+  });
+};
+
 // ── POST /api/tl/register ───────────────────────────────────────
 router.post(
   '/register',
-  upload.fields([{ name: 'photo', maxCount: 1 }, { name: 'cv', maxCount: 1 }]),
+  handleTlUploadErrors,
   async (req, res) => {
     try {
       const { name, phone, location, emailId, reportingManager, dob } = req.body;
@@ -103,8 +176,19 @@ router.post(
       if (!req.files?.photo) {
         return res.status(400).json({ message: 'Profile photo is required' });
       }
+
+      const cleanEmail = (emailId || '').trim().toLowerCase();
+      if (!cleanEmail) {
+        return res.status(400).json({ message: 'Email address is required' });
+      }
+
       // Check for duplicate — allow re-register if rejected
-      const exists = await TeamLead.findOne({ email: emailId });
+      const exists = await TeamLead.findOne({
+        $or: [
+          { email: cleanEmail },
+          { emailId: cleanEmail }
+        ]
+      });
       if (exists && exists.approvalStatus === 'approved') {
         return res.status(400).json({ message: 'Email already registered and approved' });
       }
@@ -112,14 +196,12 @@ router.post(
         await TeamLead.findByIdAndDelete(exists._id); // delete pending or rejected, allow fresh registration
       }
 
-
-
       await TeamLead.create({
-        email:            emailId || '',
+        email:            cleanEmail,
         name,
         phone:            phone || '',
         location:         location || '',
-        emailId:          emailId || '',
+        emailId:          cleanEmail,
         reportingManager: reportingManager || '',
         position:         'Team Lead',
         password:         '',
@@ -130,8 +212,8 @@ router.post(
 
       res.status(201).json({ message: 'Registration successful' });
     } catch (err) {
-      console.error('TL register error:', err.message);
-      res.status(500).json({ message: err.message });
+      const formatted = formatTlRegistrationError(err, 'TL Registration (/api/tl/register)');
+      res.status(formatted.status).json(formatted.body);
     }
   }
 );

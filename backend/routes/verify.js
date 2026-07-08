@@ -198,25 +198,28 @@ function calculateRecordPointsSync(form, monthLabel, pointsMap) {
   return fallbackMap[fallbackProductName] || 0;
 }
 
-async function attachPoints(result) {
+async function attachPoints(result, cachedPointsMap = null) {
   try {
-    const allConfigs = await PointsConfiguration.find().lean();
-    const pointsMap = {};
-    allConfigs.forEach(config => {
-      const productKey = String(config.productName).toLowerCase().trim();
-      const configData = { type: config.productType, fieldMapping: config.fieldMapping || {} };
-      if (config.productType === 'simple') configData.points = config.simplePoints;
-      else if (config.productType === 'complex') {
-        configData.plans = {};
-        (config.plans || []).forEach(plan => {
-          const planKey = plan.planName.toLowerCase();
-          configData.plans[planKey] = {};
-          (plan.tiers || []).forEach(t => configData.plans[planKey][t.name.toLowerCase()] = { points: t.points, price: t.price });
-        });
-      }
-      else if (config.productType === 'mapped') configData.valueMapping = config.valueMapping || [];
-      pointsMap[productKey] = configData;
-    });
+    let pointsMap = cachedPointsMap;
+    if (!pointsMap) {
+      const allConfigs = await PointsConfiguration.find().lean();
+      pointsMap = {};
+      allConfigs.forEach(config => {
+        const productKey = String(config.productName).toLowerCase().trim();
+        const configData = { type: config.productType, fieldMapping: config.fieldMapping || {} };
+        if (config.productType === 'simple') configData.points = config.simplePoints;
+        else if (config.productType === 'complex') {
+          configData.plans = {};
+          (config.plans || []).forEach(plan => {
+            const planKey = plan.planName.toLowerCase();
+            configData.plans[planKey] = {};
+            (plan.tiers || []).forEach(t => configData.plans[planKey][t.name.toLowerCase()] = { points: t.points, price: t.price });
+          });
+        }
+        else if (config.productType === 'mapped') configData.valueMapping = config.valueMapping || [];
+        pointsMap[productKey] = configData;
+      });
+    }
 
     Object.keys(result).forEach(key => {
       if (result[key] && (result[key].status === 'Fully Verified' || result[key].status === 'Approved' || result[key].verified === true)) {
@@ -318,6 +321,27 @@ async function attachPoints(result) {
     }
   });
 
+  // ---------- BACKGROUND PRECOMPUTATION STATUS ENDPOINT ----------
+  /**
+   * GET /api/verify/status
+   * Returns current background pre-computation status (for frontend toaster)
+   */
+  router.get('/status', async (req, res) => {
+    try {
+      const redis = getRedisClient();
+      if (!redis) {
+        return res.json({ isCalculating: false, message: 'Redis unavailable' });
+      }
+      const statusStr = await redis.get('precompute_status');
+      if (!statusStr) {
+        return res.json({ isCalculating: false, message: 'Idle' });
+      }
+      return res.json(JSON.parse(statusStr));
+    } catch (err) {
+      return res.json({ isCalculating: false, error: err.message });
+    }
+  });
+
   // ---------- PRE-COMPUTATION ENDPOINT ----------
   /**
    * POST /api/verify/precompute-all
@@ -346,6 +370,27 @@ async function attachPoints(result) {
       const redis = getRedisClient();
       if (!redis) {
         return res.status(503).json({ error: 'Redis not available' });
+      }
+
+      // 🔥 OPTION 1 QUICK FIX: Send response immediately so Python/cron script never times out!
+      res.status(200).json({ 
+        success: true, 
+        message: 'Pre-computation started in background...',
+        total: 'Calculating in background...',
+        cached: 'Calculating...',
+        skipped: 0
+      });
+      console.log('🚀 Pre-computation started in background (response sent immediately to avoid timeout)...');
+
+      // ✅ Store calculating status in Redis for frontend toaster
+      try {
+        await redis.setex('precompute_status', 3600, JSON.stringify({ 
+          isCalculating: true, 
+          startedAt: new Date().toISOString(), 
+          message: 'Re-calculating all employee verifications...' 
+        }));
+      } catch (e) {
+        console.warn('Could not set precompute_status:', e.message);
       }
 
       // Get last sync time (ignore if force refresh)
@@ -395,28 +440,117 @@ async function attachPoints(result) {
 
       if (forms.length === 0) {
         await redis.set('last_sync_time', new Date().toISOString());
-        return res.json({ 
-          success: true, 
-          total: 0, 
-          cached: 0, 
-          skipped: 0,
-          message: 'No forms to verify' 
-        });
+        console.log('✅ Pre-computation complete: No forms to verify');
+        if (!res.headersSent) {
+          return res.json({ 
+            success: true, 
+            total: 0, 
+            cached: 0, 
+            skipped: 0,
+            message: 'No forms to verify' 
+          });
+        }
+        return;
       }
 
       // Fetch verification rules once
       const allRules = await VerificationRule.find().lean();
+
+      // 🔥 SOLUTION 3 PART 2: TRUE IN-MEMORY MATCHING (Pre-fetch all merchants & configs in 1 query!)
+      console.log('⚡ Pre-loading merchant records and points configurations into RAM for True In-Memory Matching...');
+      const merchantMap = new Map();
+      for (const rule of allRules) {
+        try {
+          const col = db.collection(rule.collectionName);
+          const records = await col.find({}).toArray();
+          for (const rec of records) {
+            // Check all phone columns
+            for (const colName of ['Mobile_No_', 'Mobile_Number', 'Phone_Number', 'Number', 'phone', 'Phone', 'Mobile', 'mobile', 'Contact', 'Customer_Number', 'Merchant_Number', 'Mobile_No', 'mobile_no_', 'mobile_number', 'phone_number', 'number', 'contact', 'customer_number', 'merchant_number', 'mobile_no']) {
+              if (rec[colName] !== undefined && rec[colName] !== null && rec[colName] !== '') {
+                const raw = String(rec[colName]).trim();
+                merchantMap.set(`${rule.collectionName}__${raw}`, rec);
+                const digits = raw.replace(/\D/g, '');
+                if (digits) merchantMap.set(`${rule.collectionName}__${digits}`, rec);
+                if (digits.startsWith('91') && digits.length === 12) {
+                  merchantMap.set(`${rule.collectionName}__${digits.slice(2)}`, rec);
+                }
+              }
+            }
+          }
+        } catch (colErr) {
+          console.warn(`Could not preload collection ${rule.collectionName}:`, colErr.message);
+        }
+      }
+      console.log(`📦 Preloaded ${merchantMap.size} merchant phone entries into RAM!`);
+
+      // 🔥 PRE-LOAD MANUAL VERIFICATIONS ONCE INTO RAM TO PREVENT MONGODB CONNECTION DROPS!
+      const ManualVerification = require('../models/ManualVerification');
+      const allManuals = await ManualVerification.find().lean();
+      const manualVerificationsMap = new Map();
+      allManuals.forEach(mv => {
+        const p = String(mv.phone || '').replace(/\D/g, '');
+        const pr = normalizeProduct(mv.product || '');
+        if (p) {
+          const keyAny = `${p}__${pr}`;
+          manualVerificationsMap.set(keyAny, mv);
+          if (mv.month) {
+            const m = normalize(mv.month);
+            manualVerificationsMap.set(`${p}__${pr}__${m}`, mv);
+          }
+        }
+      });
+      console.log(`📦 Preloaded ${manualVerificationsMap.size} manual verification overrides into RAM!`);
+
+      // Pre-load PointsConfiguration once!
+      const allPointsConfigs = await PointsConfiguration.find().lean();
+      const cachedPointsMap = {};
+      allPointsConfigs.forEach(config => {
+        const productKey = String(config.productName).toLowerCase().trim();
+        const configData = { type: config.productType, fieldMapping: config.fieldMapping || {} };
+        if (config.productType === 'simple') configData.points = config.simplePoints;
+        else if (config.productType === 'complex') {
+          configData.plans = {};
+          (config.plans || []).forEach(plan => {
+            const planKey = plan.planName.toLowerCase();
+            configData.plans[planKey] = {};
+            (plan.tiers || []).forEach(t => configData.plans[planKey][t.name.toLowerCase()] = { points: t.points, price: t.price });
+          });
+        }
+        else if (config.productType === 'mapped') configData.valueMapping = config.valueMapping || [];
+        cachedPointsMap[productKey] = configData;
+      });
 
       let processed = 0;
       let cached = 0;
       let skipped = 0;
       let redisSaved = 0; // Track successful Redis saves
 
-      // Process forms in batches
-      const batchSize = 200;
+      // Process forms in safe batches with Bulk Writes and Redis Pipeline (Solution 3)
+      const batchSize = 100; // Increased to 100 since we eliminated sequential network calls!
       for (let i = 0; i < forms.length; i += batchSize) {
         const batch = forms.slice(i, i + batchSize);
         
+        // Prepare bulk update arrays and Redis pipeline for this batch
+        const fseBulkOps = [];
+        const tlBulkOps = [];
+        const managerBulkOps = [];
+        const redisPipeline = redis.pipeline();
+        let commandsInPipeline = 0;
+
+        // 🔥 REDIS MGET OPTIMIZATION: Fetch all cache keys for this batch in 1 single network call!
+        const batchCacheMap = new Map();
+        if (!forceRefresh) {
+          try {
+            const cacheKeys = batch.map(f => `verification:${f.customerNumber}:${getProductField(f)}`);
+            const cachedValues = await redis.mget(...cacheKeys);
+            cacheKeys.forEach((key, idx) => {
+              if (cachedValues[idx]) batchCacheMap.set(key, cachedValues[idx]);
+            });
+          } catch (mgetErr) {
+            console.warn(`Redis mget failed, falling back: ${mgetErr.message}`);
+          }
+        }
+
         await Promise.all(batch.map(async (form) => {
           try {
             const phone = form.customerNumber;
@@ -433,17 +567,16 @@ async function attachPoints(result) {
             
             // Check if already cached (only if NOT force refresh)
             if (!forceRefresh) {
-              const cachedData = await redis.get(cacheKey);
+              const cachedData = batchCacheMap.get(cacheKey);
               
               if (cachedData) {
                 const parsed = JSON.parse(cachedData);
                 if (parsed.hash === currentHash) {
-                  // ✅ Copy to the month-specific cache key if missing
+                  // ✅ Copy to the month-specific cache key via pipeline
                   try {
-                    await redis.setex(monthCacheKey, 86400, cachedData);
-                  } catch (e) {
-                    console.warn(`Failed to copy cached data to month key: ${e.message}`);
-                  }
+                    redisPipeline.setex(monthCacheKey, 86400, cachedData);
+                    commandsInPipeline++;
+                  } catch (e) {}
                   // Data unchanged, skip verification
                   skipped++;
                   processed++;
@@ -452,7 +585,7 @@ async function attachPoints(result) {
               }
             }
             
-            // New or changed form - run verification
+            // New or changed form - run verification in memory
             // ✅ SMART VERIFICATION: Try with calculated month first
             let result = await verifyMerchant(
               db, 
@@ -461,7 +594,9 @@ async function attachPoints(result) {
               VerificationRule, 
               product, 
               month, 
-              allRules
+              allRules,
+              merchantMap, // 🔥 PASS IN-MEMORY MAP!
+              manualVerificationsMap // 🔥 PASS MANUAL MAP!
             );
 
             // ✅ If not found with specific month, try ALL months (handles backdated forms)
@@ -473,7 +608,9 @@ async function attachPoints(result) {
                 VerificationRule, 
                 product, 
                 '',  // Empty month = search all months
-                allRules
+                allRules,
+                merchantMap, // 🔥 PASS IN-MEMORY MAP!
+                manualVerificationsMap // 🔥 PASS MANUAL MAP!
               );
             }
 
@@ -481,14 +618,14 @@ async function attachPoints(result) {
             result.monthLabel = month; // Attach month so dynamic config logic knows it's June
             const attachKey = `${phone}__${product}`;
             const tempResultObj = { [attachKey]: result };
-            const attachedObj = await attachPoints(tempResultObj);
+            const attachedObj = await attachPoints(tempResultObj, cachedPointsMap); // 🔥 PASS CACHED POINTS MAP!
             const finalResult = attachedObj[attachKey];
 
             // ✅ STRIP RAW RECORD TO PREVENT PAYLOAD/DB BLOAT
             const lightweightResult = { ...finalResult };
             delete lightweightResult.record;
 
-            // ✅ SAVE VERIFICATION RESULTS TO REDIS
+            // ✅ SAVE VERIFICATION RESULTS TO REDIS PIPELINE (0 network calls in loop!)
             const cacheValue = {
               ...lightweightResult,
               hash: currentHash,
@@ -497,10 +634,11 @@ async function attachPoints(result) {
               matched: result.status !== 'Not Found' ? true : false
             };
             
-            // Save to Redis with 24-hour TTL
             try {
-              await redis.setex(cacheKey, 86400, JSON.stringify(cacheValue));
-              await redis.setex(monthCacheKey, 86400, JSON.stringify(cacheValue));
+              const stringified = JSON.stringify(cacheValue);
+              redisPipeline.setex(cacheKey, 86400, stringified);
+              redisPipeline.setex(monthCacheKey, 86400, stringified);
+              commandsInPipeline += 2;
               redisSaved += 2; // Track successful save
               
               // Only count as "cached" if verification succeeded
@@ -508,33 +646,36 @@ async function attachPoints(result) {
                 cached++;
               }
             } catch (redisErr) {
-              console.error(`❌ Redis save error for ${phone}:`, redisErr.message);
-              // Continue processing even if Redis fails
+              console.error(`❌ Redis pipeline build error for ${phone}:`, redisErr.message);
             }
             
-            // 🔥 NEW: ALSO UPDATE MONGODB FORM DOCUMENT
-            // This ensures the form document itself has the latest verification status
+            // 🔥 SOLUTION 3: Add to bulk write arrays instead of calling updateOne inside the loop!
             try {
-              const updateData = {
-                verificationStatus: lightweightResult.status,
-                verificationChecks: lightweightResult,
-                verificationUpdatedAt: new Date()
+              const updateOp = {
+                updateOne: {
+                  filter: { _id: form._id },
+                  update: { 
+                    $set: { 
+                      verificationStatus: lightweightResult.status,
+                      verificationChecks: lightweightResult,
+                      verificationUpdatedAt: new Date()
+                    } 
+                  }
+                }
               };
               
-              // Determine which collection this form belongs to using the map
               const formIdStr = form._id.toString();
               const collectionType = formCollectionMap.get(formIdStr);
               
               if (collectionType === 'FSE') {
-                await FormResponse.updateOne({ _id: form._id }, { $set: updateData });
+                fseBulkOps.push(updateOp);
               } else if (collectionType === 'TL') {
-                await TLFormResponse.updateOne({ _id: form._id }, { $set: updateData });
+                tlBulkOps.push(updateOp);
               } else if (collectionType === 'MANAGER') {
-                await ManagerForm.updateOne({ _id: form._id }, { $set: updateData });
+                managerBulkOps.push(updateOp);
               }
             } catch (mongoErr) {
-              console.error(`❌ MongoDB update error for ${phone}:`, mongoErr.message);
-              // Continue processing even if MongoDB update fails
+              console.error(`❌ Bulk op build error for ${phone}:`, mongoErr.message);
             }
             
           } catch (err) {
@@ -543,6 +684,30 @@ async function attachPoints(result) {
           
           processed++;
         }));
+
+        // 🔥 Execute all Redis setex commands for this batch in 1 single pipeline packet!
+        try {
+          if (commandsInPipeline > 0) {
+            await redisPipeline.exec();
+          }
+        } catch (pipeErr) {
+          console.error('❌ Redis pipeline exec error:', pipeErr.message);
+        }
+
+        // 🔥 SOLUTION 3: Execute bulk writes for this batch (1 network request per collection instead of 50 individual updates!)
+        try {
+          if (fseBulkOps.length > 0) {
+            await FormResponse.bulkWrite(fseBulkOps, { ordered: false });
+          }
+          if (tlBulkOps.length > 0) {
+            await TLFormResponse.bulkWrite(tlBulkOps, { ordered: false });
+          }
+          if (managerBulkOps.length > 0) {
+            await ManagerForm.bulkWrite(managerBulkOps, { ordered: false });
+          }
+        } catch (bulkErr) {
+          console.error('❌ MongoDB bulkWrite error:', bulkErr.message);
+        }
 
         // Log progress
         const progress = Math.min(i + batchSize, forms.length);
@@ -570,20 +735,50 @@ async function attachPoints(result) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
       
-      res.json({ 
-        success: true, 
-        total: forms.length, 
-        cached,
-        skipped,
-        redisSaved,
-        notFound: forms.length - cached - skipped,
-        elapsed: `${elapsed}s`,
-        message: 'Verification pre-computed successfully' 
-      });
+      console.log(`✅ Pre-computation finished in ${elapsed}s! Total: ${forms.length}, Cached: ${cached}, Skipped: ${skipped}, RedisSaved: ${redisSaved}`);
+      
+      // ✅ Update calculating status in Redis for frontend toaster
+      try {
+        await redis.setex('precompute_status', 3600, JSON.stringify({ 
+          isCalculating: false, 
+          finishedAt: new Date().toISOString(), 
+          total: forms.length, 
+          cached, 
+          skipped, 
+          message: 'All employee verifications re-calculated successfully!' 
+        }));
+      } catch (e) {
+        console.warn('Could not update precompute_status:', e.message);
+      }
+
+      if (!res.headersSent) {
+        res.json({ 
+          success: true, 
+          total: forms.length, 
+          cached,
+          skipped,
+          redisSaved,
+          notFound: forms.length - cached - skipped,
+          elapsed: `${elapsed}s`,
+          message: 'Verification pre-computed successfully' 
+        });
+      }
 
     } catch (err) {
       console.error('❌ Pre-computation error:', err);
-      res.status(500).json({ error: err.message });
+      try {
+        const redis = getRedisClient();
+        if (redis) {
+          await redis.setex('precompute_status', 3600, JSON.stringify({ 
+            isCalculating: false, 
+            error: err.message, 
+            message: 'Verification failed!' 
+          }));
+        }
+      } catch (e) {}
+      if (!res.headersSent) {
+        res.status(500).json({ error: err.message });
+      }
     }
   });
 

@@ -60,7 +60,18 @@ function exactPhoneQuery(phone) {
 // ---------- FIND ----------
 const indexedCollections = new Set();
 
-async function findInCollection(collection, phone, name, strictPhone = false) {
+async function findInCollection(collection, phone, name, strictPhone = false, merchantMap = null) {
+  // 🔥 SOLUTION 3: Check True In-Memory Map first! (0 DB calls, instant lookup)
+  if (merchantMap) {
+    const variants = phoneVariants(phone);
+    for (const v of variants) {
+      const key = `${collection.collectionName}__${String(v).trim()}`;
+      if (merchantMap.has(key)) {
+        return { record: merchantMap.get(key), matchType: 'exact' };
+      }
+    }
+  }
+
   // 🔥 AUTO-CREATE INDEXES TO PREVENT 30-SECOND QUERY DELAYS
   // Python script drops collections frequently when syncing, stripping all indexes.
   // We dynamically recreate them in the background so the Details API is instant.
@@ -121,19 +132,48 @@ function evaluateCondition(record, condition) {
 }
 
 // ---------- CHECK MANUAL VERIFICATION ----------
-async function checkManualVerification(phone, product, month) {
+async function checkManualVerification(phone, product, month, manualVerificationsMap = null) {
   try {
+    const cleanPhone = String(phone).replace(/\D/g, '');
+    const cleanProduct = normalizeProduct(product);
+    const cleanMonth = month ? normalize(month) : null;
+
+    if (manualVerificationsMap) {
+      const keyExact = cleanMonth ? `${cleanPhone}__${cleanProduct}__${cleanMonth}` : null;
+      const keyAny = `${cleanPhone}__${cleanProduct}`;
+      const manualVerification = (keyExact && manualVerificationsMap.get(keyExact)) || manualVerificationsMap.get(keyAny);
+      if (manualVerification) {
+        return {
+          status: manualVerification.status,
+          verified: manualVerification.status === 'Fully Verified',
+          passed: manualVerification.status === 'Fully Verified' ? 1 : 0,
+          total: 1,
+          checks: [{
+            pass: manualVerification.status === 'Fully Verified',
+            label: 'Manual Verification',
+            actual: `Verified by ${manualVerification.verifiedBy || 'Admin'}`
+          }],
+          collection: 'manual_verification',
+          matchType: 'manual',
+          manualVerification: true,
+          verifiedBy: manualVerification.verifiedBy || 'Admin',
+          verifiedAt: manualVerification.createdAt
+        };
+      }
+      return null;
+    }
+
     const ManualVerification = require('../models/ManualVerification');
     
     // Build query for manual verification
     const query = {
-      phone: String(phone).replace(/\D/g, ''), // Normalize phone
-      product: normalizeProduct(product)
+      phone: cleanPhone, // Normalize phone
+      product: cleanProduct
     };
     
     // Add month filter if provided
-    if (month) {
-      query.month = normalize(month);
+    if (cleanMonth) {
+      query.month = cleanMonth;
     }
     
     const manualVerification = await ManualVerification.findOne(query).sort({ createdAt: -1 });
@@ -165,10 +205,10 @@ async function checkManualVerification(phone, product, month) {
 }
 
 // ---------- VERIFY (WITH EXACT PRODUCT MATCHING ONLY) ----------
-async function verifyMerchant(db, phone, name, VerificationRule, product, month, ruleCache = null) {
+async function verifyMerchant(db, phone, name, VerificationRule, product, month, ruleCache = null, merchantMap = null, manualVerificationsMap = null) {
 
   // ✅ FIRST: Check for manual verification override
-  const manualResult = await checkManualVerification(phone, product, month);
+  const manualResult = await checkManualVerification(phone, product, month, manualVerificationsMap);
   if (manualResult) {
     return manualResult;
   }
@@ -217,7 +257,8 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
       col,
       phone,
       name || '',
-      true
+      true,
+      merchantMap
     );
 
     if (!record) continue;
@@ -264,10 +305,10 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
 }
 
 // ---------- CROSS CHECK (WITH EXACT PRODUCT MATCHING ONLY) ----------
-async function crossCheckPhone(db, phone, name, VerificationRule, product, month, ruleCache = null) {
+async function crossCheckPhone(db, phone, name, VerificationRule, product, month, ruleCache = null, merchantMap = null, manualVerificationsMap = null) {
 
   // ✅ FIRST: Check for manual verification override
-  const manualResult = await checkManualVerification(phone, product, month);
+  const manualResult = await checkManualVerification(phone, product, month, manualVerificationsMap);
   if (manualResult) {
     return { matched: true, phoneMatch: true, manualVerification: true };
   }
@@ -316,7 +357,8 @@ async function crossCheckPhone(db, phone, name, VerificationRule, product, month
       col,
       phone,
       name || '',
-      true
+      true,
+      merchantMap
     );
 
     if (!record) continue;

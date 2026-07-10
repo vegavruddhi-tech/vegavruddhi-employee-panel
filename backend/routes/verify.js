@@ -713,13 +713,14 @@ async function attachPoints(result, cachedPointsMap = null) {
         const progress = Math.min(i + batchSize, forms.length);
       }
 
-      // Update last sync time
-      await redis.set('last_sync_time', new Date().toISOString());
-
-      // ✅ UPDATE TIMESTAMP TO TRIGGER FRONTEND CACHE REFRESH
-      // This ensures all users get fresh data after pre-compute
-      const timestamp = Date.now();
-      await redis.set('verification_rules_updated_at', timestamp.toString());
+      // Update last sync time and frontend refresh timestamp safely
+      try {
+        await redis.set('last_sync_time', new Date().toISOString());
+        const timestamp = Date.now();
+        await redis.set('verification_rules_updated_at', timestamp.toString());
+      } catch (redisSetErr) {
+        console.warn('Could not update Redis sync timestamps (likely Upstash quota limit):', redisSetErr.message);
+      }
 
       // 🔥 Clear the infinite admin cache so the dashboard fetches the newly computed data
       try {

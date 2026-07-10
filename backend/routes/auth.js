@@ -633,11 +633,13 @@ router.post('/generate-impersonation-token', async (req, res) => {
     // Generate temporary impersonation token (valid for 1 hour)
     const impersonationToken = jwt.sign(
       { 
-        id: 'admin-impersonation',
-        email: adminEmail,
-        role: 'admin',
-        isAdmin: true,
+        id: targetUser._id,
+        email: targetUser.newJoinerEmailId || targetUser.email || targetEmail,
+        role: 'fse',
+        isAdmin: false,
         impersonating: true,
+        adminImpersonating: true,
+        adminEmail: adminEmail,
         targetEmail: targetEmail
       }, 
       process.env.JWT_SECRET, 

@@ -3,6 +3,7 @@ const express  = require('express');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 const Employee = require('../models/Employee');
+const Manager  = require('../models/Manager');
 const Attendance = require('../models/Attendance');
 const { OAuth2Client } = require('google-auth-library');
 
@@ -723,6 +724,50 @@ router.post('/generate-tl-impersonation-token', async (req, res) => {
   } catch (err) {
     console.error('Generate TL impersonation token error:', err);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/auth/generate-manager-impersonation-token - Generate temporary admin token for Manager impersonation
+router.post('/generate-manager-impersonation-token', async (req, res) => {
+  try {
+    const { adminEmail, targetEmail } = req.body;
+    if (!adminEmail || !targetEmail) {
+      return res.status(400).json({ success: false, error: 'adminEmail and targetEmail are required' });
+    }
+
+    const targetManager = await Manager.findOne({ email: { $regex: new RegExp(`^${targetEmail}$`, 'i') } });
+    if (!targetManager) {
+      return res.status(404).json({ success: false, error: `Target manager not found: ${targetEmail}` });
+    }
+
+    const impersonationToken = jwt.sign(
+      {
+        id: targetManager._id,
+        email: targetManager.email,
+        name: targetManager.name,
+        role: 'manager',
+        isAdmin: false,
+        adminImpersonating: true,
+        adminEmail: adminEmail
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    console.log(`✅ Generated Manager impersonation token for admin ${adminEmail} to view Manager ${targetEmail}`);
+
+    res.json({
+      success: true,
+      token: impersonationToken,
+      targetManager: {
+        name: targetManager.name,
+        email: targetManager.email,
+        location: targetManager.location
+      }
+    });
+  } catch (err) {
+    console.error('Generate Manager impersonation token error:', err);
+    res.status(500).json({ success: false, error: 'Failed to generate manager impersonation token' });
   }
 });
 

@@ -545,8 +545,8 @@ router.get('/verify-impersonation', verifyToken, async (req, res) => {
   try {
     const { viewAs } = req.query;
     
-    // Security check: Only admins can impersonate
-    if (!req.user.isAdmin && req.user.role !== 'admin') {
+    // Security check: Only admins or valid impersonation tokens can verify
+    if (!req.user.isAdmin && req.user.role !== 'admin' && !req.user.impersonating && !req.user.adminImpersonating) {
       return res.status(403).json({ 
         allowed: false, 
         error: 'Unauthorized: Admin access required' 
@@ -635,8 +635,8 @@ router.post('/generate-impersonation-token', async (req, res) => {
       { 
         id: targetUser._id,
         email: targetUser.newJoinerEmailId || targetUser.email || targetEmail,
-        role: 'fse',
-        isAdmin: false,
+        role: 'admin',
+        isAdmin: true,
         impersonating: true,
         adminImpersonating: true,
         adminEmail: adminEmail,

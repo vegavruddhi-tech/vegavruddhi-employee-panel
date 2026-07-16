@@ -226,6 +226,123 @@ router.get('/admin/summary', async (req, res) => {
   }
 });
 
+// GET /api/attendance/admin/monthly - Get monthly attendance summary & days breakdown for all users
+router.get('/admin/monthly', async (req, res) => {
+  try {
+    const now = new Date();
+    const monthNum = parseInt(req.query.month, 10) || (now.getMonth() + 1);
+    const yearNum  = parseInt(req.query.year, 10) || now.getFullYear();
+
+    const totalDaysInMonth = new Date(yearNum, monthNum, 0).getDate();
+
+    let workingDays = 0;
+    if (yearNum === now.getFullYear() && monthNum === now.getMonth() + 1) {
+      workingDays = Math.min(totalDaysInMonth, now.getDate());
+    } else if ((yearNum < now.getFullYear()) || (yearNum === now.getFullYear() && monthNum < now.getMonth() + 1)) {
+      workingDays = totalDaysInMonth;
+    }
+
+    // 1. Fetch all active+approved users from all three collections
+    const [allEmployees, allTLs, allManagers] = await Promise.all([
+      Employee.find({ approvalStatus: 'approved', status: 'Active' })
+        .select('_id newJoinerName email newJoinerEmailId newJoinerPhone position location reportingManager'),
+      TeamLead.find({ approvalStatus: 'approved', status: 'Active' })
+        .select('_id name email phone position location reportingManager'),
+      Manager.find({ approvalStatus: 'approved', status: 'Active' })
+        .select('_id name email phone location'),
+    ]);
+
+    // 2. Fetch all present records for the selected month
+    const monthPrefix = `${yearNum}-${String(monthNum).padStart(2, '0')}`;
+    const monthAttendance = await Attendance.find({
+      date: { $gte: `${monthPrefix}-01`, $lte: `${monthPrefix}-31` },
+      status: 'present'
+    });
+
+    // 3. Build a map of userId -> Set of present day numbers
+    const userPresentMap = {};
+    monthAttendance.forEach(r => {
+      const uid = r.userId?.toString();
+      if (!uid || !r.date) return;
+      const dayStr = r.date.split('-')[2];
+      const day = parseInt(dayStr, 10);
+      if (!userPresentMap[uid]) userPresentMap[uid] = new Set();
+      if (!isNaN(day)) userPresentMap[uid].add(day);
+    });
+
+    // 4. Build user records list
+    const formatUser = (u, type, defaultRole) => {
+      const uid = u._id.toString();
+      const presentDaysSet = userPresentMap[uid] || new Set();
+      const daysPresent = presentDaysSet.size;
+      const daysAbsent = Math.max(0, workingDays - daysPresent);
+      const attendancePercent = workingDays > 0 ? Math.round((daysPresent / workingDays) * 100) : 0;
+
+      const daysBar = [];
+      for (let d = 1; d <= totalDaysInMonth; d++) {
+        if (presentDaysSet.has(d)) {
+          daysBar.push({ day: d, status: 'present' });
+        } else if (d <= workingDays) {
+          daysBar.push({ day: d, status: 'absent' });
+        } else {
+          daysBar.push({ day: d, status: 'future' });
+        }
+      }
+
+      const userName = u.newJoinerName || u.name || 'Unknown';
+      const userEmail = u.email || u.newJoinerEmailId || '';
+      const phone = u.newJoinerPhone || u.phone || '';
+      const position = u.position || defaultRole;
+      const reportingManager = u.reportingManager || '';
+
+      return {
+        _id: u._id,
+        userId: u._id,
+        userName,
+        userEmail,
+        phone,
+        userType: type,
+        position,
+        reportingManager,
+        daysPresent,
+        daysAbsent,
+        attendancePercent,
+        daysBar
+      };
+    };
+
+    const empRecords = allEmployees.map(e => formatUser(e, 'employee', 'FSE'));
+    const tlRecords  = allTLs.map(t => formatUser(t, 'teamlead', 'Team Lead'));
+    const mgrRecords = allManagers.map(m => formatUser(m, 'manager', 'Manager'));
+
+    const allRecords = [...empRecords, ...tlRecords, ...mgrRecords]
+      .sort((a, b) => (a.userName || '').localeCompare(b.userName || ''));
+
+    // 5. Calculate summary statistics
+    const totalPeople = allRecords.length;
+    const fullAttendance = allRecords.filter(r => r.daysPresent >= workingDays && workingDays > 0).length;
+    const neverPresent = allRecords.filter(r => r.daysPresent === 0).length;
+    const totalPresentSum = allRecords.reduce((sum, r) => sum + r.daysPresent, 0);
+    const avgPresentDays = totalPeople > 0 ? Math.round((totalPresentSum / totalPeople) * 10) / 10 : 0;
+
+    res.json({
+      month: monthNum,
+      year: yearNum,
+      workingDays,
+      totalDaysInMonth,
+      totalPeople,
+      fullAttendance,
+      neverPresent,
+      avgPresentDays,
+      records: allRecords
+    });
+
+  } catch (error) {
+    console.error('Error fetching monthly attendance:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // GET /api/attendance/my-attendance - Get employee's own attendance
 router.get('/my-attendance', verifyToken, async (req, res) => {
   try {

@@ -432,23 +432,55 @@ async function sendManagerDailyReport() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
   <title>Vegavruddhi Daily TL Report</title>
+  <style>
+    /* Force light mode — prevent Gmail dark mode from inverting colours */
+    :root { color-scheme: light !important; }
+    body { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    /* Dark mode override: keep header white text visible */
+    @media (prefers-color-scheme: dark) {
+      .vv-header { background-color: #1b5e20 !important; }
+      .vv-header * { color: #ffffff !important; -webkit-text-fill-color: #ffffff !important; }
+      .vv-header .vv-sub { color: #c8e6c9 !important; -webkit-text-fill-color: #c8e6c9 !important; }
+      .vv-header .vv-meta { color: #a5d6a7 !important; -webkit-text-fill-color: #a5d6a7 !important; }
+      .vv-body-wrap { background-color: #ffffff !important; }
+    }
+    /* Mobile font size enforcement */
+    @media only screen and (max-width: 600px) {
+      .vv-tl-name { font-size: 13px !important; }
+      .vv-mgr-name { font-size: 12px !important; }
+      .vv-cell { font-size: 12px !important; }
+      .vv-hdr-title { font-size: 18px !important; }
+      .vv-hdr-sub { font-size: 13px !important; }
+      .vv-hdr-meta { font-size: 11px !important; }
+      .vv-card-label { font-size: 10px !important; }
+      .vv-card-val { font-size: 18px !important; }
+    }
+  </style>
 </head>
-<body style="font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f0;margin:0;padding:24px;color:#212121;">
+<body style="font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f0;margin:0;padding:16px;color:#212121;font-size:16px;">
+  <!-- Hidden preheader: unique token prevents Gmail from collapsing this email as quoted content -->
+  <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+    Vegavruddhi Daily Report &bull; ${now.toISOString()} &bull; Ref:${Math.random().toString(36).slice(2,10).toUpperCase()}
+    &zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
+    &zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
+  </div>
   <div style="max-width:1150px;margin:0 auto;background:#fff;border-radius:14px;box-shadow:0 6px 28px rgba(0,0,0,0.10);overflow:hidden;">
 
     <!-- HEADER -->
-    <div style="background:linear-gradient(135deg,#1b5e20 0%,#2e7d32 100%);padding:30px 36px;">
+    <div class="vv-header" style="background-color:#1b5e20;background:linear-gradient(135deg,#1b5e20 0%,#2e7d32 100%);padding:28px 28px;">
       <table width="100%" cellpadding="0" cellspacing="0"><tr>
         <td>
-          <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:0.5px;">VEGAVRUDDHI</div>
-          <div style="font-size:15px;font-weight:600;color:#c8e6c9;margin-top:4px;">Daily TL Verification &amp; Sync Report</div>
-          <div style="font-size:12px;color:#a5d6a7;margin-top:6px;">Generated automatically after Google Sheet synchronisation &bull; ${now.toLocaleString()}</div>
+          <div class="vv-hdr-title" style="font-size:22px;font-weight:800;color:#ffffff !important;-webkit-text-fill-color:#ffffff;letter-spacing:0.5px;">VEGAVRUDDHI</div>
+          <div class="vv-hdr-sub vv-sub" style="font-size:15px;font-weight:600;color:#c8e6c9 !important;-webkit-text-fill-color:#c8e6c9;margin-top:4px;">Daily TL Verification &amp; Sync Report</div>
+          <div class="vv-hdr-meta vv-meta" style="font-size:12px;color:#a5d6a7 !important;-webkit-text-fill-color:#a5d6a7;margin-top:6px;">Generated automatically after Google Sheet synchronisation &bull; ${now.toLocaleString()}</div>
         </td>
         <td align="right" valign="top">
-          <div style="background:rgba(255,255,255,0.15);border-radius:8px;padding:10px 18px;display:inline-block;text-align:center;">
-            <div style="font-size:11px;color:#c8e6c9;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Report Date</div>
-            <div style="font-size:16px;font-weight:800;color:#ffffff;margin-top:2px;">${now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
+          <div style="background:rgba(255,255,255,0.18);border-radius:8px;padding:10px 16px;display:inline-block;text-align:center;">
+            <div style="font-size:11px;color:#c8e6c9 !important;-webkit-text-fill-color:#c8e6c9;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Report Date</div>
+            <div style="font-size:16px;font-weight:800;color:#ffffff !important;-webkit-text-fill-color:#ffffff;margin-top:2px;">${now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
           </div>
         </td>
       </tr></table>

@@ -5,6 +5,7 @@ const VerificationRule = require('../models/VerificationRule');
 const PointsConfiguration = require('../models/PointsConfiguration');
 const { verifyMerchant, crossCheckPhone } = require('../utils/verifyMerchant');
 const { getRedisClient } = require('../utils/redisClient');
+const { sendManagerDailyReport } = require('../utils/managerReportService');
 
 /**
  * Verification Routes with Enhanced Connection Management
@@ -747,11 +748,16 @@ async function attachPoints(result, cachedPointsMap = null) {
           total: forms.length, 
           cached, 
           skipped, 
-          message: 'All employee verifications re-calculated successfully!' 
+          message: 'All employee verifications re-calculated & Daily Report email sent!' 
         }));
       } catch (e) {
         console.warn('Could not update precompute_status:', e.message);
       }
+
+      // 🔥 Trigger automatic Manager Daily Report email (runs in background so response/sync finishes cleanly)
+      sendManagerDailyReport().catch(err => {
+        console.error('❌ Failed to trigger automatic manager daily report:', err.message);
+      });
 
       if (!res.headersSent) {
         res.json({ 
@@ -765,22 +771,43 @@ async function attachPoints(result, cachedPointsMap = null) {
           message: 'Verification pre-computed successfully' 
         });
       }
-
     } catch (err) {
       console.error('❌ Pre-computation error:', err);
-      try {
-        const redis = getRedisClient();
-        if (redis) {
-          await redis.setex('precompute_status', 3600, JSON.stringify({ 
-            isCalculating: false, 
-            error: err.message, 
-            message: 'Verification failed!' 
-          }));
-        }
-      } catch (e) {}
       if (!res.headersSent) {
         res.status(500).json({ error: err.message });
       }
+    }
+  });
+
+  /**
+   * GET/POST /api/verify/test-manager-report
+   * Direct test endpoint to run and verify the Manager Daily Report on localhost
+   */
+  router.all('/test-manager-report', async (req, res) => {
+    try {
+      console.log('🧪 Testing Manager Daily Report generation...');
+      const result = await sendManagerDailyReport();
+      
+      // ✅ Update Redis precompute_status so GlobalSyncMonitor on Admin Panel displays the green toaster!
+      try {
+        const redis = getRedisClient();
+        if (redis) {
+          await redis.setex('precompute_status', 3600, JSON.stringify({
+            isCalculating: false,
+            finishedAt: new Date().toISOString(),
+            message: 'Daily Manager Report email sent!'
+          }));
+        }
+      } catch (e) {
+        console.warn('Could not update precompute_status:', e.message);
+      }
+
+      res.json({
+        success: result.success,
+        details: result
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

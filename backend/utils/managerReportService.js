@@ -285,12 +285,7 @@ async function sendManagerDailyReport() {
     console.log('Starting Manager Daily FTD & MTD Report generation...');
 
     const emailsStr  = process.env.MANAGER_REPORT_EMAILS || process.env.ADMIN_EMAIL || '';
-    const recipients = emailsStr.split(',').map(e => e.trim()).filter(Boolean);
-
-    if (recipients.length === 0) {
-      console.warn('No MANAGER_REPORT_EMAILS or ADMIN_EMAIL configured in .env. Skipping report.');
-      return { success: false, reason: 'No recipient emails configured' };
-    }
+    const envRecipients = emailsStr.split(',').map(e => e.trim()).filter(Boolean);
 
     // 1. Date boundaries (T-1 i.e. yesterday's date)
     const now            = new Date();
@@ -352,6 +347,7 @@ async function sendManagerDailyReport() {
       tlMetricsMap.set(tlName, {
         tlName,
         manager: tl.reportingManager || 'Direct',
+        email: tl.email || tl.officialEmail || tl.personalEmail || '',
         ftd: createEmptyMetrics(),
         mtd: createEmptyMetrics()
       });
@@ -528,7 +524,7 @@ async function sendManagerDailyReport() {
       .vv-hdr-title { font-size: 19px !important; }
       .vv-hdr-sub { font-size: 13px !important; }
       .vv-hdr-meta { font-size: 11px !important; }
-      .vv-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; width: 100% !important; display: block !important; }
+      .vv-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch !important; width: 100% !important; display: block !important; max-width: 100% !important; border: 1px solid #c8e6c9 !important; border-radius: 8px !important; }
       .vv-table { min-width: 620px !important; width: 100% !important; }
       .vv-table th { padding: 8px 6px !important; font-size: 11px !important; }
       .vv-tl-name { font-size: 12.5px !important; padding: 10px 8px !important; padding-left: 10px !important; }
@@ -586,8 +582,10 @@ async function sendManagerDailyReport() {
         <span style="display:inline-block;background:#1b5e20;color:#ffffff;font-size:13px;font-weight:800;padding:6px 16px;border-radius:6px;letter-spacing:0.5px;">FTD &mdash; For The Day</span>
         <span style="font-size:14px;font-weight:600;color:#444;margin-left:10px;">${targetDate.toLocaleDateString('en-IN', {weekday:'long', day:'2-digit', month:'long', year:'numeric'})}</span>
       </div>
-      <div class="vv-table-wrap" style="overflow-x:auto;margin-bottom:36px;width:100%;-webkit-overflow-scrolling:touch;">
-        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:620px;">
+      <!-- Anti-clipping token for FTD -->
+      <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">FTD_Summary_${now.getTime()} &zwnj;&nbsp;&zwnj;&nbsp;</div>
+      <div class="vv-table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;display:block;max-width:100%;width:100%;margin-bottom:36px;border:1px solid #c8e6c9;border-radius:8px;">
+        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:620px;width:100%;">
           <thead>
             <tr style="background:#1b5e20;color:#ffffff;">
               <th style="${thLeft}">Team Leader</th>
@@ -615,8 +613,10 @@ async function sendManagerDailyReport() {
         <span style="display:inline-block;background:#1b5e20;color:#ffffff;font-size:13px;font-weight:800;padding:6px 16px;border-radius:6px;letter-spacing:0.5px;">MTD &mdash; Month To Date</span>
         <span style="font-size:14px;font-weight:600;color:#444;margin-left:10px;">${currentMonthName}</span>
       </div>
-      <div class="vv-table-wrap" style="overflow-x:auto;width:100%;-webkit-overflow-scrolling:touch;">
-        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:620px;">
+      <!-- Anti-clipping token for MTD -->
+      <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">MTD_Summary_${now.getTime()}_${Math.random()} &zwnj;&nbsp;&zwnj;&nbsp;</div>
+      <div class="vv-table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;display:block;max-width:100%;width:100%;border:1px solid #c8e6c9;border-radius:8px;">
+        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:620px;width:100%;">
           <thead>
             <tr style="background:#1b5e20;color:#ffffff;">
               <th style="${thLeft}">Team Leader</th>
@@ -661,10 +661,21 @@ async function sendManagerDailyReport() {
       auth: { user: smtpUser, pass: smtpPass }
     });
 
+    // Combine .env recipients with dynamic TL emails from active report records
+    const tlEmails = sortedTLs
+      .map(t => (t.email || '').trim())
+      .filter(e => e && e.includes('@'));
+    const finalRecipients = Array.from(new Set([...envRecipients, ...tlEmails]));
+
+    if (finalRecipients.length === 0) {
+      console.warn('No recipient emails found (neither in .env nor in active TL records). Skipping report.');
+      return { success: false, reason: 'No recipient emails found' };
+    }
+
     const mailOptions = {
       from    : `"Vegavruddhi Report" <${smtpUser}>`,
-      to      : recipients.join(', '),
-      subject : `[${currentMonthName} MTD & FTD] Daily TL Verification Report - ${targetDate.toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit',year:'numeric'})}`,
+      to      : finalRecipients.join(', '),
+      subject : `[${currentMonthName} MTD & FTD] Daily TL Verification Report (${targetDate.toLocaleDateString('en-IN',{day:'2-digit',month:'2-digit',year:'numeric'})}) • ${now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false})}`,
       html    : htmlContent,
       attachments: [{
         filename   : pdfFilename,
@@ -674,8 +685,8 @@ async function sendManagerDailyReport() {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`Manager Daily Report email sent successfully! MessageId: ${info.messageId}`);
-    return { success: true, messageId: info.messageId, recipients, totalTLs: sortedTLs.length };
+    console.log(`Manager Daily Report email sent successfully to ${finalRecipients.length} recipients! MessageId: ${info.messageId}`);
+    return { success: true, messageId: info.messageId, recipients: finalRecipients, totalTLs: sortedTLs.length };
 
   } catch (error) {
     console.error('Error in sendManagerDailyReport:', error);

@@ -309,18 +309,40 @@ async function sendManagerDailyReport() {
     // 3. Build TL → member map
     const tlTeamMap         = new Map();
     const allMemberNamesToTL = new Map();
+    const idToTlNameMap     = new Map(); // Maps TL IDs directly to their Name key
 
     for (const tl of allTLs) {
       const tlName = (tl.name || '').trim();
       if (!tlName) continue;
+      
+      // Store ID mapping
+      if (tl.employeeId) idToTlNameMap.set(String(tl.employeeId), tlName);
+      if (tl._id) idToTlNameMap.set(String(tl._id), tlName);
 
       const memberNames = new Set([tlName.toLowerCase()]);
       for (const emp of allEmployees) {
         const mgrName = (emp.reportingManager || '').trim();
         const empName = (emp.newJoinerName || emp.name || '').trim();
-        if (mgrName.toLowerCase() === tlName.toLowerCase() && empName) {
-          memberNames.add(empName.toLowerCase());
-          allMemberNamesToTL.set(empName.toLowerCase(), tlName);
+        
+        const mgrLower = mgrName.toLowerCase();
+        const tlLower = tlName.toLowerCase();
+        
+        // Match by Exact Name OR Fuzzy Name OR by ID
+        const matchedByName = empName && mgrLower && tlLower && (mgrLower === tlLower || mgrLower.includes(tlLower) || tlLower.includes(mgrLower));
+        const matchedById = emp.reportingManagerId && (emp.reportingManagerId === tl.employeeId || String(emp.reportingManagerId) === String(tl._id));
+        
+        if (matchedByName || matchedById) {
+          if (empName) {
+              memberNames.add(empName.toLowerCase());
+              allMemberNamesToTL.set(empName.toLowerCase(), tlName);
+          }
+          if (emp.employeeId) {
+              allMemberNamesToTL.set(String(emp.employeeId), tlName);
+          }
+          if (emp._id) {
+              // NEW: Map the MongoDB ObjectId (submittedBy) directly to the TL
+              allMemberNamesToTL.set(String(emp._id), tlName);
+          }
         }
       }
       allMemberNamesToTL.set(tlName.toLowerCase(), tlName);
@@ -357,10 +379,37 @@ async function sendManagerDailyReport() {
     for (const form of allForms) {
       const empName = (form.employeeName || '').trim().toLowerCase();
       const formFor = (form.formFillingFor || '').trim();
+      
+      const formTlId = form.tlEmployeeId || form.tlId || form.reportingManagerId;
+      const formEmpId = form.employeeId || form.fseId || form.submittedBy; // Included submittedBy!
 
       let targetTLName = null;
-      if (formFor && tlMetricsMap.has(formFor))               targetTLName = formFor;
-      else if (empName && allMemberNamesToTL.has(empName))    targetTLName = allMemberNamesToTL.get(empName);
+      
+      // A. Try exact ID match first (Bulletproof Future State)
+      if (formTlId && idToTlNameMap.has(String(formTlId))) {
+          targetTLName = idToTlNameMap.get(String(formTlId));
+      } else if (formEmpId && allMemberNamesToTL.has(String(formEmpId))) {
+          targetTLName = allMemberNamesToTL.get(String(formEmpId));
+      }
+      // B. Try exact Name match (Legacy State)
+      else if (formFor && tlMetricsMap.has(formFor)) {
+          targetTLName = formFor;
+      } else if (empName && allMemberNamesToTL.has(empName)) {
+          targetTLName = allMemberNamesToTL.get(empName);
+      }
+      // C. Try Fuzzy Name match (Rescue Orphaned Data like "Ashwani" vs "Ashwani Kumar")
+      else if (formFor || empName) {
+         const rawName = formFor || empName;
+         const search = rawName.toLowerCase().trim();
+         for (const knownTL of tlMetricsMap.keys()) {
+            const known = knownTL.toLowerCase().trim();
+            if (search.includes(known) || known.includes(search)) {
+               targetTLName = knownTL;
+               break;
+            }
+         }
+      }
+
       if (!targetTLName || !tlMetricsMap.has(targetTLName))   continue;
 
       const tlStats     = tlMetricsMap.get(targetTLName);

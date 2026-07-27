@@ -1061,26 +1061,27 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
     const db = Employee.db;
     const TideBTAccess = db.collection('TideBT_Access');
     
-    // Get all FSE records
-    const allRecords = await TideBTAccess.find({ hasTideBTAccess: true }).toArray();
+    // Get all records from TideBT_Access
+    const allRecords = await TideBTAccess.find({}).toArray();
     console.log('📊 Total records in TideBT_Access:', allRecords.length);
     
-    // Priority 0: Email match (most reliable — handles name mismatches)
+    // Priority 0: Direct Email match (most reliable — checks both fseEmail and tlEmail)
     const employeeEmail = (employee.email || employee.newJoinerEmailId || '').toLowerCase().trim();
     let matchedRecord = null;
     let matchType = null;
 
     if (employeeEmail) {
       matchedRecord = allRecords.find(record =>
-        record.fseEmail && record.fseEmail.toLowerCase().trim() === employeeEmail
+        (record.fseEmail && record.fseEmail.toLowerCase().trim() === employeeEmail) ||
+        (record.tlEmail  && record.tlEmail.toLowerCase().trim() === employeeEmail)
       );
       if (matchedRecord) {
         matchType = 'email';
-        console.log('✅ Email match found:', matchedRecord.fseName);
+        console.log('✅ Email match found:', matchedRecord.fseName || matchedRecord.tlName);
       }
     }
 
-    // Fuzzy name matching with 3-tier priority
+    // Fuzzy name matching with 3-tier priority (only if email match was not found)
     const employeeName = employee.newJoinerName.toLowerCase().trim();
     const employeeParts = employeeName.split(/\s+/);
     const employeeFirstName = employeeParts[0];
@@ -1089,20 +1090,21 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
     // Priority 1: Exact full name match
     if (!matchedRecord) {
       matchedRecord = allRecords.find(record => 
-        record.fseName && 
-        record.fseName.toLowerCase().trim() === employeeName
+        (record.fseName && record.fseName.toLowerCase().trim() === employeeName) ||
+        (record.tlName  && record.tlName.toLowerCase().trim() === employeeName)
       );
       if (matchedRecord) {
         matchType = 'exact';
-        console.log('✅ Exact match found:', matchedRecord.fseName);
+        console.log('✅ Exact match found:', matchedRecord.fseName || matchedRecord.tlName);
       }
     }
     
     // Priority 2: First name + first letter of surname match
     if (!matchedRecord && employeeSurnameInitial) {
       const potentialMatches = allRecords.filter(record => {
-        if (!record.fseName) return false;
-        const dbParts = record.fseName.toLowerCase().trim().split(/\s+/);
+        const name = (record.fseName || record.tlName || '').toLowerCase().trim();
+        if (!name) return false;
+        const dbParts = name.split(/\s+/);
         const dbFirstName = dbParts[0];
         const dbSurnameInitial = dbParts[1] ? dbParts[1][0] : null;
         
@@ -1113,7 +1115,7 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
       if (potentialMatches.length === 1) {
         matchedRecord = potentialMatches[0];
         matchType = 'first-name-initial';
-        console.log('✅ First name + initial match found:', matchedRecord.fseName);
+        console.log('✅ First name + initial match found:', matchedRecord.fseName || matchedRecord.tlName);
       } else if (potentialMatches.length > 1) {
         console.log('⚠️ Multiple matches found for first name + initial - denying access for safety');
         matchType = 'ambiguous';
@@ -1123,23 +1125,24 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
     // Priority 3: First name only match (fallback)
     if (!matchedRecord && matchType !== 'ambiguous') {
       const potentialMatches = allRecords.filter(record => {
-        if (!record.fseName) return false;
-        const dbFirstName = record.fseName.toLowerCase().trim().split(/\s+/)[0];
+        const name = (record.fseName || record.tlName || '').toLowerCase().trim();
+        if (!name) return false;
+        const dbFirstName = name.split(/\s+/)[0];
         return dbFirstName === employeeFirstName;
       });
       
       if (potentialMatches.length === 1) {
         matchedRecord = potentialMatches[0];
         matchType = 'first-name-only';
-        console.log('✅ First name only match found:', matchedRecord.fseName);
+        console.log('✅ First name only match found:', matchedRecord.fseName || matchedRecord.tlName);
       } else if (potentialMatches.length > 1) {
         console.log('⚠️ Multiple matches found for first name - denying access for safety');
-        console.log('   Ambiguous matches:', potentialMatches.map(m => m.fseName).join(', '));
         matchType = 'ambiguous';
       }
     }
     
-    const hasAccess = !!matchedRecord && matchType !== 'ambiguous';
+    // Direct email match ALWAYS grants access (never blocked by ambiguous name fallbacks)
+    const hasAccess = matchType === 'email' || (!!matchedRecord && matchType !== 'ambiguous');
     
     console.log('✅ Access granted:', hasAccess);
     if (matchedRecord) {

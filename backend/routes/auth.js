@@ -1047,39 +1047,44 @@ router.put('/update-profile', verifyToken, async (req, res) => {
 // GET /api/auth/check-tidebt-access - Check if user has Tide BT access
 router.get('/check-tidebt-access', verifyToken, async (req, res) => {
   try {
-    console.log('🔍 Checking Tide BT access for employee...');
-    
-    const employee = await Employee.findById(req.user.id).select('newJoinerName position email newJoinerEmailId');
-    if (!employee) {
-      console.log('❌ Employee not found');
-      return res.status(404).json({ message: 'Employee not found' });
-    }
-    
-    console.log('👤 Employee name:', employee.newJoinerName);
+    console.log('🔍 Checking Tide BT access for user...');
 
-    // Check if user exists in TideBT_Access collection (case-insensitive)
     const db = Employee.db;
     const TideBTAccess = db.collection('TideBT_Access');
-    
-    // Get all records from TideBT_Access
-    const allRecords = await TideBTAccess.find({}).toArray();
-    console.log('📊 Total records in TideBT_Access:', allRecords.length);
-    
-    // Priority 0: Direct Email match (most reliable — checks both fseEmail and tlEmail)
-    const employeeEmail = (employee.email || employee.newJoinerEmailId || '').toLowerCase().trim();
-    let matchedRecord = null;
-    let matchType = null;
 
-    if (employeeEmail) {
-      matchedRecord = allRecords.find(record =>
-        (record.fseEmail && record.fseEmail.toLowerCase().trim() === employeeEmail) ||
-        (record.tlEmail  && record.tlEmail.toLowerCase().trim() === employeeEmail)
-      );
-      if (matchedRecord) {
-        matchType = 'email';
-        console.log('✅ Email match found:', matchedRecord.fseName || matchedRecord.tlName);
+    let employee = null;
+    try {
+      employee = await Employee.findById(req.user.id).select('newJoinerName position email newJoinerEmailId');
+    } catch {}
+
+    const userEmail = (req.user.email || employee?.email || employee?.newJoinerEmailId || '').toLowerCase().trim();
+
+    // Priority 0: Direct Email match in TideBT_Access (works for ALL users even if not in Employee collection)
+    if (userEmail) {
+      const accessByEmail = await TideBTAccess.findOne({
+        $or: [
+          { fseEmail: { $regex: new RegExp(`^${userEmail}$`, 'i') } },
+          { tlEmail:  { $regex: new RegExp(`^${userEmail}$`, 'i') } }
+        ]
+      });
+      if (accessByEmail) {
+        console.log('✅ Direct email match found in TideBT_Access:', accessByEmail.fseName || accessByEmail.tlName);
+        return res.json({
+          hasTideBTAccess: true,
+          userName: accessByEmail.fseName || accessByEmail.tlName || employee?.newJoinerName || 'User',
+          userRole: employee?.position || 'FSE',
+          matchType: 'email'
+        });
       }
     }
+
+    if (!employee) {
+      console.log('❌ Employee and TideBT_Access record not found for email:', userEmail);
+      return res.json({ hasTideBTAccess: false, matchType: 'none' });
+    }
+
+    // Get all records from TideBT_Access for fuzzy name fallback
+    const allRecords = await TideBTAccess.find({}).toArray();
 
     // Fuzzy name matching with 3-tier priority (only if email match was not found)
     const employeeName = employee.newJoinerName.toLowerCase().trim();

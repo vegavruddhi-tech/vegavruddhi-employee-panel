@@ -32,6 +32,18 @@ function getProductCategory(form) {
 
 // ─── Build PDF buffer in-memory (no file written to disk) ────────────────────
 
+const toTitleCase = (str) => {
+   const l = str.toLowerCase();
+   if (l === 'tide') return 'Tide';
+   if (l === 'tide msme') return 'MSME';
+   if (l === 'tide credit card') return 'Credit Card';
+   if (l === 'tide insurance') return 'Insurance';
+   if (l === 'tide bt') return 'Tide BT';
+   const match = str.match(/\(([^)]+)\)$/);
+   if (match) return `Ins: ${match[1]}`;
+   return str.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+};
+
 function buildPDFBuffer(sortedTLs, grandFTD, grandMTD, productsList, targetDate, now, currentMonthName) {
   return new Promise((resolve, reject) => {
     const doc    = new PDFDocument({ margin: 0, size: 'A3', layout: 'landscape' });
@@ -55,16 +67,20 @@ function buildPDFBuffer(sortedTLs, grandFTD, grandMTD, productsList, targetDate,
     const PAGE_W    = doc.page.width;   // A3 landscape = 1190.5
     const USABLE_W  = PAGE_W - MARGIN * 2;
 
-    // Column widths — auto-scaled to fill full A3 landscape page (1190.5pt - 72pt margins = 1118.5pt usable)
-    // TL(190) | Mgr(150) | Total(120) | Tide(115) | Insurance(115) | MSME(110) | Credit Card(115) | Tide BT(115) = 1030 — scaled up to fill page
-    const SCALE   = Math.floor((doc.page.width - MARGIN * 2) / (190 + 150 + 120 + 115 + 115 + 110 + 115 + 115) * 100) / 100;
-    const BASE_W  = [190, 150, 120, 115, 115, 110, 115, 115];
+    // Dynamic columns
+    const fixedBaseWs = [190, 150, 120];
+    const dynamicBaseWs = productsList.map(() => 115);
+    const BASE_W = [...fixedBaseWs, ...dynamicBaseWs];
+    const totalBaseW = BASE_W.reduce((s, w) => s + w, 0);
+
+    const SCALE   = Math.floor((doc.page.width - MARGIN * 2) / totalBaseW * 100) / 100;
     const COL_W   = BASE_W.map(w => Math.round(w * SCALE));
     // Fix any rounding gap on last column
     const computed = COL_W.reduce((s, w) => s + w, 0);
     COL_W[COL_W.length - 1] += (doc.page.width - MARGIN * 2) - computed;
     const TOTAL_TW = COL_W.reduce((s, w) => s + w, 0);
-    const HEADERS  = ['Team Leader', 'Manager', 'Total\nSub / Ver', 'Tide\nSub / Ver', 'Insurance\nSub / Ver', 'MSME\nSub / Ver', 'Credit Card\nSub / Ver', 'Tide BT\nSub / Ver'];
+
+    const HEADERS  = ['Team Leader', 'Manager', 'Total\nSub / Ver', ...productsList.map(p => `${toTitleCase(p)}\nSub / Ver`)];
 
     const ROW_H    = 26;
     const HDR_H    = 32;
@@ -278,6 +294,86 @@ function buildPDFBuffer(sortedTLs, grandFTD, grandMTD, productsList, targetDate,
   });
 }
 
+// ─── Format Product Display Logic ───────────────────────────────────────────────
+
+function formatProductDisplay(f) {
+  const baseProduct = f.formFillingFor
+    || (f.attemptedProducts?.join(', '))
+    || (f.brand && f.tideProduct ? `${f.tideProduct}` : f.brand)
+    || '–';
+
+  if (baseProduct === '–') return baseProduct;
+  if (baseProduct.includes('(')) return baseProduct;
+
+  let subType = '';
+  const productKey = baseProduct.toLowerCase().trim();
+  // We don't have dynamicPointsMap in the backend context usually,
+  // but we can extract from verificationChecks array
+  let checks = [];
+  if (f.verificationChecks && Array.isArray(f.verificationChecks)) {
+    checks = f.verificationChecks;
+  }
+
+  if (productKey === 'tide msme') {
+    const check = checks.find(c => c.field && c.field.toLowerCase() === 'plan');
+    if (check?.sheetValue) subType = String(check.sheetValue).trim();
+  } else if (productKey === 'tide credit card') {
+    const plan = checks.find(c => c.field && (c.field.toLowerCase() === 'planname' || c.field.toLowerCase() === 'plan name'));
+    const tier = checks.find(c => c.field && (c.field.toLowerCase() === 'tiername' || c.field.toLowerCase() === 'tier name'));
+    const planVal = plan?.sheetValue || f.cc_cardName || '';
+    const tierVal = tier?.sheetValue || '';
+    if (planVal && tierVal) subType = `${planVal} - ${tierVal}`;
+    else if (planVal) subType = planVal;
+    else if (tierVal) subType = tierVal;
+  }
+
+  if (!subType && productKey === 'tide insurance') {
+    let val = String(f.ins_amount || f.tideIns_amount || f.amount || '').trim();
+    if (!val && checks.length > 0) {
+      const match = checks.find(c => c.field && (c.field.toLowerCase() === 'amount' || c.field.toLowerCase().includes('amount') || c.field.toLowerCase().includes('plan')));
+      if (match?.sheetValue) val = String(match.sheetValue).trim();
+    }
+    if (val) {
+      const num = parseFloat(val);
+      subType = !isNaN(num) ? `${num}` : val;
+    }
+  }
+
+  let insuranceType = '';
+  if (productKey === 'tide insurance' || productKey === 'insurance' || productKey.includes('insurance')) {
+    const getVal = (...keys) => {
+      for (const k of keys) {
+        if (f?.[k]) return f[k];
+        if (checks.length > 0) {
+          const check = checks.find(c => c.field && c.field.toLowerCase() === k.toLowerCase());
+          if (check?.actual || check?.sheetValue) return check.actual || check.sheetValue;
+        }
+      }
+      return '';
+    };
+    insuranceType = getVal('tideIns_type', 'tideInsType', 'insurance_plan', 'ins_insuranceType', 'insuranceType', 'insurance_type');
+  }
+
+  let displayLabel = baseProduct;
+  if (subType) {
+    const cleanSub = String(subType).replace('₹', '');
+    displayLabel += ` (₹${cleanSub})`;
+  }
+  if (insuranceType) {
+    displayLabel += ` (${insuranceType})`;
+  }
+  
+  // Normalize the base products just to match existing logic if they are simple
+  const l = displayLabel.toLowerCase();
+  if (l === 'tide' || l === 'tide onboarding') return 'Tide';
+  if (l === 'msme' || l === 'tide msme') return 'Tide MSME';
+  if (l === 'tide credit card' || l === 'credit card') return 'Tide Credit Card';
+  if (l === 'tide bt' || l === 'bt') return 'Tide BT';
+  if (l === 'tide insurance' || l === 'insurance') return 'Tide Insurance';
+
+  return displayLabel;
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 async function sendManagerDailyReport() {
@@ -357,7 +453,29 @@ async function sendManagerDailyReport() {
     ]);
     const allForms = [...fseForms, ...tlForms];
 
-    const productsList   = ['tide', 'tide insurance', 'tide msme', 'tide credit card', 'tide bt'];
+    const dynamicProductSet = new Set(['Tide', 'Tide Insurance', 'Tide MSME', 'Tide Credit Card', 'Tide BT']);
+    for (const f of allForms) {
+       const label = formatProductDisplay(f);
+       if (label && label !== '–') dynamicProductSet.add(label);
+    }
+    // We want the original 5 first, but Tide Insurance sub-products should immediately follow 'Tide Insurance'
+    const sortedProducts = Array.from(dynamicProductSet).sort((a, b) => {
+      const getRank = (p) => {
+        const l = p.toLowerCase();
+        if (l === 'tide') return 10;
+        if (l === 'tide insurance') return 20;
+        if (l.startsWith('tide insurance (')) return 25;
+        if (l === 'tide msme') return 30;
+        if (l === 'tide credit card') return 40;
+        if (l === 'tide bt') return 50;
+        return 100;
+      };
+      const rankA = getRank(a);
+      const rankB = getRank(b);
+      if (rankA !== rankB) return rankA - rankB;
+      return a.localeCompare(b);
+    });
+    const productsList = sortedProducts.map(p => p.toLowerCase());
     const createEmptyMetrics = () => {
       const obj = { totalSub: 0, totalVer: 0 };
       productsList.forEach(p => { obj[p] = { sub: 0, ver: 0 }; });
@@ -416,7 +534,7 @@ async function sendManagerDailyReport() {
       const formDate    = new Date(form.createdAt);
       const isFTD       = formDate >= startOfDay && formDate <= endOfDay;
       const isVerified  = form.verificationStatus === 'Fully Verified';
-      const prod        = getProductCategory(form);
+      const prod        = formatProductDisplay(form).toLowerCase();
       const matchedProd = productsList.includes(prod) ? prod : 'tide';
 
       tlStats.mtd.totalSub++;
@@ -479,13 +597,14 @@ async function sendManagerDailyReport() {
     });
 
     // Build HTML rows grouped by manager with Total row
-    const buildRows = (metricKey) => {
+      const buildRows = (metricKey) => {
       const rows = [];
+      const totalCols = productsList.length + 3;
       for (const [mgrName, tlsInGroup] of managerGroups.entries()) {
         // Manager group header
         rows.push(`
           <tr>
-            <td colspan="8" class="vv-mgr-hdr" style="padding:10px 12px;background:#d7edd7;font-weight:800;font-size:13px;color:#1a4731;letter-spacing:0.4px;border-top:2px solid #a5d6a7;border-bottom:1px solid #c8e6c9;">
+            <td colspan="${totalCols}" class="vv-mgr-hdr" style="padding:10px 12px;background:#d7edd7;font-weight:800;font-size:13px;color:#1a4731;letter-spacing:0.4px;border-top:2px solid #a5d6a7;border-bottom:1px solid #c8e6c9;">
               Manager: ${mgrName}
             </td>
           </tr>`);
@@ -502,18 +621,26 @@ async function sendManagerDailyReport() {
             mgrTotal[p].ver += m[p].ver;
           });
 
+          const productCells = productsList.map((p, i) => {
+            const isLast = i === productsList.length - 1;
+            const border = isLast ? '' : 'border-right:1px solid #e0e8e0;';
+            return `<td class="vv-cell" style="padding:13px 12px;text-align:center;${border}">${formatCell(m[p].sub, m[p].ver)}</td>`;
+          }).join('');
+
           rows.push(`
             <tr style="background:${bg};border-bottom:1px solid #e8f0e8;">
               <td class="vv-tl-name" style="padding:13px 12px;font-weight:700;font-size:14px;color:#1a4731;border-right:1px solid #e0e8e0;padding-left:22px;">${tl.tlName}</td>
               <td class="vv-mgr-name" style="padding:13px 12px;font-size:13px;color:#444;border-right:1px solid #e0e8e0;">${tl.manager}</td>
               <td class="vv-cell" style="padding:13px 12px;text-align:center;background:#f0f7f0;border-right:1px solid #e0e8e0;">${formatCell(m.totalSub, m.totalVer)}</td>
-              <td class="vv-cell" style="padding:13px 12px;text-align:center;border-right:1px solid #e0e8e0;">${formatCell(m['tide'].sub, m['tide'].ver)}</td>
-              <td class="vv-cell" style="padding:13px 12px;text-align:center;border-right:1px solid #e0e8e0;">${formatCell(m['tide insurance'].sub, m['tide insurance'].ver)}</td>
-              <td class="vv-cell" style="padding:13px 12px;text-align:center;border-right:1px solid #e0e8e0;">${formatCell(m['tide msme'].sub, m['tide msme'].ver)}</td>
-              <td class="vv-cell" style="padding:13px 12px;text-align:center;border-right:1px solid #e0e8e0;">${formatCell(m['tide credit card'].sub, m['tide credit card'].ver)}</td>
-              <td class="vv-cell" style="padding:13px 12px;text-align:center;">${formatCell(m['tide bt'].sub, m['tide bt'].ver)}</td>
+              ${productCells}
             </tr>`);
         });
+
+        const mgrProductCells = productsList.map((p, i) => {
+          const isLast = i === productsList.length - 1;
+          const border = isLast ? '' : 'border-right:1px solid #c8e6c9;';
+          return `<td class="vv-cell" style="padding:12px 12px;text-align:center;${border}">${formatCell(mgrTotal[p].sub, mgrTotal[p].ver)}</td>`;
+        }).join('');
 
         // Manager Total row
         rows.push(`
@@ -521,30 +648,48 @@ async function sendManagerDailyReport() {
             <td class="vv-tl-name" style="padding:12px 12px;font-size:13px;color:#1b5e20;border-right:1px solid #c8e6c9;padding-left:14px;">Total &mdash; ${mgrName}</td>
             <td class="vv-mgr-name" style="padding:12px 12px;color:#1b5e20;font-size:13px;border-right:1px solid #c8e6c9;">${mgrName}</td>
             <td class="vv-cell" style="padding:12px 12px;text-align:center;background:#d7edd7;border-right:1px solid #c8e6c9;">${formatCell(mgrTotal.totalSub, mgrTotal.totalVer)}</td>
-            <td class="vv-cell" style="padding:12px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(mgrTotal['tide'].sub, mgrTotal['tide'].ver)}</td>
-            <td class="vv-cell" style="padding:12px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(mgrTotal['tide insurance'].sub, mgrTotal['tide insurance'].ver)}</td>
-            <td class="vv-cell" style="padding:12px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(mgrTotal['tide msme'].sub, mgrTotal['tide msme'].ver)}</td>
-            <td class="vv-cell" style="padding:12px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(mgrTotal['tide credit card'].sub, mgrTotal['tide credit card'].ver)}</td>
-            <td class="vv-cell" style="padding:12px 12px;text-align:center;">${formatCell(mgrTotal['tide bt'].sub, mgrTotal['tide bt'].ver)}</td>
+            ${mgrProductCells}
           </tr>`);
       }
       return rows.join('');
     };
 
-    const buildGrandRow = (grand) => `
+    const buildGrandRow = (grand) => {
+      const grandProductCells = productsList.map((p, i) => {
+        const isLast = i === productsList.length - 1;
+        const border = isLast ? '' : 'border-right:1px solid #c8e6c9;';
+        return `<td style="padding:15px 12px;text-align:center;${border}">${formatCell(grand[p].sub, grand[p].ver)}</td>`;
+      }).join('');
+      
+      return `
       <tr style="background:#e8f5e9;font-weight:700;border-top:2px solid #2e7d32;">
         <td style="padding:15px 12px;font-size:14px;color:#1b5e20;border-right:1px solid #c8e6c9;">OVERALL TOTAL</td>
         <td style="padding:15px 12px;color:#1b5e20;border-right:1px solid #c8e6c9;">—</td>
         <td style="padding:15px 12px;text-align:center;background:#d0ead0;border-right:1px solid #c8e6c9;">${formatCell(grand.totalSub, grand.totalVer)}</td>
-        <td style="padding:15px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(grand['tide'].sub, grand['tide'].ver)}</td>
-        <td style="padding:15px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(grand['tide insurance'].sub, grand['tide insurance'].ver)}</td>
-        <td style="padding:15px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(grand['tide msme'].sub, grand['tide msme'].ver)}</td>
-        <td style="padding:15px 12px;text-align:center;border-right:1px solid #c8e6c9;">${formatCell(grand['tide credit card'].sub, grand['tide credit card'].ver)}</td>
-        <td style="padding:15px 12px;text-align:center;">${formatCell(grand['tide bt'].sub, grand['tide bt'].ver)}</td>
+        ${grandProductCells}
       </tr>`;
+    };
 
+    const toTitleCase = (str) => str.replace(/\b\w/g, c => c.toUpperCase());
     const thStyle = `padding:13px 12px;font-size:13px;font-weight:700;letter-spacing:0.3px;text-align:center;border-right:1px solid #1b5e20;border-bottom:2px solid #1b5e20;`;
     const thLeft  = thStyle + `text-align:left;`;
+
+    const headerCells = productsList.map(p => {
+      const isLast = p === productsList[productsList.length - 1];
+      const border = isLast ? thStyle.replace('border-right:1px solid #1b5e20;', '') : thStyle;
+      return `<th style="${border}">${toTitleCase(p)}<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>`;
+    }).join('');
+
+    const buildTableHead = () => `
+      <thead>
+        <tr style="background:#1b5e20;color:#ffffff;">
+          <th style="${thLeft}">Team Leader</th>
+          <th style="${thLeft}">Manager</th>
+          <th style="${thStyle}">Total<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
+          ${headerCells}
+        </tr>
+      </thead>
+    `;
 
     const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -617,14 +762,15 @@ async function sendManagerDailyReport() {
           <div style="font-size:24px;font-weight:800;color:#1b5e20;margin-top:8px;">${grandFTD.totalSub} <span style="font-size:14px;font-weight:400;color:#555;">Submitted</span> &nbsp;/&nbsp; ${grandFTD.totalVer} <span style="font-size:14px;font-weight:400;color:#555;">Verified</span></div>
         </td>
         <td width="4%"></td>
-        <td width="48%" style="background:#e8f5e9;border:1px solid #c8e6c9;border-radius:10px;padding:18px 22px;vertical-align:top;">
-          <div style="font-size:11px;color:#2e7d32;font-weight:700;text-transform:uppercase;letter-spacing:1px;">MTD Performance &mdash; ${currentMonthName}</div>
-          <div style="font-size:24px;font-weight:800;color:#1b5e20;margin-top:8px;">${grandMTD.totalSub} <span style="font-size:14px;font-weight:400;color:#555;">Submitted</span> &nbsp;/&nbsp; ${grandMTD.totalVer} <span style="font-size:14px;font-weight:400;color:#555;">Verified</span></div>
+        <td width="48%" style="background:#f0f4c3;border:1px solid #dce775;border-radius:10px;padding:18px 22px;vertical-align:top;">
+          <div style="font-size:11px;color:#827717;font-weight:700;text-transform:uppercase;letter-spacing:1px;">MTD Performance &mdash; ${currentMonthName}</div>
+          <div style="font-size:24px;font-weight:800;color:#827717;margin-top:8px;">${grandMTD.totalSub} <span style="font-size:14px;font-weight:400;color:#666;">Submitted</span> &nbsp;/&nbsp; ${grandMTD.totalVer} <span style="font-size:14px;font-weight:400;color:#666;">Verified</span></div>
         </td>
       </tr></table>
     </div>
 
-    <div style="padding:28px 36px;">
+    <!-- MAIN TABLES CONTAINER -->
+    <div style="padding:32px 36px;">
 
       <!-- FTD TABLE -->
       <div style="margin-bottom:12px;">
@@ -634,19 +780,8 @@ async function sendManagerDailyReport() {
       <!-- Anti-clipping token for FTD -->
       <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">FTD_Summary_${now.getTime()} &zwnj;&nbsp;&zwnj;&nbsp;</div>
       <div class="vv-table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;display:block;max-width:100%;width:100%;margin-bottom:36px;border:1px solid #c8e6c9;border-radius:8px;">
-        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:620px;width:100%;">
-          <thead>
-            <tr style="background:#1b5e20;color:#ffffff;">
-              <th style="${thLeft}">Team Leader</th>
-              <th style="${thLeft}">Manager</th>
-              <th style="${thStyle}">Total<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">Tide<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">Insurance<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">MSME<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">Credit Card<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle.replace('border-right:1px solid #1b5e20;','')}">Tide BT<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-            </tr>
-          </thead>
+        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:\${400 + productsList.length * 85}px;width:100%;">
+          ${buildTableHead()}
           <tbody>
             ${buildRows('ftd')}
             ${buildGrandRow(grandFTD)}
@@ -665,19 +800,8 @@ async function sendManagerDailyReport() {
       <!-- Anti-clipping token for MTD -->
       <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">MTD_Summary_${now.getTime()}_${Math.random()} &zwnj;&nbsp;&zwnj;&nbsp;</div>
       <div class="vv-table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;display:block;max-width:100%;width:100%;border:1px solid #c8e6c9;border-radius:8px;">
-        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:620px;width:100%;">
-          <thead>
-            <tr style="background:#1b5e20;color:#ffffff;">
-              <th style="${thLeft}">Team Leader</th>
-              <th style="${thLeft}">Manager</th>
-              <th style="${thStyle}">Total<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">Tide<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">Insurance<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">MSME<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle}">Credit Card<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-              <th style="${thStyle.replace('border-right:1px solid #1b5e20;','')}">Tide BT<br><span style="font-weight:400;font-size:11px;">Sub / Ver</span></th>
-            </tr>
-          </thead>
+        <table class="vv-table" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;min-width:\${400 + productsList.length * 85}px;width:100%;">
+          ${buildTableHead()}
           <tbody>
             ${buildRows('mtd')}
             ${buildGrandRow(grandMTD)}

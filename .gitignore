@@ -110,3 +110,4 @@ jaas_private_key.pem
 employee-app/.env.production
 backend/clear_cache.js
 backend/test_points.js
+backend/utils/managerReportService_temp.js

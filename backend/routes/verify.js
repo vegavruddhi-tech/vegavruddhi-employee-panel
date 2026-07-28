@@ -142,7 +142,19 @@ function getFallbackPointsMap() {
 
 function calculateRecordPointsSync(form, monthLabel, pointsMap) {
   let formMonth = monthLabel || form._month || form.month;
-  const fallbackProductName = (form.formFillingFor || form.tideProduct || form.brand || '').toLowerCase().trim();
+  const fallbackProductNameRaw = (form.formFillingFor || form.tideProduct || form.brand || '').toLowerCase().trim();
+  let fallbackProductName = fallbackProductNameRaw;
+  if (fallbackProductNameRaw.includes('tide insurance')) {
+    fallbackProductName = 'tide insurance';
+  } else if (fallbackProductNameRaw.includes('tide msme')) {
+    fallbackProductName = 'tide msme';
+  } else if (fallbackProductNameRaw.includes('tide credit card')) {
+    fallbackProductName = 'tide credit card';
+  } else if (fallbackProductNameRaw.includes('tide bt')) {
+    fallbackProductName = 'tide bt';
+  } else if (fallbackProductNameRaw.includes('tide')) {
+    fallbackProductName = 'tide';
+  }
   const fallbackMap = getFallbackPointsMap();
 
   if (formMonth) {
@@ -162,7 +174,22 @@ function calculateRecordPointsSync(form, monthLabel, pointsMap) {
 
   for (const [configProductName, config] of Object.entries(pointsMap)) {
     const productField = config.fieldMapping?.productField || 'formFillingFor';
-    const actualProductName = String(form[productField] || form.tideProduct || form.brand || '').toLowerCase().trim();
+    const actualProductNameRaw = String(form[productField] || form.tideProduct || form.brand || '').toLowerCase().trim();
+    
+    // 🔥 FIX: Strip sub-product suffixes to match base products in points config
+    let actualProductName = actualProductNameRaw;
+    if (actualProductNameRaw.includes('tide insurance')) {
+      actualProductName = 'tide insurance';
+    } else if (actualProductNameRaw.includes('tide msme')) {
+      actualProductName = 'tide msme';
+    } else if (actualProductNameRaw.includes('tide credit card')) {
+      actualProductName = 'tide credit card';
+    } else if (actualProductNameRaw.includes('tide bt')) {
+      actualProductName = 'tide bt';
+    } else if (actualProductNameRaw.includes('tide')) {
+      actualProductName = 'tide';
+    }
+
     const cleanConfigName = String(configProductName).toLowerCase().trim();
 
     if (actualProductName === cleanConfigName) {

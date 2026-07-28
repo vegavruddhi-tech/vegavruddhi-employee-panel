@@ -119,6 +119,23 @@ export default function MerchantForm() {
     // if (isOnboarding && !product) { setError('Please select a product.'); return; }
     if (!isOnboarding && !reason.trim()) { setError('Please provide a reason.'); return; }
 
+    // 🔥 NEW: Validate sub-product and dynamic fields are filled when onboarding
+    if (isOnboarding && formConfig) {
+      if (!brand) { setError('Please select a Brand.'); return; }
+      const selectedBrand = formConfig.brands.find(b => b.name === brand);
+      if (selectedBrand?.hasSubProducts && !tideProduct) {
+        setError('Please select a Product.'); return;
+      }
+      const fields = selectedBrand?.hasSubProducts
+        ? selectedBrand.products.find(p => p.name === tideProduct)?.fields || []
+        : selectedBrand?.fields || [];
+      for (const f of fields) {
+        if (!dynamicData[f.name] || !String(dynamicData[f.name]).trim()) {
+          setError(`Please fill in: ${f.label}`); return;
+        }
+      }
+    }
+
     const payload = {
       customerName, customerNumber, location, status,
       ...(isOnboarding && brand ? { brand } : {}),
@@ -301,7 +318,7 @@ export default function MerchantForm() {
 
             return fields.map((f, i) => (
               <div key={i} className="form-group">
-                <label>{f.label}</label>
+                <label>{f.label} <span className="req">*</span></label>
                 {f.type === 'radio' ? (
                   <RadioGroup 
                     name={f.name} 

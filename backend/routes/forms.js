@@ -1430,15 +1430,32 @@ module.exports = (connectionManager, connectDB) => {
       };
 
       const [fseForms, tlForms] = await Promise.all([
-        FormResponse.find(formQuery).select('verificationStatus verificationChecks').lean(),
-        TLFormResponse.find(formQuery).select('verificationStatus verificationChecks').lean()
+        FormResponse.find(formQuery).select('verificationStatus verificationChecks formFillingFor tideProduct brand').lean(),
+        TLFormResponse.find(formQuery).select('verificationStatus verificationChecks formFillingFor tideProduct brand').lean()
       ]);
 
       const allForms = [...fseForms, ...tlForms];
+      // 🔥 FIX: Fallback points for sub-products stored with points=0 in MongoDB
+      const FALLBACK_POINTS_MAP = { 'tide': 2, 'tide msme': 0.3, 'tide insurance': 1, 'tide credit card': 1, 'tide bt': 1 };
+      const normProductForPts = (raw) => {
+        const n = (raw || '').toLowerCase().trim();
+        if (n.includes('tide insurance')) return 'tide insurance';
+        if (n.includes('tide msme'))      return 'tide msme';
+        if (n.includes('tide credit card')) return 'tide credit card';
+        if (n.includes('tide bt'))        return 'tide bt';
+        if (n.includes('tide'))           return 'tide';
+        return n;
+      };
       let liveVerifiedPoints = 0;
       allForms.forEach(f => {
         if (f.verificationStatus === 'Fully Verified' || f.verificationChecks?.status === 'Fully Verified') {
-          liveVerifiedPoints += parseFloat(f.verificationChecks?.points) || 0;
+          let pts = parseFloat(f.verificationChecks?.points) || 0;
+          // 🔥 FIX: If points=0 for a fully-verified form, compute from product name
+          if (pts === 0) {
+            const baseProduct = normProductForPts(f.formFillingFor || f.tideProduct || f.brand || '');
+            pts = FALLBACK_POINTS_MAP[baseProduct] || 0;
+          }
+          liveVerifiedPoints += pts;
         }
       });
       liveVerifiedPoints = Math.round(liveVerifiedPoints * 10) / 10;

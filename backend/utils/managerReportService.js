@@ -475,7 +475,7 @@ async function sendManagerDailyReport() {
       if (rankA !== rankB) return rankA - rankB;
       return a.localeCompare(b);
     });
-    const productsList = sortedProducts.map(p => p.toLowerCase());
+    let productsList = sortedProducts.map(p => p.toLowerCase());
     const createEmptyMetrics = () => {
       const obj = { totalSub: 0, totalVer: 0 };
       productsList.forEach(p => { obj[p] = { sub: 0, ver: 0 }; });
@@ -575,6 +575,11 @@ async function sendManagerDailyReport() {
         grandMTD[p].sub += item.mtd[p].sub;
         grandMTD[p].ver += item.mtd[p].ver;
       });
+    }
+
+    // 5.5 Filter out base 'tide insurance' column if all records are in its sub-products (so it has 0/0 overall)
+    if (grandFTD['tide insurance']?.sub === 0 && grandMTD['tide insurance']?.sub === 0) {
+      productsList = productsList.filter(p => p !== 'tide insurance');
     }
 
     // 6. Build HTML (clean, no emojis)

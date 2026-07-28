@@ -401,12 +401,29 @@ export default function Dashboard() {
       return;
     }
 
+    // 🔥 FIX: Fallback points for sub-products stored with points=0
+    const FALLBACK_PTS = { 'tide': 2, 'tide msme': 0.3, 'tide insurance': 1, 'tide credit card': 1, 'tide bt': 1 };
+    const normProductForPts = (raw) => {
+      const n = (raw || '').toLowerCase().trim();
+      if (n.includes('tide insurance')) return 'tide insurance';
+      if (n.includes('tide msme'))      return 'tide msme';
+      if (n.includes('tide credit card')) return 'tide credit card';
+      if (n.includes('tide bt'))        return 'tide bt';
+      if (n.includes('tide'))           return 'tide';
+      return n;
+    };
+
     // 1️⃣ Build initial verification map instantly from database fields (0 latency, 0 timeouts)
     const initialMap = {};
     let dbAutoPts = 0;
     allForms.forEach(f => {
       const vstatus = f.verificationStatus || f.verificationChecks?.status || 'Not Found';
-      const vpoints = f.verificationChecks?.points || 0;
+      let vpoints = f.verificationChecks?.points ?? 0;
+      // 🔥 FIX: If points=0 but Fully Verified, compute from product name
+      if (vpoints === 0 && vstatus === 'Fully Verified') {
+        const baseP = normProductForPts(f.formFillingFor || f.tideProduct || f.brand || '');
+        vpoints = FALLBACK_PTS[baseP] || 0;
+      }
       const isFound = vstatus !== 'Not Found';
       const vinfo = {
         status: vstatus,
@@ -414,6 +431,7 @@ export default function Dashboard() {
         phoneMatch: isFound ? true : (f.verificationChecks?.phoneMatch || false),
         inSheet: isFound ? true : (f.verificationChecks?.inSheet || false),
         ...f.verificationChecks,
+        points: vpoints,  // override spread with corrected value
         status: vstatus
       };
       if (isFound) {
@@ -431,8 +449,26 @@ export default function Dashboard() {
     const formsToCheck = allForms.filter(f => !f.verificationStatus || f.verificationStatus === 'Not Found').slice(0, 30);
     if (formsToCheck.length === 0) {
       console.log('✅ All forms loaded with verification status from DB');
+      // 🔥 FIX: Still save corrected points (sub-product fix) even when all already verified
+      fetch(`${API_BASE}/api/forms/save-verified-points`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ verifiedPoints: Math.round(dbAutoPts * 10) / 10 })
+      }).then(() => {
+        const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
+        const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
+        const url = isImpersonating
+          ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
+          : `${API_BASE}/api/forms/my-points?1=1${monthParam}${yearParam}`;
+        return fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      }).then(r => r.json()).then(d => {
+        setAdjustment(d.pointsAdjustment || 0);
+        setBackendPoints(d.totalPoints || 0);
+      }).catch(() => {});
       return;
     }
+
 
     console.log('🔍 Fetching verification update (POST bulk-admin):', {
       formCount: formsToCheck.length,
@@ -476,7 +512,15 @@ export default function Dashboard() {
           }
 
           if ((updatedMap[f._id]?.status || 'Not Found') === 'Fully Verified') {
-            autoPts += (updatedMap[f._id]?.points || 0);
+            let pts = updatedMap[f._id]?.points || 0;
+            // 🔥 FIX: If points=0 but Fully Verified, compute from product name
+            if (pts === 0) {
+              const baseP = normProductForPts(f.formFillingFor || f.tideProduct || f.brand || '');
+              pts = FALLBACK_PTS[baseP] || 0;
+              // Update map with corrected points
+              if (updatedMap[f._id]) updatedMap[f._id] = { ...updatedMap[f._id], points: pts };
+            }
+            autoPts += pts;
           }
         });
 

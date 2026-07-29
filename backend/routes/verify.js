@@ -4,6 +4,7 @@ const crypto           = require('crypto');
 const VerificationRule = require('../models/VerificationRule');
 const PointsConfiguration = require('../models/PointsConfiguration');
 const { verifyMerchant, crossCheckPhone } = require('../utils/verifyMerchant');
+const { checkIfAlreadyVerified } = require('../utils/dedupVerification');
 const { getRedisClient } = require('../utils/redisClient');
 const { sendManagerDailyReport } = require('../utils/managerReportService');
 
@@ -549,10 +550,16 @@ async function attachPoints(result, cachedPointsMap = null) {
         cachedPointsMap[productKey] = configData;
       });
 
+      // Sort forms by createdAt ascending so the oldest gets 'Fully Verified' first
+      forms.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+
       let processed = 0;
       let cached = 0;
       let skipped = 0;
       let redisSaved = 0; // Track successful Redis saves
+      
+      // In-memory set to track newly verified forms in this batch run
+      const newlyVerified = new Set();
 
       // Process forms in safe batches with Bulk Writes and Redis Pipeline (Solution 3)
       const batchSize = 100; // Increased to 100 since we eliminated sequential network calls!
@@ -653,6 +660,36 @@ async function attachPoints(result, cachedPointsMap = null) {
             // ✅ STRIP RAW RECORD TO PREVENT PAYLOAD/DB BLOAT
             const lightweightResult = { ...finalResult };
             delete lightweightResult.record;
+
+            // ✅ DUPLICATE VERIFICATION CHECK
+            if (lightweightResult.status === 'Fully Verified') {
+               // Ensure phone and product are strings
+               const dedupPhone = String(phone || '').trim();
+               const dedupProduct = String(product || '').toLowerCase().trim();
+               let dedupKey = `${dedupPhone}__${dedupProduct}`;
+               if (form.tideIns_type) dedupKey += `__${String(form.tideIns_type).toLowerCase().trim()}`;
+               if (form.ins_insuranceType) dedupKey += `__${String(form.ins_insuranceType).toLowerCase().trim()}`;
+               if (form.cc_cardName) dedupKey += `__${String(form.cc_cardName).toLowerCase().trim()}`;
+               
+               // Did we just verify an older one in this batch?
+               if (newlyVerified.has(dedupKey)) {
+                  lightweightResult.status = 'Already Verified';
+                  lightweightResult.points = 0;
+                  if (!lightweightResult.checks) lightweightResult.checks = [];
+                  lightweightResult.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form in this batch' });
+               } else {
+                  // Also check the database just in case it was verified previously
+                  const alreadyInDb = await checkIfAlreadyVerified(form, form._id, form.createdAt);
+                  if (alreadyInDb) {
+                     lightweightResult.status = 'Already Verified';
+                     lightweightResult.points = 0;
+                     if (!lightweightResult.checks) lightweightResult.checks = [];
+                     lightweightResult.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form' });
+                  } else {
+                     newlyVerified.add(dedupKey);
+                  }
+               }
+            }
 
             // ✅ SAVE VERIFICATION RESULTS TO REDIS PIPELINE (0 network calls in loop!)
             const cacheValue = {

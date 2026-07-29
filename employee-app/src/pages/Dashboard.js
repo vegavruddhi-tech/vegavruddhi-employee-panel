@@ -406,10 +406,10 @@ export default function Dashboard() {
     const normProductForPts = (raw) => {
       const n = (raw || '').toLowerCase().trim();
       if (n.includes('tide insurance')) return 'tide insurance';
-      if (n.includes('tide msme'))      return 'tide msme';
+      if (n.includes('tide msme')) return 'tide msme';
       if (n.includes('tide credit card')) return 'tide credit card';
-      if (n.includes('tide bt'))        return 'tide bt';
-      if (n.includes('tide'))           return 'tide';
+      if (n.includes('tide bt')) return 'tide bt';
+      if (n.includes('tide')) return 'tide';
       return n;
     };
 
@@ -455,7 +455,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ verifiedPoints: Math.round(dbAutoPts * 10) / 10 })
       }).then(() => {
-        const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
         const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
         const url = isImpersonating
@@ -465,7 +465,7 @@ export default function Dashboard() {
       }).then(r => r.json()).then(d => {
         setAdjustment(d.pointsAdjustment || 0);
         setBackendPoints(d.totalPoints || 0);
-      }).catch(() => {});
+      }).catch(() => { });
       return;
     }
 
@@ -546,9 +546,9 @@ export default function Dashboard() {
             setAdjustment(d.pointsAdjustment || 0);
             setBackendPoints(d.totalPoints || 0);
           })
-          .catch(() => {});
+          .catch(() => { });
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [allForms.length, token, selMonth, selYear, isImpersonating, viewAsEmail]); // eslint-disable-line
   const normalizeProduct = (product) => {
     const p = (product || '').toLowerCase().trim();
@@ -756,7 +756,7 @@ export default function Dashboard() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, marginTop: 4 }}>
           {(() => {
             const productSet = new Set();
-            
+
             allForms.forEach(f => {
               if (selMonth !== '') {
                 const formDate = new Date(f.createdAt);
@@ -766,7 +766,7 @@ export default function Dashboard() {
                 const formDate = new Date(f.createdAt);
                 if (formDate.getFullYear() !== parseInt(selYear)) return;
               }
-              
+
               const info = verifiedMap[getVerifyKey(f)] || {};
               if (info.status === 'Fully Verified') {
                 const label = formatProductDisplay(f, info);
@@ -779,7 +779,7 @@ export default function Dashboard() {
 
             const products = Array.from(productSet).sort();
             const counts = {};
-            
+
             products.forEach(p => {
               counts[p] = allForms.filter(f => {
                 if (selMonth !== '') {
@@ -790,7 +790,7 @@ export default function Dashboard() {
                   const formDate = new Date(f.createdAt);
                   if (formDate.getFullYear() !== parseInt(selYear)) return false;
                 }
-                
+
                 const info = verifiedMap[getVerifyKey(f)] || {};
                 const label = formatProductDisplay(f, info);
                 return label === p && info?.status === 'Fully Verified';
@@ -958,9 +958,9 @@ export default function Dashboard() {
                     Showing {Math.min((currentPage - 1) * pageSize + 1, filtered.length)} - {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} forms
                   </span>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button 
-                      disabled={currentPage <= 1} 
-                      onClick={() => setPage(p => Math.max(1, p - 1))} 
+                    <button
+                      disabled={currentPage <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
                       style={{ padding: '6px 14px', borderRadius: '8px', border: '1.5px solid #dde8dd', background: currentPage <= 1 ? '#f5f5f5' : '#fff', color: currentPage <= 1 ? '#aaa' : '#1b4332', fontWeight: 700, fontSize: '13px', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer' }}
                     >
                       Previous
@@ -968,9 +968,9 @@ export default function Dashboard() {
                     <span style={{ fontWeight: 800, fontSize: '13px', color: '#1b4332', padding: '0 6px' }}>
                       Page {currentPage} of {totalPages}
                     </span>
-                    <button 
-                      disabled={currentPage >= totalPages} 
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                    <button
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                       style={{ padding: '6px 14px', borderRadius: '8px', border: '1.5px solid #dde8dd', background: currentPage >= totalPages ? '#f5f5f5' : '#fff', color: currentPage >= totalPages ? '#aaa' : '#1b4332', fontWeight: 700, fontSize: '13px', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
                     >
                       Next

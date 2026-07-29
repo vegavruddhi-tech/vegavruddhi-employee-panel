@@ -1,4 +1,5 @@
 const { verifyMerchant } = require('./verifyMerchant');
+const { checkIfAlreadyVerified } = require('./dedupVerification');
 
 /**
  * Update verification status for a form
@@ -19,6 +20,17 @@ async function updateFormVerificationStatus(formId, db = null) {
     const month = new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
     const verification = await verifyMerchant(dbConnection, form.customerNumber, form.customerName || '', VerificationRule, product, month);
+
+    if (verification.status === 'Fully Verified') {
+      const isDup = await checkIfAlreadyVerified(form, form._id, form.createdAt);
+      if (isDup) {
+        verification.status = 'Already Verified';
+        verification.points = 0;
+        if (verification.checks) {
+          verification.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form' });
+        }
+      }
+    }
 
     await FormResponse.findByIdAndUpdate(formId, {
       verificationStatus: verification.status,
@@ -46,6 +58,17 @@ async function updateManagerFormVerificationStatus(formId, db = null) {
 
     const verification = await verifyMerchant(dbConnection, form.customerNumber, form.customerName || '', VerificationRule, product, month);
 
+    if (verification.status === 'Fully Verified') {
+      const isDup = await checkIfAlreadyVerified(form, form._id, form.createdAt);
+      if (isDup) {
+        verification.status = 'Already Verified';
+        verification.points = 0;
+        if (verification.checks) {
+          verification.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form' });
+        }
+      }
+    }
+
     await ManagerForm.findByIdAndUpdate(formId, {
       verificationStatus: verification.status,
       verificationChecks: verification,
@@ -71,6 +94,17 @@ async function updateTLFormVerificationStatus(formId, db = null) {
     const month = new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
     const verification = await verifyMerchant(dbConnection, form.customerNumber, form.customerName || '', VerificationRule, product, month);
+
+    if (verification.status === 'Fully Verified') {
+      const isDup = await checkIfAlreadyVerified(form, form._id, form.createdAt);
+      if (isDup) {
+        verification.status = 'Already Verified';
+        verification.points = 0;
+        if (verification.checks) {
+          verification.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form' });
+        }
+      }
+    }
 
     await TLFormResponse.findByIdAndUpdate(formId, {
       verificationStatus: verification.status,

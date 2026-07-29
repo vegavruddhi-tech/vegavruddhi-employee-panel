@@ -662,7 +662,7 @@ module.exports = (connectionManager, connectDB) => {
       const Model = role === 'TL' ? TLFormResponse : role === 'MANAGER' ? ManagerForm : FormResponse;
 
       // Include all product details so spreadsheet export contains complete information
-      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason tide_qrPosted tide_upiTxnDone tideBt_txnDone ins_vehicleNumber ins_vehicleType ins_insuranceType pine_cardTxn pine_wifiConnected cc_cardName tideIns_type verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
+      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason tide_qrPosted tide_upiTxnDone tideBt_txnDone ins_vehicleNumber ins_vehicleType ins_insuranceType pine_cardTxn pine_wifiConnected cc_cardName tideIns_type verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet verificationChecks.checks';
 
       const forms = await Model.find(queryFilter)
         .select(UI_FIELDS)
@@ -1103,7 +1103,7 @@ module.exports = (connectionManager, connectDB) => {
       const ManagerForm = require('../models/ManagerForm');
 
       // 🔥 STRICT PROJECTION: Include UI fields and all product details for spreadsheet export
-      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason tide_qrPosted tide_upiTxnDone tideBt_txnDone ins_vehicleNumber ins_vehicleType ins_insuranceType pine_cardTxn pine_wifiConnected cc_cardName tideIns_type verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet';
+      const UI_FIELDS = '_id customerName customerNumber location status formFillingFor tideProduct brand employeeName submittedBy createdAt verificationStatus reason tide_qrPosted tide_upiTxnDone tideBt_txnDone ins_vehicleNumber ins_vehicleType ins_insuranceType pine_cardTxn pine_wifiConnected cc_cardName tideIns_type verificationChecks.points verificationChecks.status verificationChecks.phoneMatch verificationChecks.matched verificationChecks.inSheet verificationChecks.checks';
 
       // ✅ Fetch ALL forms with ultra-fast UI projection: FSE + TL + Manager
       const [fseForms, tlForms, mgrForms, employees, tls] = await Promise.all([
@@ -1510,53 +1510,54 @@ module.exports = (connectionManager, connectDB) => {
         allForms = [...allFSEForms, ...allTLForms];
       }
 
-      // Group forms by employeeName
-      const byEmployee = {};
-      allForms.forEach(f => {
-        const name = f.employeeName || 'Unknown';
-        if (!byEmployee[name]) byEmployee[name] = [];
-        byEmployee[name].push(f);
-      });
+      // Sort all forms chronologically so the first submitted gets points
+      allForms.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+
+      const pointsByEmployee = {};
+      const counted = new Set(); // global deduplication across ALL employees
+
+      for (const f of allForms) {
+        const employeeName = f.employeeName || 'Unknown';
+        if (employeeName === 'Unknown') continue;
+
+        if (pointsByEmployee[employeeName] === undefined) pointsByEmployee[employeeName] = 0;
+
+        try {
+          const product = f.formFillingFor || '';
+          const month = f.createdAt
+            ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+            : '';
+
+          // Deduplicate — same merchant+product only counts once globally
+          let dedupKey = `${f.customerNumber}__${product.toLowerCase().trim()}`;
+          if (f.tideIns_type) dedupKey += `__${String(f.tideIns_type).toLowerCase().trim()}`;
+          if (f.ins_insuranceType) dedupKey += `__${String(f.ins_insuranceType).toLowerCase().trim()}`;
+          if (f.cc_cardName) dedupKey += `__${String(f.cc_cardName).toLowerCase().trim()}`;
+          
+          if (counted.has(dedupKey)) continue;
+
+          const result = await verifyMerchant(
+            db,
+            f.customerNumber,
+            f.customerName || '',
+            VerificationRule,
+            product,
+            month
+          );
+
+          if (result.status === 'Fully Verified') {
+            counted.add(dedupKey); // mark as counted only when verified
+            pointsByEmployee[employeeName] += POINTS_MAP[product] || 0;
+          }
+        } catch (e) {
+          // skip individual form errors
+        }
+      }
 
       let updatedCount = 0;
 
-      for (const [employeeName, forms] of Object.entries(byEmployee)) {
-        if (employeeName === 'Unknown') continue;
-
-        let autoPoints = 0;
-        const counted = new Set(); // deduplicate by customerNumber+product
-
-        // Run verification for each form
-        for (const f of forms) {
-          try {
-            const product = f.formFillingFor || '';
-            const month = f.createdAt
-              ? new Date(f.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
-              : '';
-
-            // Deduplicate — same merchant+product only counts once
-            const dedupKey = `${f.customerNumber}__${product.toLowerCase().trim()}`;
-            if (counted.has(dedupKey)) continue;
-
-            const result = await verifyMerchant(
-              db,
-              f.customerNumber,
-              f.customerName || '',
-              VerificationRule,
-              product,
-              month
-            );
-
-            if (result.status === 'Fully Verified') {
-              counted.add(dedupKey); // mark as counted only when verified
-              autoPoints += POINTS_MAP[product] || 0;
-            }
-          } catch (e) {
-            // skip individual form errors
-          }
-        }
-
-        autoPoints = Math.round(autoPoints * 10) / 10;
+      for (const [employeeName, autoPointsRaw] of Object.entries(pointsByEmployee)) {
+        let autoPoints = Math.round(autoPointsRaw * 10) / 10;
 
         // Save to EmployeePoints collection
         await EmployeePoints.findOneAndUpdate(
@@ -1601,6 +1602,63 @@ module.exports = (connectionManager, connectDB) => {
         await updateMultipleFormsVerification(forms.map(f => f._id.toString()), req.db);
         res.json({ message: `Verification updated for ${forms.length} forms` });
       }
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/forms/admin/revert-verification/:id — Manually revert verification status back to Not Found
+  router.post('/admin/revert-verification/:id', async (req, res) => {
+    try {
+      const FormResponse = require('../models/FormResponse');
+      const TLFormResponse = require('../models/TLFormResponse');
+      const ManagerForm = require('../models/ManagerForm');
+      
+      const { id } = req.params;
+      
+      // Try to find and update the form across all collections
+      let form = await FormResponse.findById(id);
+      let Model = FormResponse;
+      if (!form) {
+        form = await TLFormResponse.findById(id);
+        Model = TLFormResponse;
+      }
+      if (!form) {
+        form = await ManagerForm.findById(id);
+        Model = ManagerForm;
+      }
+      
+      if (!form) {
+        return res.status(404).json({ message: 'Form not found' });
+      }
+
+      // Update the form's verification status
+      form.verificationStatus = 'Not Found';
+      form.verificationChecks = {
+        status: 'Not Found',
+        points: 0,
+        passed: 0,
+        total: 0,
+        checks: [],
+        criticalFailed: []
+      };
+      
+      await form.save();
+      
+      // ✅ Clear Redis cache so frontend sees the update immediately
+      const { getRedisClient, getKeysByPattern } = require('../utils/redisClient');
+      const redis = getRedisClient();
+      if (redis) {
+        try {
+          const keys = await getKeysByPattern(redis, 'admin_forms_all*');
+          if (keys.length > 0) await redis.del(...keys);
+        } catch (e) {
+          console.error('Failed to clear admin_forms_all cache on revert:', e.message);
+        }
+      }
+
+      
+      res.json({ message: 'Verification reverted successfully', form });
     } catch (err) {
       res.status(500).json({ message: err.message });
     }

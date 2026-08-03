@@ -1,6 +1,6 @@
-const express          = require('express');
-const jwt              = require('jsonwebtoken');
-const crypto           = require('crypto');
+const express = require('express');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const VerificationRule = require('../models/VerificationRule');
 const PointsConfiguration = require('../models/PointsConfiguration');
 const { verifyMerchant, crossCheckPhone } = require('../utils/verifyMerchant');
@@ -56,7 +56,7 @@ module.exports = (connectionManager, connectDB) => {
     try {
       // Wait for MongoDB connection to be established
       const mongooseConn = await connectDB();
-      
+
       if (!mongooseConn) {
         return res.status(503).json({
           message: 'Database connection unavailable, please try again',
@@ -65,16 +65,16 @@ module.exports = (connectionManager, connectDB) => {
           timestamp: new Date().toISOString()
         });
       }
-      
+
       // Ensure ConnectionManager is initialized (lazy init on first request)
       await connectionManager.ensureInitialized();
-      
+
       // Get the database connection
       req.db = connectionManager.getConnection();
       next();
     } catch (error) {
       console.error('🔴 Database connection error in verify routes:', error.message);
-      
+
       // Determine appropriate error response based on error type
       if (error.message.includes('Circuit breaker open')) {
         return res.status(503).json({
@@ -119,12 +119,12 @@ module.exports = (connectionManager, connectDB) => {
    */
   function getProductField(form) {
     // Priority order: try each field until we find a non-empty value
-    const product = form.formFillingFor || 
-                    form.tideProduct || 
-                    form.brand || 
-                    (Array.isArray(form.attemptedProducts) && form.attemptedProducts.length > 0 ? form.attemptedProducts[0] : '') ||
-                    '';
-    
+    const product = form.formFillingFor ||
+      form.tideProduct ||
+      form.brand ||
+      (Array.isArray(form.attemptedProducts) && form.attemptedProducts.length > 0 ? form.attemptedProducts[0] : '') ||
+      '';
+
     return normalizeProduct(product);
   }
 
@@ -136,144 +136,144 @@ module.exports = (connectionManager, connectDB) => {
     return crypto.createHash('md5').update(data).digest('hex');
   }
 
-  
-function getFallbackPointsMap() {
-  return { 'tide': 2, 'tide msme': 0.3, 'msme': 0.3, 'tide insurance': 1, 'tide credit card': 1, 'tide bt': 1 };
-}
 
-function calculateRecordPointsSync(form, monthLabel, pointsMap) {
-  let formMonth = monthLabel || form._month || form.month;
-  const fallbackProductNameRaw = (form.formFillingFor || form.tideProduct || form.brand || '').toLowerCase().trim();
-  let fallbackProductName = fallbackProductNameRaw;
-  if (fallbackProductNameRaw.includes('tide insurance')) {
-    fallbackProductName = 'tide insurance';
-  } else if (fallbackProductNameRaw.includes('tide msme')) {
-    fallbackProductName = 'tide msme';
-  } else if (fallbackProductNameRaw.includes('tide credit card')) {
-    fallbackProductName = 'tide credit card';
-  } else if (fallbackProductNameRaw.includes('tide bt')) {
-    fallbackProductName = 'tide bt';
-  } else if (fallbackProductNameRaw.includes('tide')) {
-    fallbackProductName = 'tide';
-  }
-  const fallbackMap = getFallbackPointsMap();
-
-  if (formMonth) {
-    const parts = formMonth.split(' ');
-    if (parts.length >= 1) {
-      const m = parts[0];
-      const y = parts.length > 1 ? parseInt(parts[1]) : new Date().getFullYear();
-      const mIdx = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].indexOf(m);
-      if ((y === 2026 && mIdx <= 4) || y < 2026 || !pointsMap) {
-        return fallbackMap[fallbackProductName] || 0;
-      }
-    }
+  function getFallbackPointsMap() {
+    return { 'tide': 2, 'tide msme': 0.3, 'msme': 0.3, 'tide insurance': 1, 'tide credit card': 1, 'tide bt': 1 };
   }
 
-  if (!pointsMap) return fallbackMap[fallbackProductName] || 0;
-
-
-  for (const [configProductName, config] of Object.entries(pointsMap)) {
-    const productField = config.fieldMapping?.productField || 'formFillingFor';
-    const actualProductNameRaw = String(form[productField] || form.tideProduct || form.brand || '').toLowerCase().trim();
-    
-    // 🔥 FIX: Strip sub-product suffixes to match base products in points config
-    let actualProductName = actualProductNameRaw;
-    if (actualProductNameRaw.includes('tide insurance')) {
-      actualProductName = 'tide insurance';
-    } else if (actualProductNameRaw.includes('tide msme')) {
-      actualProductName = 'tide msme';
-    } else if (actualProductNameRaw.includes('tide credit card')) {
-      actualProductName = 'tide credit card';
-    } else if (actualProductNameRaw.includes('tide bt')) {
-      actualProductName = 'tide bt';
-    } else if (actualProductNameRaw.includes('tide')) {
-      actualProductName = 'tide';
+  function calculateRecordPointsSync(form, monthLabel, pointsMap) {
+    let formMonth = monthLabel || form._month || form.month;
+    const fallbackProductNameRaw = (form.formFillingFor || form.tideProduct || form.brand || '').toLowerCase().trim();
+    let fallbackProductName = fallbackProductNameRaw;
+    if (fallbackProductNameRaw.includes('tide insurance')) {
+      fallbackProductName = 'tide insurance';
+    } else if (fallbackProductNameRaw.includes('tide msme')) {
+      fallbackProductName = 'tide msme';
+    } else if (fallbackProductNameRaw.includes('tide credit card')) {
+      fallbackProductName = 'tide credit card';
+    } else if (fallbackProductNameRaw.includes('tide bt')) {
+      fallbackProductName = 'tide bt';
+    } else if (fallbackProductNameRaw.includes('tide')) {
+      fallbackProductName = 'tide';
     }
+    const fallbackMap = getFallbackPointsMap();
 
-    const cleanConfigName = String(configProductName).toLowerCase().trim();
-
-    if (actualProductName === cleanConfigName) {
-      if (config.type === 'simple') return config.points || 0;
-      if (config.type === 'mapped') {
-        const mappedColumn = config.fieldMapping?.mappedColumn;
-        if (!mappedColumn) return 0;
-        const actualValue = String(form[mappedColumn] || '').toLowerCase().trim();
-        const mapping = config.valueMapping?.find(m => String(m.value).toLowerCase().trim() === actualValue);
-        if (mapping) return mapping.points;
-        return 0;
-      }
-      if (config.type === 'complex') {
-        // ... (not modified for brevity, just copying)
-        const planField = config.fieldMapping?.planField || 'planName';
-        const actualPlanName = String(form[planField] || '').toLowerCase().trim();
-        if (!actualPlanName || !config.plans[actualPlanName]) continue;
-        const plan = config.plans[actualPlanName];
-        const tierField = config.fieldMapping?.tierField || 'tierName';
-        const priceField = config.fieldMapping?.priceField || 'price';
-        const actualTierName = String(form[tierField] || form.variant || '').toLowerCase().trim();
-        const actualPrice = parseFloat(form[priceField] || form.amount || 0);
-        if (actualTierName && plan[actualTierName]) return plan[actualTierName].points;
-        if (actualPrice > 0) {
-          let closestTier = null; let minDiff = Infinity;
-          Object.values(plan).forEach(tier => {
-            if (tier.price) { const diff = Math.abs(tier.price - actualPrice); if (diff < minDiff) { minDiff = diff; closestTier = tier; } }
-          });
-          if (closestTier) return closestTier.points;
+    if (formMonth) {
+      const parts = formMonth.split(' ');
+      if (parts.length >= 1) {
+        const m = parts[0];
+        const y = parts.length > 1 ? parseInt(parts[1]) : new Date().getFullYear();
+        const mIdx = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].indexOf(m);
+        if ((y === 2026 && mIdx <= 4) || y < 2026 || !pointsMap) {
+          return fallbackMap[fallbackProductName] || 0;
         }
-        return 0;
       }
     }
-  }
-  return fallbackMap[fallbackProductName] || 0;
-}
 
-async function attachPoints(result, cachedPointsMap = null) {
-  try {
-    let pointsMap = cachedPointsMap;
-    if (!pointsMap) {
-      const allConfigs = await PointsConfiguration.find().lean();
-      pointsMap = {};
-      allConfigs.forEach(config => {
-        const productKey = String(config.productName).toLowerCase().trim();
-        const configData = { type: config.productType, fieldMapping: config.fieldMapping || {} };
-        if (config.productType === 'simple') configData.points = config.simplePoints;
-        else if (config.productType === 'complex') {
-          configData.plans = {};
-          (config.plans || []).forEach(plan => {
-            const planKey = plan.planName.toLowerCase();
-            configData.plans[planKey] = {};
-            (plan.tiers || []).forEach(t => configData.plans[planKey][t.name.toLowerCase()] = { points: t.points, price: t.price });
-          });
+    if (!pointsMap) return fallbackMap[fallbackProductName] || 0;
+
+
+    for (const [configProductName, config] of Object.entries(pointsMap)) {
+      const productField = config.fieldMapping?.productField || 'formFillingFor';
+      const actualProductNameRaw = String(form[productField] || form.tideProduct || form.brand || '').toLowerCase().trim();
+
+      // 🔥 FIX: Strip sub-product suffixes to match base products in points config
+      let actualProductName = actualProductNameRaw;
+      if (actualProductNameRaw.includes('tide insurance')) {
+        actualProductName = 'tide insurance';
+      } else if (actualProductNameRaw.includes('tide msme')) {
+        actualProductName = 'tide msme';
+      } else if (actualProductNameRaw.includes('tide credit card')) {
+        actualProductName = 'tide credit card';
+      } else if (actualProductNameRaw.includes('tide bt')) {
+        actualProductName = 'tide bt';
+      } else if (actualProductNameRaw.includes('tide')) {
+        actualProductName = 'tide';
+      }
+
+      const cleanConfigName = String(configProductName).toLowerCase().trim();
+
+      if (actualProductName === cleanConfigName) {
+        if (config.type === 'simple') return config.points || 0;
+        if (config.type === 'mapped') {
+          const mappedColumn = config.fieldMapping?.mappedColumn;
+          if (!mappedColumn) return 0;
+          const actualValue = String(form[mappedColumn] || '').toLowerCase().trim();
+          const mapping = config.valueMapping?.find(m => String(m.value).toLowerCase().trim() === actualValue);
+          if (mapping) return mapping.points;
+          return 0;
         }
-        else if (config.productType === 'mapped') configData.valueMapping = config.valueMapping || [];
-        pointsMap[productKey] = configData;
+        if (config.type === 'complex') {
+          // ... (not modified for brevity, just copying)
+          const planField = config.fieldMapping?.planField || 'planName';
+          const actualPlanName = String(form[planField] || '').toLowerCase().trim();
+          if (!actualPlanName || !config.plans[actualPlanName]) continue;
+          const plan = config.plans[actualPlanName];
+          const tierField = config.fieldMapping?.tierField || 'tierName';
+          const priceField = config.fieldMapping?.priceField || 'price';
+          const actualTierName = String(form[tierField] || form.variant || '').toLowerCase().trim();
+          const actualPrice = parseFloat(form[priceField] || form.amount || 0);
+          if (actualTierName && plan[actualTierName]) return plan[actualTierName].points;
+          if (actualPrice > 0) {
+            let closestTier = null; let minDiff = Infinity;
+            Object.values(plan).forEach(tier => {
+              if (tier.price) { const diff = Math.abs(tier.price - actualPrice); if (diff < minDiff) { minDiff = diff; closestTier = tier; } }
+            });
+            if (closestTier) return closestTier.points;
+          }
+          return 0;
+        }
+      }
+    }
+    return fallbackMap[fallbackProductName] || 0;
+  }
+
+  async function attachPoints(result, cachedPointsMap = null) {
+    try {
+      let pointsMap = cachedPointsMap;
+      if (!pointsMap) {
+        const allConfigs = await PointsConfiguration.find().lean();
+        pointsMap = {};
+        allConfigs.forEach(config => {
+          const productKey = String(config.productName).toLowerCase().trim();
+          const configData = { type: config.productType, fieldMapping: config.fieldMapping || {} };
+          if (config.productType === 'simple') configData.points = config.simplePoints;
+          else if (config.productType === 'complex') {
+            configData.plans = {};
+            (config.plans || []).forEach(plan => {
+              const planKey = plan.planName.toLowerCase();
+              configData.plans[planKey] = {};
+              (plan.tiers || []).forEach(t => configData.plans[planKey][t.name.toLowerCase()] = { points: t.points, price: t.price });
+            });
+          }
+          else if (config.productType === 'mapped') configData.valueMapping = config.valueMapping || [];
+          pointsMap[productKey] = configData;
+        });
+      }
+
+      Object.keys(result).forEach(key => {
+        if (result[key] && (result[key].status === 'Fully Verified' || result[key].status === 'Approved' || result[key].verified === true)) {
+          const productParts = key.split('__');
+          const product = productParts.length > 1 ? productParts[1] : key;
+          const mockForm = {
+            ...(result[key].record || {}),
+            formFillingFor: product,
+            tideProduct: product,
+            brand: product,
+            _month: result[key].monthLabel || ''
+          };
+          result[key].points = calculateRecordPointsSync(mockForm, result[key].monthLabel, pointsMap);
+        } else if (result[key]) {
+          result[key].points = 0;
+        }
       });
+    } catch (err) {
+      console.error("Error attaching points:", err);
     }
-
-    Object.keys(result).forEach(key => {
-      if (result[key] && (result[key].status === 'Fully Verified' || result[key].status === 'Approved' || result[key].verified === true)) {
-        const productParts = key.split('__');
-        const product = productParts.length > 1 ? productParts[1] : key;
-        const mockForm = {
-          ...(result[key].record || {}),
-          formFillingFor: product,
-          tideProduct: product,
-          brand: product,
-          _month: result[key].monthLabel || ''
-        };
-        result[key].points = calculateRecordPointsSync(mockForm, result[key].monthLabel, pointsMap);
-      } else if (result[key]) {
-        result[key].points = 0;
-      }
-    });
-  } catch(err) {
-    console.error("Error attaching points:", err);
+    return result;
   }
-  return result;
-}
 
-// ---------- DEBUG ENDPOINTS ----------
+  // ---------- DEBUG ENDPOINTS ----------
   /**
    * GET /api/verify/debug-cache/:phone
    * Debug endpoint to check what's in cache for a phone number
@@ -282,21 +282,21 @@ async function attachPoints(result, cachedPointsMap = null) {
     try {
       const { phone } = req.params;
       const redis = getRedisClient();
-      
+
       if (!redis) {
         return res.status(503).json({ error: 'Redis not available' });
       }
-      
+
       // Search for all keys with this phone
       const pattern = `verification:${phone}*`;
       const keys = await getKeysByPattern(redis, pattern);
-      
+
       const results = {};
       for (const key of keys) {
         const value = await redis.get(key);
         results[key] = value ? JSON.parse(value) : null;
       }
-      
+
       res.json({
         phone,
         pattern,
@@ -318,9 +318,9 @@ async function attachPoints(result, cachedPointsMap = null) {
     try {
       await connectDB();
       const FormResponse = require('../models/FormResponse');
-      
+
       const forms = await FormResponse.find({}).select('formFillingFor tideProduct brand').lean();
-      
+
       const productCounts = {};
       forms.forEach(form => {
         const product = getProductField(form);
@@ -331,15 +331,15 @@ async function attachPoints(result, cachedPointsMap = null) {
         }
         productCounts[normalizedProduct]++;
       });
-      
+
       // Sort by count and capitalize product names for display
       const sorted = Object.entries(productCounts)
         .sort((a, b) => b[1] - a[1])
-        .map(([product, count]) => ({ 
+        .map(([product, count]) => ({
           product: product.charAt(0).toUpperCase() + product.slice(1), // Capitalize first letter
-          count 
+          count
         }));
-      
+
       res.json({
         totalForms: forms.length,
         uniqueProducts: sorted.length,
@@ -382,12 +382,12 @@ async function attachPoints(result, cachedPointsMap = null) {
   router.post('/precompute-all', async (req, res) => {
     try {
       const startTime = Date.now();
-      
+
       // Check if force refresh is requested
       const forceRefresh = req.query.force === 'true';
       if (forceRefresh) {
       }
-      
+
       // Wait for MongoDB connection
       const mongooseConn = await connectDB();
       if (!mongooseConn) {
@@ -396,15 +396,15 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       await connectionManager.ensureInitialized();
       const db = connectionManager.getConnection();
-      
+
       const redis = getRedisClient();
       if (!redis) {
         return res.status(503).json({ error: 'Redis not available' });
       }
 
       // 🔥 OPTION 1 QUICK FIX: Send response immediately so Python/cron script never times out!
-      res.status(200).json({ 
-        success: true, 
+      res.status(200).json({
+        success: true,
         message: 'Pre-computation started in background...',
         total: 'Calculating in background...',
         cached: 'Calculating...',
@@ -414,10 +414,10 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       // ✅ Store calculating status in Redis for frontend toaster
       try {
-        await redis.setex('precompute_status', 3600, JSON.stringify({ 
-          isCalculating: true, 
-          startedAt: new Date().toISOString(), 
-          message: 'Re-calculating all employee verifications...' 
+        await redis.setex('precompute_status', 3600, JSON.stringify({
+          isCalculating: true,
+          startedAt: new Date().toISOString(),
+          message: 'Re-calculating all employee verifications...'
         }));
       } catch (e) {
         console.warn('Could not set precompute_status:', e.message);
@@ -430,9 +430,9 @@ async function attachPoints(result, cachedPointsMap = null) {
       const FormResponse = require('../models/FormResponse');
       const TLFormResponse = require('../models/TLFormResponse');
       const ManagerForm = require('../models/ManagerForm');
-      
+
       let fseForms, tlForms, managerForms;
-      
+
       if (lastSyncTime && !forceRefresh) {
         // Incremental: Only get new/updated forms
         const lastSync = new Date(lastSyncTime);
@@ -442,13 +442,13 @@ async function attachPoints(result, cachedPointsMap = null) {
             { updatedAt: { $gt: lastSync } }
           ]
         };
-        
+
         [fseForms, tlForms, managerForms] = await Promise.all([
           FormResponse.find(query).select('-verificationChecks.record').lean(),
           TLFormResponse.find(query).select('-verificationChecks.record').lean(),
           ManagerForm.find(query).select('-verificationChecks.record').lean()
         ]);
-        
+
       } else {
         // First time OR force refresh: Get all forms
         [fseForms, tlForms, managerForms] = await Promise.all([
@@ -456,12 +456,12 @@ async function attachPoints(result, cachedPointsMap = null) {
           TLFormResponse.find({}).select('-verificationChecks.record').lean(),
           ManagerForm.find({}).select('-verificationChecks.record').lean()
         ]);
-        
+
       }
-      
+
       // Combine all forms and track which collection each belongs to
       const forms = [...fseForms, ...tlForms, ...managerForms];
-      
+
       // 🔥 NEW: Create a map to track which collection each form belongs to
       const formCollectionMap = new Map();
       fseForms.forEach(f => formCollectionMap.set(f._id.toString(), 'FSE'));
@@ -472,12 +472,12 @@ async function attachPoints(result, cachedPointsMap = null) {
         await redis.set('last_sync_time', new Date().toISOString());
         console.log('✅ Pre-computation complete: No forms to verify');
         if (!res.headersSent) {
-          return res.json({ 
-            success: true, 
-            total: 0, 
-            cached: 0, 
+          return res.json({
+            success: true,
+            total: 0,
+            cached: 0,
             skipped: 0,
-            message: 'No forms to verify' 
+            message: 'No forms to verify'
           });
         }
         return;
@@ -557,7 +557,7 @@ async function attachPoints(result, cachedPointsMap = null) {
       let cached = 0;
       let skipped = 0;
       let redisSaved = 0; // Track successful Redis saves
-      
+
       // In-memory set to track newly verified forms in this batch run
       const newlyVerified = new Set();
 
@@ -565,7 +565,7 @@ async function attachPoints(result, cachedPointsMap = null) {
       const batchSize = 100; // Increased to 100 since we eliminated sequential network calls!
       for (let i = 0; i < forms.length; i += batchSize) {
         const batch = forms.slice(i, i + batchSize);
-        
+
         // Prepare bulk update arrays and Redis pipeline for this batch
         const fseBulkOps = [];
         const tlBulkOps = [];
@@ -592,19 +592,19 @@ async function attachPoints(result, cachedPointsMap = null) {
             const phone = form.customerNumber;
             // ✅ USE CONSISTENT PRODUCT EXTRACTION
             const product = getProductField(form);
-            const month = form.createdAt 
+            const month = form.createdAt
               ? new Date(form.createdAt).toLocaleString('en-US', { month: 'long', year: 'numeric' })
               : '';
             const cacheKey = `verification:${phone}:${product}`;
             const monthCacheKey = `verification:${phone}:${product}:${month}`;
-            
+
             // Calculate current form hash
             const currentHash = calculateFormHash(form);
-            
+
             // Check if already cached (only if NOT force refresh)
             if (!forceRefresh) {
               const cachedData = batchCacheMap.get(cacheKey);
-              
+
               if (cachedData) {
                 const parsed = JSON.parse(cachedData);
                 if (parsed.hash === currentHash) {
@@ -612,7 +612,7 @@ async function attachPoints(result, cachedPointsMap = null) {
                   try {
                     redisPipeline.setex(monthCacheKey, 86400, cachedData);
                     commandsInPipeline++;
-                  } catch (e) {}
+                  } catch (e) { }
                   // Data unchanged, skip verification
                   skipped++;
                   processed++;
@@ -620,16 +620,16 @@ async function attachPoints(result, cachedPointsMap = null) {
                 }
               }
             }
-            
+
             // New or changed form - run verification in memory
             // ✅ SMART VERIFICATION: Try with calculated month first
             let result = await verifyMerchant(
-              db, 
-              phone, 
-              form.customerName || '', 
-              VerificationRule, 
-              product, 
-              month, 
+              db,
+              phone,
+              form.customerName || '',
+              VerificationRule,
+              product,
+              month,
               allRules,
               merchantMap, // 🔥 PASS IN-MEMORY MAP!
               manualVerificationsMap // 🔥 PASS MANUAL MAP!
@@ -638,11 +638,11 @@ async function attachPoints(result, cachedPointsMap = null) {
             // ✅ If not found with specific month, try ALL months (handles backdated forms)
             if (result.status === 'Not Found' && month) {
               result = await verifyMerchant(
-                db, 
-                phone, 
-                form.customerName || '', 
-                VerificationRule, 
-                product, 
+                db,
+                phone,
+                form.customerName || '',
+                VerificationRule,
+                product,
                 '',  // Empty month = search all months
                 allRules,
                 merchantMap, // 🔥 PASS IN-MEMORY MAP!
@@ -663,32 +663,32 @@ async function attachPoints(result, cachedPointsMap = null) {
 
             // ✅ DUPLICATE VERIFICATION CHECK
             if (lightweightResult.status === 'Fully Verified') {
-               // Ensure phone and product are strings
-               const dedupPhone = String(phone || '').trim();
-               const dedupProduct = String(product || '').toLowerCase().trim();
-               let dedupKey = `${dedupPhone}__${dedupProduct}`;
-               if (form.tideIns_type) dedupKey += `__${String(form.tideIns_type).toLowerCase().trim()}`;
-               if (form.ins_insuranceType) dedupKey += `__${String(form.ins_insuranceType).toLowerCase().trim()}`;
-               if (form.cc_cardName) dedupKey += `__${String(form.cc_cardName).toLowerCase().trim()}`;
-               
-               // Did we just verify an older one in this batch?
-               if (newlyVerified.has(dedupKey)) {
+              // Ensure phone and product are strings
+              const dedupPhone = String(phone || '').trim();
+              const dedupProduct = String(product || '').toLowerCase().trim();
+              let dedupKey = `${dedupPhone}__${dedupProduct}`;
+              if (form.tideIns_type) dedupKey += `__${String(form.tideIns_type).toLowerCase().trim()}`;
+              if (form.ins_insuranceType) dedupKey += `__${String(form.ins_insuranceType).toLowerCase().trim()}`;
+              if (form.cc_cardName) dedupKey += `__${String(form.cc_cardName).toLowerCase().trim()}`;
+
+              // Did we just verify an older one in this batch?
+              if (newlyVerified.has(dedupKey)) {
+                lightweightResult.status = 'Already Verified';
+                lightweightResult.points = 0;
+                if (!lightweightResult.checks) lightweightResult.checks = [];
+                lightweightResult.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form in this batch' });
+              } else {
+                // Also check the database just in case it was verified previously
+                const alreadyInDb = await checkIfAlreadyVerified(form, form._id, form.createdAt);
+                if (alreadyInDb) {
                   lightweightResult.status = 'Already Verified';
                   lightweightResult.points = 0;
                   if (!lightweightResult.checks) lightweightResult.checks = [];
-                  lightweightResult.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form in this batch' });
-               } else {
-                  // Also check the database just in case it was verified previously
-                  const alreadyInDb = await checkIfAlreadyVerified(form, form._id, form.createdAt);
-                  if (alreadyInDb) {
-                     lightweightResult.status = 'Already Verified';
-                     lightweightResult.points = 0;
-                     if (!lightweightResult.checks) lightweightResult.checks = [];
-                     lightweightResult.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form' });
-                  } else {
-                     newlyVerified.add(dedupKey);
-                  }
-               }
+                  lightweightResult.checks.push({ label: 'Duplicate Check', pass: false, actual: 'Already verified by an older form' });
+                } else {
+                  newlyVerified.add(dedupKey);
+                }
+              }
             }
 
             // ✅ SAVE VERIFICATION RESULTS TO REDIS PIPELINE (0 network calls in loop!)
@@ -699,14 +699,14 @@ async function attachPoints(result, cachedPointsMap = null) {
               phoneMatch: result.status !== 'Not Found' ? true : false,
               matched: result.status !== 'Not Found' ? true : false
             };
-            
+
             try {
               const stringified = JSON.stringify(cacheValue);
               redisPipeline.setex(cacheKey, 86400, stringified);
               redisPipeline.setex(monthCacheKey, 86400, stringified);
               commandsInPipeline += 2;
               redisSaved += 2; // Track successful save
-              
+
               // Only count as "cached" if verification succeeded
               if (result.status !== 'Not Found') {
                 cached++;
@@ -714,25 +714,25 @@ async function attachPoints(result, cachedPointsMap = null) {
             } catch (redisErr) {
               console.error(`❌ Redis pipeline build error for ${phone}:`, redisErr.message);
             }
-            
+
             // 🔥 SOLUTION 3: Add to bulk write arrays instead of calling updateOne inside the loop!
             try {
               const updateOp = {
                 updateOne: {
                   filter: { _id: form._id },
-                  update: { 
-                    $set: { 
+                  update: {
+                    $set: {
                       verificationStatus: lightweightResult.status,
                       verificationChecks: lightweightResult,
                       verificationUpdatedAt: new Date()
-                    } 
+                    }
                   }
                 }
               };
-              
+
               const formIdStr = form._id.toString();
               const collectionType = formCollectionMap.get(formIdStr);
-              
+
               if (collectionType === 'FSE') {
                 fseBulkOps.push(updateOp);
               } else if (collectionType === 'TL') {
@@ -743,11 +743,11 @@ async function attachPoints(result, cachedPointsMap = null) {
             } catch (mongoErr) {
               console.error(`❌ Bulk op build error for ${phone}:`, mongoErr.message);
             }
-            
+
           } catch (err) {
             console.error(`❌ Error verifying ${form.customerNumber}:`, err.message);
           }
-          
+
           processed++;
         }));
 
@@ -801,38 +801,38 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-      
+
       console.log(`✅ Pre-computation finished in ${elapsed}s! Total: ${forms.length}, Cached: ${cached}, Skipped: ${skipped}, RedisSaved: ${redisSaved}`);
-      
+
       // ✅ Update calculating status in Redis for frontend toaster
       try {
-        await redis.setex('precompute_status', 3600, JSON.stringify({ 
-          isCalculating: false, 
-          finishedAt: new Date().toISOString(), 
-          total: forms.length, 
-          cached, 
-          skipped, 
-          message: 'All employee verifications re-calculated & Daily Report email sent!' 
+        await redis.setex('precompute_status', 3600, JSON.stringify({
+          isCalculating: false,
+          finishedAt: new Date().toISOString(),
+          total: forms.length,
+          cached,
+          skipped,
+          message: 'All employee verifications re-calculated & Daily Report email sent!'
         }));
       } catch (e) {
         console.warn('Could not update precompute_status:', e.message);
       }
 
       // 🔥 Trigger automatic Manager Daily Report email (runs in background so response/sync finishes cleanly)
-      sendManagerDailyReport().catch(err => {
-        console.error('❌ Failed to trigger automatic manager daily report:', err.message);
-      });
+      // sendManagerDailyReport().catch(err => {
+      //   console.error('❌ Failed to trigger automatic manager daily report:', err.message);
+      // });
 
       if (!res.headersSent) {
-        res.json({ 
-          success: true, 
-          total: forms.length, 
+        res.json({
+          success: true,
+          total: forms.length,
           cached,
           skipped,
           redisSaved,
           notFound: forms.length - cached - skipped,
           elapsed: `${elapsed}s`,
-          message: 'Verification pre-computed successfully' 
+          message: 'Verification pre-computed successfully'
         });
       }
     } catch (err) {
@@ -851,7 +851,7 @@ async function attachPoints(result, cachedPointsMap = null) {
     try {
       console.log('🧪 Testing Manager Daily Report generation...');
       const result = await sendManagerDailyReport();
-      
+
       // ✅ Update Redis precompute_status so GlobalSyncMonitor on Admin Panel displays the green toaster!
       try {
         const redis = getRedisClient();
@@ -880,20 +880,20 @@ async function attachPoints(result, cachedPointsMap = null) {
     try {
       const { phone, name, product, month } = req.query;
       if (!phone) return res.status(400).json({ message: 'Phone required' });
-      
+
       // Use connection from middleware
       const db = req.db;
-      
+
       // ✅ OPTIMIZATION: Fetch rules once for admin check
       const allRules = await VerificationRule.find().lean();
-      
+
       const verification = await verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || '', allRules);
       const phoneCheck = { matched: verification.status !== 'Not Found', phoneMatch: verification.status !== 'Not Found' };
-      
+
       res.json({ verification, phoneCheck });
     } catch (err) {
       console.error('Check-admin error:', err);
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -917,7 +917,7 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       // Use connection from middleware
       const db = req.db;
-      
+
       // ✅ OPTIMIZATION: Fetch rules once for single check
       const allRules = await VerificationRule.find().lean();
 
@@ -928,7 +928,7 @@ async function attachPoints(result, cachedPointsMap = null) {
 
     } catch (err) {
       console.error('Check error:', err);
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -938,19 +938,19 @@ async function attachPoints(result, cachedPointsMap = null) {
   // ---------- BULK (NORMAL) - OPTIMIZED ----------
   router.get('/bulk', verifyToken, async (req, res) => {
     try {
-      const phones   = (req.query.phones   || '').split(',').map(p => p.trim());
-      const names    = (req.query.names    || '').split(',').map(n => n.trim());
+      const phones = (req.query.phones || '').split(',').map(p => p.trim());
+      const names = (req.query.names || '').split(',').map(n => n.trim());
       const products = (req.query.products || '').split(',').map(p => p.trim());
-      const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
+      const months = (req.query.months || '').split(',').map(m => decodeURIComponent(m.trim()));
 
       if (!phones.length) return res.json({});
 
       // Use connection from middleware
       const db = req.db;
-      
+
       // ✅ OPTIMIZATION: Fetch all verification rules at once
       const allRules = await VerificationRule.find().lean();
-      
+
       const result = {};
 
       // STEP 1: Get all collections used in rules
@@ -981,8 +981,8 @@ async function attachPoints(result, cachedPointsMap = null) {
           });
         });
       });
-      
-      
+
+
       const finalResult = await attachPoints(result);
       Object.keys(finalResult).forEach(k => {
       });
@@ -991,7 +991,7 @@ async function attachPoints(result, cachedPointsMap = null) {
 
     } catch (err) {
       console.error('Bulk error:', err);
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1001,10 +1001,10 @@ async function attachPoints(result, cachedPointsMap = null) {
   // ---------- BULK CACHED (REDIS CACHED VERSION FOR EMPLOYEES) ----------
   router.get('/bulk-cached', verifyToken, async (req, res) => {
     try {
-      const phones   = (req.query.phones   || '').split(',').map(p => p.trim());
-      const names    = (req.query.names    || '').split(',').map(n => n.trim());
+      const phones = (req.query.phones || '').split(',').map(p => p.trim());
+      const names = (req.query.names || '').split(',').map(n => n.trim());
       const products = (req.query.products || '').split(',').map(p => normalizeProduct(p));
-      const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
+      const months = (req.query.months || '').split(',').map(m => decodeURIComponent(m.trim()));
 
       if (!phones.length) return res.json({});
 
@@ -1034,32 +1034,32 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       // Process results: separate cache hits from misses
       const missedIndices = [];
-      
+
       phones.forEach((phone, i) => {
-        const name    = names[i]    || '';
+        const name = names[i] || '';
         const product = products[i] || '';
-        const month   = months[i]   || '';
+        const month = months[i] || '';
         const key = product ? `${phone}__${product}` : phone;
         const cached = cachedValues[i];
 
         if (cached) {
           try {
             const cachedData = JSON.parse(cached);
-            
+
             // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
             const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
             const inSheet = cachedData.status !== 'Not Found' ? true : (cachedData.matched || false);
-            
+
             result[key] = {
-              status:     cachedData.status,
-              verified:   cachedData.verified,
-              passed:     cachedData.passed,
-              total:      cachedData.total,
-              checks:     cachedData.checks || [],
+              status: cachedData.status,
+              verified: cachedData.verified,
+              passed: cachedData.passed,
+              total: cachedData.total,
+              checks: cachedData.checks || [],
               collection: cachedData.collection,
-              matchType:  cachedData.matchType,
+              matchType: cachedData.matchType,
               phoneMatch: phoneMatch,
-              inSheet:    inSheet,
+              inSheet: inSheet,
               monthLabel: month,
               record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null)))
             };
@@ -1081,10 +1081,10 @@ async function attachPoints(result, cachedPointsMap = null) {
         const allRules = await VerificationRule.find().lean();
 
         await Promise.all(missedIndices.map(async (i) => {
-          const phone   = phones[i];
-          const name    = names[i]    || '';
+          const phone = phones[i];
+          const name = names[i] || '';
           const product = products[i] || '';
-          const month   = months[i]   || '';
+          const month = months[i] || '';
           const key = product ? `${phone}__${product}` : phone;
 
           try {
@@ -1093,19 +1093,19 @@ async function attachPoints(result, cachedPointsMap = null) {
             const inSheet = v.status !== 'Not Found';
 
             result[key] = {
-              status:     v.status,
-              verified:   v.verified,
-              passed:     v.passed,
-              total:      v.total,
-              checks:     v.checks || [],
+              status: v.status,
+              verified: v.verified,
+              passed: v.passed,
+              total: v.total,
+              checks: v.checks || [],
               collection: v.collection,
-              matchType:  v.matchType,
+              matchType: v.matchType,
               phoneMatch: phoneMatch,
-              inSheet:    inSheet,
+              inSheet: inSheet,
               monthLabel: month,
               record: (typeof cachedData !== 'undefined' ? cachedData.record : (typeof d !== 'undefined' ? d.record : (typeof v !== 'undefined' ? v.record : null)))
             };
-            
+
           } catch (err) {
             console.error(`Error verifying ${phone}:`, err.message);
             result[key] = {
@@ -1120,7 +1120,7 @@ async function attachPoints(result, cachedPointsMap = null) {
         }));
       }
 
-      
+
       const finalResult = await attachPoints(result);
       Object.keys(finalResult).forEach(k => {
       });
@@ -1129,7 +1129,7 @@ async function attachPoints(result, cachedPointsMap = null) {
 
     } catch (err) {
       console.error('Bulk-cached error:', err);
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1140,10 +1140,10 @@ async function attachPoints(result, cachedPointsMap = null) {
   router.post('/bulk-cached', verifyToken, async (req, res) => {
     try {
       const { phones: phonesArr, names: namesArr, products: productsArr, months: monthsArr } = req.body;
-      const phones   = (Array.isArray(phonesArr) ? phonesArr : (phonesArr || '').split(',')).map(p => String(p).trim());
-      const names    = (Array.isArray(namesArr) ? namesArr : (namesArr || '').split(',')).map(n => String(n).trim());
+      const phones = (Array.isArray(phonesArr) ? phonesArr : (phonesArr || '').split(',')).map(p => String(p).trim());
+      const names = (Array.isArray(namesArr) ? namesArr : (namesArr || '').split(',')).map(n => String(n).trim());
       const products = (Array.isArray(productsArr) ? productsArr : (productsArr || '').split(',')).map(p => normalizeProduct(p));
-      const months   = (Array.isArray(monthsArr) ? monthsArr : (monthsArr || '').split(',')).map(m => String(m).trim());
+      const months = (Array.isArray(monthsArr) ? monthsArr : (monthsArr || '').split(',')).map(m => String(m).trim());
 
       if (!phones.length) return res.json({});
 
@@ -1199,7 +1199,7 @@ async function attachPoints(result, cachedPointsMap = null) {
           }));
         }
       }
-      
+
       const finalResult = await attachPoints(result);
       Object.keys(finalResult).forEach(k => {
       });
@@ -1212,7 +1212,7 @@ async function attachPoints(result, cachedPointsMap = null) {
 
   // ---------- BULK ADMIN (REDIS CACHED VERSION WITH MGET OPTIMIZATION) ----------
   router.get('/bulk-admin', async (req, res) => {
-    
+
     try {
       // Set no-cache headers to ensure fresh data
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -1220,11 +1220,11 @@ async function attachPoints(result, cachedPointsMap = null) {
       res.setHeader('Expires', '0');
       res.setHeader('Surrogate-Control', 'no-store');
 
-      const phones   = (req.query.phones   || '').split(',').map(p => p.trim());
-      const names    = (req.query.names    || '').split(',').map(n => n.trim());
+      const phones = (req.query.phones || '').split(',').map(p => p.trim());
+      const names = (req.query.names || '').split(',').map(n => n.trim());
       // ✅ NORMALIZE: Convert all products to lowercase, trim, handle empty/null/undefined
       const products = (req.query.products || '').split(',').map(p => normalizeProduct(p));
-      const months   = (req.query.months   || '').split(',').map(m => decodeURIComponent(m.trim()));
+      const months = (req.query.months || '').split(',').map(m => decodeURIComponent(m.trim()));
 
       if (!phones.length) return res.json({});
 
@@ -1254,11 +1254,11 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       // ✅ Process results: separate cache hits from misses
       const missedIndices = [];
-      
+
       phones.forEach((phone, i) => {
-        const name    = names[i]    || '';
+        const name = names[i] || '';
         const product = products[i] || '';
-        const month   = months[i]   || '';
+        const month = months[i] || '';
         const key = product ? `${phone}__${product}` : phone;
         const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
         const cached = cachedValues[i];
@@ -1267,21 +1267,21 @@ async function attachPoints(result, cachedPointsMap = null) {
           // Cache hit - use cached data
           try {
             const cachedData = JSON.parse(cached);
-            
+
             // ✅ If merchant was found (status is NOT "Not Found"), phone MUST have matched
             const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
             const inSheet = cachedData.status !== 'Not Found' ? true : (cachedData.matched || false);
-            
+
             const data = {
-              status:     cachedData.status,
-              verified:   cachedData.verified,
-              passed:     cachedData.passed,
-              total:      cachedData.total,
-              checks:     cachedData.checks || [],
+              status: cachedData.status,
+              verified: cachedData.verified,
+              passed: cachedData.passed,
+              total: cachedData.total,
+              checks: cachedData.checks || [],
               collection: cachedData.collection,
-              matchType:  cachedData.matchType,
+              matchType: cachedData.matchType,
               phoneMatch: phoneMatch,
-              inSheet:    inSheet,
+              inSheet: inSheet,
               monthLabel: month,
               record: cachedData.record
             };
@@ -1309,10 +1309,10 @@ async function attachPoints(result, cachedPointsMap = null) {
         for (let idx = 0; idx < missedIndices.length; idx += chunkSize) {
           const chunk = missedIndices.slice(idx, idx + chunkSize);
           await Promise.all(chunk.map(async (i) => {
-            const phone   = phones[i];
-            const name    = names[i]    || '';
+            const phone = phones[i];
+            const name = names[i] || '';
             const product = products[i] || '';
-            const month   = months[i]   || '';
+            const month = months[i] || '';
             const key = product ? `${phone}__${product}` : phone;
             const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
 
@@ -1322,21 +1322,21 @@ async function attachPoints(result, cachedPointsMap = null) {
               const inSheet = v.status !== 'Not Found';
 
               const data = {
-                status:     v.status,
-                verified:   v.verified,
-                passed:     v.passed,
-                total:      v.total,
-                checks:     v.checks || [],
+                status: v.status,
+                verified: v.verified,
+                passed: v.passed,
+                total: v.total,
+                checks: v.checks || [],
                 collection: v.collection,
-                matchType:  v.matchType,
+                matchType: v.matchType,
                 phoneMatch: phoneMatch,
-                inSheet:    inSheet,
+                inSheet: inSheet,
                 monthLabel: month,
                 record: v.record
               };
               result[key] = data;
               result[monthKey] = data;
-              
+
             } catch (err) {
               console.error(`Error verifying ${phone}:`, err.message);
               const errorData = {
@@ -1354,7 +1354,7 @@ async function attachPoints(result, cachedPointsMap = null) {
         }
       }
 
-      
+
       const finalResult = await attachPoints(result);
       Object.keys(finalResult).forEach(k => {
         if (finalResult[k]) delete finalResult[k].record;
@@ -1364,7 +1364,7 @@ async function attachPoints(result, cachedPointsMap = null) {
 
     } catch (err) {
       console.error('Bulk-admin error:', err);
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1380,9 +1380,9 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       const db = req.db;
       const allRules = await VerificationRule.find().lean();
-      
+
       const v = await verifyMerchant(db, phone, name || '', VerificationRule, product || '', month || '', allRules);
-      
+
       res.json({
         success: true,
         record: v.record || null,
@@ -1405,10 +1405,10 @@ async function attachPoints(result, cachedPointsMap = null) {
 
       const { phones: phonesArr, names: namesArr, products: productsArr, months: monthsArr } = req.body;
 
-      const phones   = (Array.isArray(phonesArr)   ? phonesArr   : (phonesArr   || '').split(',')).map(p => String(p).trim());
-      const names    = (Array.isArray(namesArr)    ? namesArr    : (namesArr    || '').split(',')).map(n => String(n).trim());
+      const phones = (Array.isArray(phonesArr) ? phonesArr : (phonesArr || '').split(',')).map(p => String(p).trim());
+      const names = (Array.isArray(namesArr) ? namesArr : (namesArr || '').split(',')).map(n => String(n).trim());
       const products = (Array.isArray(productsArr) ? productsArr : (productsArr || '').split(',')).map(p => normalizeProduct(p));
-      const months   = (Array.isArray(monthsArr)   ? monthsArr   : (monthsArr   || '').split(',')).map(m => String(m).trim());
+      const months = (Array.isArray(monthsArr) ? monthsArr : (monthsArr || '').split(',')).map(m => String(m).trim());
 
       console.log('📥 INCOMING BULK-ADMIN POST:', { phones, products, months });
 
@@ -1438,16 +1438,16 @@ async function attachPoints(result, cachedPointsMap = null) {
       phones.forEach((phone, i) => {
         if (!phone) return;
         const product = products[i] || '';
-        const month   = months[i]   || '';
-        const key     = product ? `${phone}__${product}` : phone;
+        const month = months[i] || '';
+        const key = product ? `${phone}__${product}` : phone;
         const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
-        const cached  = cachedValues[i];
+        const cached = cachedValues[i];
 
         if (cached) {
           try {
             const cachedData = JSON.parse(cached);
             const phoneMatch = cachedData.status !== 'Not Found' ? true : (cachedData.phoneMatch || false);
-            const inSheet    = cachedData.status !== 'Not Found' ? true : (cachedData.matched    || false);
+            const inSheet = cachedData.status !== 'Not Found' ? true : (cachedData.matched || false);
             const data = { status: cachedData.status, verified: cachedData.verified, passed: cachedData.passed, total: cachedData.total, checks: cachedData.checks || [], collection: cachedData.collection, matchType: cachedData.matchType, phoneMatch, inSheet, monthLabel: month, record: cachedData.record };
             result[key] = data;
             result[monthKey] = data;
@@ -1467,18 +1467,18 @@ async function attachPoints(result, cachedPointsMap = null) {
         for (let idx = 0; idx < missedIndices.length; idx += chunkSize) {
           const chunk = missedIndices.slice(idx, idx + chunkSize);
           await Promise.all(chunk.map(async (i) => {
-            const phone   = phones[i];
+            const phone = phones[i];
             if (!phone) return;
-            const name    = names[i]    || '';
+            const name = names[i] || '';
             const product = products[i] || '';
-            const month   = months[i]   || '';
-            const key     = product ? `${phone}__${product}` : phone;
+            const month = months[i] || '';
+            const key = product ? `${phone}__${product}` : phone;
             const monthKey = product ? `${phone}__${product}__${month}` : `${phone}__${month}`;
 
             try {
               const v = await verifyMerchant(db, phone, name, VerificationRule, product, month, allRules);
               const phoneMatch = v.status !== 'Not Found';
-              const inSheet    = v.status !== 'Not Found';
+              const inSheet = v.status !== 'Not Found';
               const data = { status: v.status, verified: v.verified, passed: v.passed, total: v.total, checks: v.checks || [], collection: v.collection, matchType: v.matchType, phoneMatch, inSheet, monthLabel: month, record: v.record };
               result[key] = data;
               result[monthKey] = data;
@@ -1491,7 +1491,7 @@ async function attachPoints(result, cachedPointsMap = null) {
         }
       }
 
-      
+
       const finalResult = await attachPoints(result);
       // Strip heavy raw records before sending to frontend to prevent payload cutoff
       Object.keys(finalResult).forEach(k => {
@@ -1509,7 +1509,7 @@ async function attachPoints(result, cachedPointsMap = null) {
       const rules = await VerificationRule.find().sort({ monthLabel: -1 });
       res.json(rules);
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1523,11 +1523,11 @@ async function attachPoints(result, cachedPointsMap = null) {
       if (!redis) {
         return res.json({ timestamp: Date.now() }); // Fallback to current time
       }
-      
+
       const timestamp = await redis.get('verification_rules_updated_at');
       res.json({ timestamp: timestamp || Date.now() });
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1541,24 +1541,24 @@ async function attachPoints(result, cachedPointsMap = null) {
         { ...req.body, updatedAt: new Date() },
         { new: true }
       );
-      
+
       // Update timestamp in Redis to invalidate frontend cache
       const redis = getRedisClient();
       if (redis) {
         await redis.set('verification_rules_updated_at', Date.now().toString());
-        
+
         // ✅ CLEAR ALL REDIS VERIFICATION CACHES
         const pattern = 'verification:*';
         const keys = await getKeysByPattern(redis, pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
         }
-        
+
       }
-      
+
       res.json(rule);
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1571,24 +1571,24 @@ async function attachPoints(result, cachedPointsMap = null) {
         ...req.body,
         updatedAt: new Date()
       });
-      
+
       // Update timestamp in Redis to invalidate frontend cache
       const redis = getRedisClient();
       if (redis) {
         await redis.set('verification_rules_updated_at', Date.now().toString());
-        
+
         // ✅ CLEAR ALL REDIS VERIFICATION CACHES
         const pattern = 'verification:*';
         const keys = await getKeysByPattern(redis, pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
         }
-        
+
       }
-      
+
       res.status(201).json(rule);
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1599,27 +1599,27 @@ async function attachPoints(result, cachedPointsMap = null) {
   router.delete('/rules/:id', async (req, res) => {
     try {
       await VerificationRule.findByIdAndDelete(req.params.id);
-      
+
       // Update timestamp in Redis to invalidate frontend cache
       const redis = getRedisClient();
       if (redis) {
         await redis.set('verification_rules_updated_at', Date.now().toString());
-        
+
         // ✅ CLEAR ALL REDIS VERIFICATION CACHES
         const pattern = 'verification:*';
         const keys = await getKeysByPattern(redis, pattern);
         if (keys.length > 0) {
           await redis.del(...keys);
         }
-        
+
       }
-      
-      res.json({ 
+
+      res.json({
         message: 'Rule deleted',
         timestamp: new Date().toISOString()
       });
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1634,7 +1634,7 @@ async function attachPoints(result, cachedPointsMap = null) {
       const cols = await db.listCollections().toArray();
       res.json(cols.map(c => c.name).sort());
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });
@@ -1645,7 +1645,7 @@ async function attachPoints(result, cachedPointsMap = null) {
     try {
       // Use connection from middleware
       const db = req.db;
-      
+
       // Use aggregation to get ALL unique field names across ALL documents
       // This ensures new columns are always visible in the verification rules dropdown
       const result = await db.collection(req.params.name).aggregate([
@@ -1653,15 +1653,15 @@ async function attachPoints(result, cachedPointsMap = null) {
         { $unwind: "$fields" },
         { $group: { _id: null, allFields: { $addToSet: "$fields.k" } } }
       ]).toArray();
-      
+
       const fields = result[0]?.allFields || [];
-      
+
       // Filter out internal fields (starting with _) and sort alphabetically
       const filtered = fields.filter(f => !f.startsWith('_')).sort();
-      
+
       res.json(filtered);
     } catch (err) {
-      res.status(500).json({ 
+      res.status(500).json({
         message: err.message,
         timestamp: new Date().toISOString()
       });

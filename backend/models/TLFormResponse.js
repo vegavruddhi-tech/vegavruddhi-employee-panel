@@ -24,7 +24,7 @@ const tlFormResponseSchema = new mongoose.Schema({
   tideIns_type:      { type: String },
   
   // Verification status (cached)
-  verificationStatus: { type: String, enum: ['Fully Verified', 'Partially Done', 'Not Verified', 'Not Found'], default: 'Not Found' },
+  verificationStatus: { type: String, enum: ['Fully Verified', 'Partially Done', 'Not Verified', 'Not Found', 'Already Verified'], default: 'Not Found' },
   verificationChecks: { type: Object }, // Store detailed check results
   verificationUpdatedAt: { type: Date },
   

@@ -30,7 +30,7 @@ const managerFormSchema = new mongoose.Schema({
   cc_cardName:       { type: String },
   tideIns_type:      { type: String },
 
-  verificationStatus:    { type: String, enum: ['Fully Verified', 'Partially Done', 'Not Verified', 'Not Found'], default: 'Not Found' },
+  verificationStatus:    { type: String, enum: ['Fully Verified', 'Partially Done', 'Not Verified', 'Not Found', 'Already Verified'], default: 'Not Found' },
   verificationChecks:    { type: Object },
   verificationUpdatedAt: { type: Date },
 

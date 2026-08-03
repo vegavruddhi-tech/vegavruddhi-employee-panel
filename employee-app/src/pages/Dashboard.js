@@ -85,12 +85,34 @@ function formatProductDisplay(f, info) {
     if (val) {
       const num = parseFloat(val);
       subType = !isNaN(num) ? `${num}` : val;
-    } else if (f.tideIns_type) {
-      subType = f.tideIns_type;
     }
   }
 
-  return subType ? `${baseProduct} (${subType})` : baseProduct;
+  let insuranceType = '';
+  if (productKey === 'tide insurance' || productKey === 'insurance' || productKey.includes('insurance')) {
+    const getVal = (...keys) => {
+      for (const k of keys) {
+        if (f?.[k]) return f[k];
+        if (info?.record?.[k]) return info.record[k];
+        if (info?.checks && Array.isArray(info.checks)) {
+          const check = info.checks.find(c => c.field && c.field.toLowerCase() === k.toLowerCase());
+          if (check?.actual || check?.sheetValue) return check.actual || check.sheetValue;
+        }
+      }
+      return '';
+    };
+    insuranceType = getVal('tideIns_type', 'tideInsType', 'insurance_plan', 'ins_insuranceType', 'insuranceType', 'insurance_type');
+  }
+
+  let displayLabel = baseProduct;
+  if (subType) {
+    const cleanSub = String(subType).replace('₹', '');
+    displayLabel += ` (₹${cleanSub})`;
+  }
+  if (insuranceType) {
+    displayLabel += ` (${insuranceType})`;
+  }
+  return displayLabel;
 }
 
 export default function Dashboard() {
@@ -323,30 +345,10 @@ export default function Dashboard() {
 
     // Product filter
     if (selProduct) {
-      const sp = selProduct.toLowerCase().trim();
       list = list.filter(f => {
-        const p1 = (f.formFillingFor || '').toLowerCase().trim();
-        const p2 = (f.tideProduct || '').toLowerCase().trim();
-        const p3 = (f.brand || '').toLowerCase().trim();
-
-        if (sp === 'tide msme') {
-          return p1.includes('msme') || p2.includes('msme') || p3.includes('msme');
-        }
-        if (sp === 'tide insurance') {
-          return p1.includes('insurance') || p2.includes('insurance') || p3.includes('insurance');
-        }
-        if (sp === 'tide credit card') {
-          return p1.includes('credit') || p2.includes('credit') || p3.includes('credit');
-        }
-        if (sp === 'tide') {
-          // Must be exactly "tide" and NOT contain msme, insurance, or credit in ANY field
-          const isTide = (p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt');
-          const notMSME = !p1.includes('msme') && !p2.includes('msme') && !p3.includes('msme');
-          const notInsurance = !p1.includes('insurance') && !p2.includes('insurance') && !p3.includes('insurance');
-          const notCredit = !p1.includes('credit') && !p2.includes('credit') && !p3.includes('credit');
-          return isTide && notMSME && notInsurance && notCredit;
-        }
-        return p1 === sp || p2 === sp || p3 === sp;
+        const info = verifiedMap[getVerifyKey(f)] || {};
+        const label = formatProductDisplay(f, info);
+        return label === selProduct;
       });
     }
 
@@ -399,12 +401,29 @@ export default function Dashboard() {
       return;
     }
 
+    // 🔥 FIX: Fallback points for sub-products stored with points=0
+    const FALLBACK_PTS = { 'tide': 2, 'tide msme': 0.3, 'tide insurance': 1, 'tide credit card': 1, 'tide bt': 1 };
+    const normProductForPts = (raw) => {
+      const n = (raw || '').toLowerCase().trim();
+      if (n.includes('tide insurance')) return 'tide insurance';
+      if (n.includes('tide msme')) return 'tide msme';
+      if (n.includes('tide credit card')) return 'tide credit card';
+      if (n.includes('tide bt')) return 'tide bt';
+      if (n.includes('tide')) return 'tide';
+      return n;
+    };
+
     // 1️⃣ Build initial verification map instantly from database fields (0 latency, 0 timeouts)
     const initialMap = {};
     let dbAutoPts = 0;
     allForms.forEach(f => {
       const vstatus = f.verificationStatus || f.verificationChecks?.status || 'Not Found';
-      const vpoints = f.verificationChecks?.points || 0;
+      let vpoints = f.verificationChecks?.points ?? 0;
+      // 🔥 FIX: If points=0 but Fully Verified, compute from product name
+      if (vpoints === 0 && vstatus === 'Fully Verified') {
+        const baseP = normProductForPts(f.formFillingFor || f.tideProduct || f.brand || '');
+        vpoints = FALLBACK_PTS[baseP] || 0;
+      }
       const isFound = vstatus !== 'Not Found';
       const vinfo = {
         status: vstatus,
@@ -412,6 +431,7 @@ export default function Dashboard() {
         phoneMatch: isFound ? true : (f.verificationChecks?.phoneMatch || false),
         inSheet: isFound ? true : (f.verificationChecks?.inSheet || false),
         ...f.verificationChecks,
+        points: vpoints,  // override spread with corrected value
         status: vstatus
       };
       if (isFound) {
@@ -429,8 +449,26 @@ export default function Dashboard() {
     const formsToCheck = allForms.filter(f => !f.verificationStatus || f.verificationStatus === 'Not Found').slice(0, 30);
     if (formsToCheck.length === 0) {
       console.log('✅ All forms loaded with verification status from DB');
+      // 🔥 FIX: Still save corrected points (sub-product fix) even when all already verified
+      fetch(`${API_BASE}/api/forms/save-verified-points`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ verifiedPoints: Math.round(dbAutoPts * 10) / 10 })
+      }).then(() => {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
+        const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
+        const url = isImpersonating
+          ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
+          : `${API_BASE}/api/forms/my-points?1=1${monthParam}${yearParam}`;
+        return fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      }).then(r => r.json()).then(d => {
+        setAdjustment(d.pointsAdjustment || 0);
+        setBackendPoints(d.totalPoints || 0);
+      }).catch(() => { });
       return;
     }
+
 
     console.log('🔍 Fetching verification update (POST bulk-admin):', {
       formCount: formsToCheck.length,
@@ -474,7 +512,15 @@ export default function Dashboard() {
           }
 
           if ((updatedMap[f._id]?.status || 'Not Found') === 'Fully Verified') {
-            autoPts += (updatedMap[f._id]?.points || 0);
+            let pts = updatedMap[f._id]?.points || 0;
+            // 🔥 FIX: If points=0 but Fully Verified, compute from product name
+            if (pts === 0) {
+              const baseP = normProductForPts(f.formFillingFor || f.tideProduct || f.brand || '');
+              pts = FALLBACK_PTS[baseP] || 0;
+              // Update map with corrected points
+              if (updatedMap[f._id]) updatedMap[f._id] = { ...updatedMap[f._id], points: pts };
+            }
+            autoPts += pts;
           }
         });
 
@@ -500,9 +546,9 @@ export default function Dashboard() {
             setAdjustment(d.pointsAdjustment || 0);
             setBackendPoints(d.totalPoints || 0);
           })
-          .catch(() => {});
+          .catch(() => { });
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [allForms.length, token, selMonth, selYear, isImpersonating, viewAsEmail]); // eslint-disable-line
   const normalizeProduct = (product) => {
     const p = (product || '').toLowerCase().trim();
@@ -709,46 +755,50 @@ export default function Dashboard() {
         {/* Product filter chips */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, marginTop: 4 }}>
           {(() => {
-            const products = ['Tide', 'Tide Insurance', 'Tide MSME', 'Tide Credit Card'];
+            const productSet = new Set();
+
+            allForms.forEach(f => {
+              if (selMonth !== '') {
+                const formDate = new Date(f.createdAt);
+                if (formDate.getMonth() !== parseInt(selMonth)) return;
+              }
+              if (selYear) {
+                const formDate = new Date(f.createdAt);
+                if (formDate.getFullYear() !== parseInt(selYear)) return;
+              }
+
+              const info = verifiedMap[getVerifyKey(f)] || {};
+              if (info.status === 'Fully Verified') {
+                const label = formatProductDisplay(f, info);
+                if (label && label !== '–') productSet.add(label);
+              }
+            });
+
+            const baseProducts = ['Tide', 'Tide Insurance', 'Tide MSME', 'Tide Credit Card'];
+            baseProducts.forEach(p => productSet.add(p));
+
+            const products = Array.from(productSet).sort();
             const counts = {};
+
             products.forEach(p => {
-              const sp = p.toLowerCase().trim();
               counts[p] = allForms.filter(f => {
-                // Filter by Month dropdown (selMonth) if selected
                 if (selMonth !== '') {
                   const formDate = new Date(f.createdAt);
                   if (formDate.getMonth() !== parseInt(selMonth)) return false;
                 }
-
-                // Filter by Year dropdown (selYear) if selected
                 if (selYear) {
                   const formDate = new Date(f.createdAt);
                   if (formDate.getFullYear() !== parseInt(selYear)) return false;
                 }
 
-                const p1 = (f.formFillingFor || '').toLowerCase().trim();
-                const p2 = (f.tideProduct || '').toLowerCase().trim();
-                const p3 = (f.brand || '').toLowerCase().trim();
-
-                let match = false;
-                if (sp === 'tide msme') {
-                  match = p1.includes('msme') || p2.includes('msme') || p3.includes('msme');
-                } else if (sp === 'tide insurance') {
-                  match = p1.includes('insurance') || p2.includes('insurance') || p3.includes('insurance');
-                } else if (sp === 'tide credit card') {
-                  match = p1.includes('credit') || p2.includes('credit') || p3.includes('credit');
-                } else if (sp === 'tide') {
-                  const isTide = (p1 === 'tide' || p2 === 'tide' || p3 === 'tide' || p1 === 'tide bt' || p2 === 'tide bt');
-                  const notMSME = !p1.includes('msme') && !p2.includes('msme') && !p3.includes('msme');
-                  const notInsurance = !p1.includes('insurance') && !p2.includes('insurance') && !p3.includes('insurance');
-                  const notCredit = !p1.includes('credit') && !p2.includes('credit') && !p3.includes('credit');
-                  match = isTide && notMSME && notInsurance && notCredit;
-                } else {
-                  match = p1 === sp || p2 === sp || p3 === sp;
-                }
-                return match && verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified';
+                const info = verifiedMap[getVerifyKey(f)] || {};
+                const label = formatProductDisplay(f, info);
+                return label === p && info?.status === 'Fully Verified';
               }).length;
             });
+
+            const visibleProducts = products.filter(p => counts[p] > 0 || (baseProducts.includes(p) && p !== 'Tide Insurance'));
+
             return (
               <>
                 <button
@@ -762,7 +812,7 @@ export default function Dashboard() {
                   }}>
                   All Products
                 </button>
-                {products.map(p => (
+                {visibleProducts.map(p => (
                   <button key={p}
                     onClick={() => setSelProduct(p)}
                     style={{
@@ -908,9 +958,9 @@ export default function Dashboard() {
                     Showing {Math.min((currentPage - 1) * pageSize + 1, filtered.length)} - {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} forms
                   </span>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button 
-                      disabled={currentPage <= 1} 
-                      onClick={() => setPage(p => Math.max(1, p - 1))} 
+                    <button
+                      disabled={currentPage <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
                       style={{ padding: '6px 14px', borderRadius: '8px', border: '1.5px solid #dde8dd', background: currentPage <= 1 ? '#f5f5f5' : '#fff', color: currentPage <= 1 ? '#aaa' : '#1b4332', fontWeight: 700, fontSize: '13px', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer' }}
                     >
                       Previous
@@ -918,9 +968,9 @@ export default function Dashboard() {
                     <span style={{ fontWeight: 800, fontSize: '13px', color: '#1b4332', padding: '0 6px' }}>
                       Page {currentPage} of {totalPages}
                     </span>
-                    <button 
-                      disabled={currentPage >= totalPages} 
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                    <button
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                       style={{ padding: '6px 14px', borderRadius: '8px', border: '1.5px solid #dde8dd', background: currentPage >= totalPages ? '#f5f5f5' : '#fff', color: currentPage >= totalPages ? '#aaa' : '#1b4332', fontWeight: 700, fontSize: '13px', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
                     >
                       Next

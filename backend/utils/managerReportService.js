@@ -282,6 +282,13 @@ function buildPDFBuffer(sortedTLs, grandFTD, grandMTD, productsList, targetDate,
 
 async function sendManagerDailyReport() {
   try {
+    // 🛑 Daily email reports paused for a few days as requested by user
+    const PAUSED = true;
+    if (PAUSED || process.env.PAUSE_DAILY_REPORTS === 'true') {
+      console.log('⏸️ Daily Manager FTD & MTD report email is PAUSED for a few days.');
+      return { success: true, message: 'Daily Manager FTD/MTD email report is currently paused.' };
+    }
+
     console.log('Starting Manager Daily FTD & MTD Report generation...');
 
     const emailsStr  = process.env.MANAGER_REPORT_EMAILS || process.env.ADMIN_EMAIL || '';

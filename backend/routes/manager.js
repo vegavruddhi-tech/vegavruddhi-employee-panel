@@ -738,7 +738,7 @@ router.get('/tl/:id/fses', verifyToken, async (req, res) => {
 router.get('/approved-list', async (req, res) => {
   try {
     const managers = await Manager.find({ approvalStatus: 'approved' })
-      .select('_id name email phone location image status createdAt')
+      .select('_id name email phone location image status createdAt employeeId')
       .sort({ name: 1 });
     res.json(managers);
   } catch (err) {

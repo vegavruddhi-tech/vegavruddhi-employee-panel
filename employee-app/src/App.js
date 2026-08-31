@@ -141,7 +141,7 @@ export default function App() {
           <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
           <Route path="/tasks" element={<PrivateRoute><Tasks /></PrivateRoute>} />
-          <Route path="/my-salary" element={<PrivateRoute><MySalary /></PrivateRoute>} />
+          {/* <Route path="/my-salary" element={<PrivateRoute><MySalary /></PrivateRoute>} /> */}
           <Route path="/merchant-form" element={<PrivateRoute><MerchantForm /></PrivateRoute>} />
           <Route path="/merchant/:id" element={<PrivateRoute><MerchantDetail /></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />

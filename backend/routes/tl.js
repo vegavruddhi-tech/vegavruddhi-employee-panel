@@ -708,7 +708,7 @@ router.put('/reject/:id', async (req, res) => {
 });
 router.get('/approved-list', async (req, res) => {
   try {
-    const tls = await TeamLead.find({ approvalStatus: 'approved' }).select('name email phone location reportingManager position createdAt approvalStatus');
+    const tls = await TeamLead.find({ approvalStatus: 'approved' }).select('name email phone location reportingManager position createdAt approvalStatus employeeId');
     res.json(tls);
   } catch (err) {
     res.status(500).json({ message: err.message });

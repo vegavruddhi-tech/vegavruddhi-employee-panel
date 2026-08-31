@@ -793,7 +793,7 @@ router.get('/pending', async (req, res) => {
 router.get('/all-employees', async (req, res) => {
   try {
     const employees = await Employee.find({ approvalStatus: 'approved' })
-      .select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager');
+      .select('newJoinerName newJoinerPhone newJoinerEmailId reportingManager employeeId createdAt');
     res.json(employees);
   } catch (err) {
     res.status(500).json({ message: err.message });

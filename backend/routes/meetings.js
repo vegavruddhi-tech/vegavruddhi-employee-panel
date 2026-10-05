@@ -10,6 +10,7 @@ const ScheduledMeeting = require('../models/ScheduledMeeting');
 const MeetingAttendance = require('../models/MeetingAttendance');
 const jwt = require('jsonwebtoken');
 const { sendPushToEmails } = require('../utils/pushNotifications');
+const { isTokenBlacklisted } = require('../utils/tokenBlacklist');
 
 // Load service account credentials (lazy — only if file exists)
 let serviceAccount = null;
@@ -918,10 +919,41 @@ router.get('/my-meetings', async (req, res) => {
   }
 });
 
+// ── Auth middleware for meeting tokens ──────────────────────────────
+async function verifyMeetingAuth(req, res, next) {
+  if (req.method === 'OPTIONS') return next();
+  const authHeader = req.headers['authorization'];
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (authHeader?.includes(' ') ? authHeader.split(' ')[1] : authHeader);
+  
+  if (token) {
+    try {
+      const isBlacklisted = await isTokenBlacklisted(token);
+      if (isBlacklisted) {
+        return res.status(401).json({ error: 'Session invalidated. Please log in again.' });
+      }
+      req.user = jwt.verify(token, process.env.JWT_SECRET);
+      return next();
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+  }
+
+  // Allow authorized admin email if configured
+  const adminEmail = req.headers['x-admin-email'] || req.query.adminEmail;
+  const allowedAdmins = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  if (adminEmail && allowedAdmins.includes(adminEmail.toLowerCase())) {
+    req.user = { email: adminEmail, isAdmin: true, role: 'admin' };
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Authentication token required to generate meeting token' });
+}
+
 // 🔑 GET /api/meetings/jaas-jwt - Generate 8x8 JaaS JWT token
-router.get('/jaas-jwt', (req, res) => {
+router.get('/jaas-jwt', verifyMeetingAuth, (req, res) => {
   try {
-    const { name, email, avatar, isModerator } = req.query;
+    const { name, avatar, isModerator } = req.query;
+    const email = req.query.email || req.user?.email || '';
     
     // Read the private key
     const privateKeyPath = path.join(__dirname, '../jaas_private_key.pem');

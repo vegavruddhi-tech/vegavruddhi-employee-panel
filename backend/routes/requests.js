@@ -1,16 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const { verifyToken, verifyAdmin } = require('../middleware/auth');
 const ChangeRequest = require('../models/ChangeRequest');
 const Employee = require('../models/Employee');
 const FormResponse = require('../models/FormResponse');
-
-function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token' });
-  try { req.user = jwt.verify(token, process.env.JWT_SECRET); next(); }
-  catch { res.status(401).json({ message: 'Invalid token' }); }
-}
 
 // POST /api/requests/profile — employee requests profile change
 router.post('/profile', verifyToken, async (req, res) => {
@@ -179,7 +173,7 @@ router.delete('/delete-notification/:id', async (req, res) => {
 });
 
 // DELETE /api/requests/delete-notifications-bulk — admin bulk deletes from activity log only
-router.delete('/delete-notifications-bulk', async (req, res) => {
+router.delete('/delete-notifications-bulk', verifyAdmin, async (req, res) => {
   try {
     const PointsActivityLog = require('../models/PointsActivityLog');
     const { ids } = req.body;
@@ -190,7 +184,7 @@ router.delete('/delete-notifications-bulk', async (req, res) => {
 });
 
 // PUT /api/requests/:id/approve — admin approves
-router.put('/:id/approve', async (req, res) => {
+router.put('/:id/approve', verifyAdmin, async (req, res) => {
   try {
     const request = await ChangeRequest.findByIdAndUpdate(req.params.id, { status: 'approved' }, { new: true });
     if (!request) return res.status(404).json({ message: 'Not found' });
@@ -223,7 +217,7 @@ router.put('/:id/approve', async (req, res) => {
 });
 
 // PUT /api/requests/:id/reject — admin rejects
-router.put('/:id/reject', async (req, res) => {
+router.put('/:id/reject', verifyAdmin, async (req, res) => {
   try {
     await ChangeRequest.findByIdAndUpdate(req.params.id, { status: 'rejected' });
     res.json({ message: 'Rejected' });

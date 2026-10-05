@@ -32,8 +32,11 @@ export default function MeetingsModal({ isOpen, onClose, userEmail, token }) {
       // Create personalized meeting link with user's name
       const displayName = encodeURIComponent(userEmail.split('@')[0] || 'Guest');
       
-      // Fetch JWT token for JaaS
-      const res = await fetch(`${API_BASE}/api/meetings/jaas-jwt?name=${displayName}&email=${encodeURIComponent(userEmail)}`);
+      // Fetch JWT token for JaaS with Authorization header
+      const authToken = token || sessionStorage.getItem('token') || localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/api/meetings/jaas-jwt?name=${displayName}&email=${encodeURIComponent(userEmail)}`, {
+        headers: authToken ? { Authorization: 'Bearer ' + authToken } : {}
+      });
       const data = await res.json();
       
       if (!data.token) throw new Error('No token received');

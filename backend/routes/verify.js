@@ -32,19 +32,7 @@ async function getKeysByPattern(redis, pattern) {
 
 module.exports = (connectionManager, connectDB) => {
   const router = express.Router();
-
-  // ---------- AUTH ----------
-  function verifyToken(req, res, next) {
-    if (req.method === 'OPTIONS') return next();
-    const token = req.headers['authorization']?.split(' ')[1];
-    if (!token) return res.status(401).json({ message: 'No token' });
-    try {
-      req.user = jwt.verify(token, process.env.JWT_SECRET);
-      next();
-    } catch {
-      res.status(401).json({ message: 'Invalid token' });
-    }
-  }
+  const { verifyToken, verifyAdmin } = require('../middleware/auth');
 
   // ---------- CONNECTION MIDDLEWARE ----------
   /**
@@ -276,9 +264,12 @@ module.exports = (connectionManager, connectDB) => {
   // ---------- DEBUG ENDPOINTS ----------
   /**
    * GET /api/verify/debug-cache/:phone
-   * Debug endpoint to check what's in cache for a phone number
+   * Debug endpoint to check what's in cache for a phone number (disabled in production)
    */
-  router.get('/debug-cache/:phone', async (req, res) => {
+  router.get('/debug-cache/:phone', verifyAdmin, async (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ message: 'Not found' });
+    }
     try {
       const { phone } = req.params;
       const redis = getRedisClient();
@@ -312,9 +303,12 @@ module.exports = (connectionManager, connectDB) => {
 
   /**
    * GET /api/verify/debug-products
-   * Debug endpoint to see all unique products in forms
+   * Debug endpoint to see all unique products in forms (disabled in production)
    */
-  router.get('/debug-products', async (req, res) => {
+  router.get('/debug-products', verifyAdmin, async (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ message: 'Not found' });
+    }
     try {
       await connectDB();
       const FormResponse = require('../models/FormResponse');
@@ -845,9 +839,12 @@ module.exports = (connectionManager, connectDB) => {
 
   /**
    * GET/POST /api/verify/test-manager-report
-   * Direct test endpoint to run and verify the Manager Daily Report on localhost
+   * Direct test endpoint to run and verify the Manager Daily Report on localhost (disabled in production)
    */
-  router.all('/test-manager-report', async (req, res) => {
+  router.all('/test-manager-report', verifyAdmin, async (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ message: 'Not found' });
+    }
     try {
       console.log('🧪 Testing Manager Daily Report generation...');
       const result = await sendManagerDailyReport();
@@ -875,8 +872,11 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
-  // ---------- SINGLE CHECK (ADMIN — no token required) - OPTIMIZED ----------
-  router.get('/check-admin', async (req, res) => {
+  // ---------- SINGLE CHECK (ADMIN) - PROTECTED & DISABLED IN PRODUCTION ----------
+  router.get('/check-admin', verifyAdmin, async (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ message: 'Not found' });
+    }
     try {
       const { phone, name, product, month } = req.query;
       if (!phone) return res.status(400).json({ message: 'Phone required' });
@@ -944,6 +944,9 @@ module.exports = (connectionManager, connectDB) => {
       const months = (req.query.months || '').split(',').map(m => decodeURIComponent(m.trim()));
 
       if (!phones.length) return res.json({});
+      if (phones.length > 1000) {
+        return res.status(400).json({ message: 'Too many items in bulk request. Maximum allowed limit is 1000 items.' });
+      }
 
       // Use connection from middleware
       const db = req.db;
@@ -1007,6 +1010,9 @@ module.exports = (connectionManager, connectDB) => {
       const months = (req.query.months || '').split(',').map(m => decodeURIComponent(m.trim()));
 
       if (!phones.length) return res.json({});
+      if (phones.length > 1000) {
+        return res.status(400).json({ message: 'Too many items in bulk request. Maximum allowed limit is 1000 items.' });
+      }
 
       const redis = getRedisClient();
       const result = {};
@@ -1146,6 +1152,9 @@ module.exports = (connectionManager, connectDB) => {
       const months = (Array.isArray(monthsArr) ? monthsArr : (monthsArr || '').split(',')).map(m => String(m).trim());
 
       if (!phones.length) return res.json({});
+      if (phones.length > 1000) {
+        return res.status(400).json({ message: 'Too many items in bulk request. Maximum allowed limit is 1000 items.' });
+      }
 
       const redis = getRedisClient();
       const result = {};
@@ -1227,6 +1236,9 @@ module.exports = (connectionManager, connectDB) => {
       const months = (req.query.months || '').split(',').map(m => decodeURIComponent(m.trim()));
 
       if (!phones.length) return res.json({});
+      if (phones.length > 1000) {
+        return res.status(400).json({ message: 'Too many items in bulk request. Maximum allowed limit is 1000 items.' });
+      }
 
       const redis = getRedisClient();
       const result = {};
@@ -1413,6 +1425,9 @@ module.exports = (connectionManager, connectDB) => {
       console.log('📥 INCOMING BULK-ADMIN POST:', { phones, products, months });
 
       if (!phones.length) return res.json({});
+      if (phones.length > 1000) {
+        return res.status(400).json({ message: 'Too many items in bulk request. Maximum allowed limit is 1000 items.' });
+      }
 
       const redis = getRedisClient();
       const result = {};
@@ -1534,7 +1549,7 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
-  router.put('/rules/:id', async (req, res) => {
+  router.put('/rules/:id', verifyAdmin, async (req, res) => {
     try {
       const rule = await VerificationRule.findByIdAndUpdate(
         req.params.id,
@@ -1565,7 +1580,7 @@ module.exports = (connectionManager, connectDB) => {
     }
   });
 
-  router.post('/rules/new', async (req, res) => {
+  router.post('/rules/new', verifyAdmin, async (req, res) => {
     try {
       const rule = await VerificationRule.create({
         ...req.body,
@@ -1596,7 +1611,7 @@ module.exports = (connectionManager, connectDB) => {
   });
 
   // DELETE /api/verify/rules/:id — delete a rule
-  router.delete('/rules/:id', async (req, res) => {
+  router.delete('/rules/:id', verifyAdmin, async (req, res) => {
     try {
       await VerificationRule.findByIdAndDelete(req.params.id);
 

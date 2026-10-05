@@ -14,12 +14,10 @@ const TeamLead = require('../models/TeamLead');
 
 module.exports = (connectionManager, connectDB) => {
   const router = express.Router();
+  const { verifyToken, verifyAdmin } = require('../middleware/auth');
 
-  function verifyToken(req, res, next) {
-    const token = req.headers['authorization']?.split(' ')[1];
-    if (!token) return res.status(401).json({ message: 'No token' });
-    try { req.user = jwt.verify(token, process.env.JWT_SECRET); next(); }
-    catch { res.status(401).json({ message: 'Invalid token' }); }
+  function escapeRegex(text) {
+    return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   // ---------- CONNECTION MIDDLEWARE ----------
@@ -187,7 +185,7 @@ module.exports = (connectionManager, connectDB) => {
             if (!unfilledForm) {
               unfilledForm = await UnfilledForm.findOne({
                 customerPhone: req.body.customerNumber,
-                product: { $regex: new RegExp(`^${product.trim()}$`, 'i') }, // Case-insensitive
+                product: { $regex: new RegExp(`^${escapeRegex(product.trim())}$`, 'i') }, // Case-insensitive
                 status: 'unfilled',
                 expectedYear: year // Same year
               });
@@ -237,11 +235,10 @@ module.exports = (connectionManager, connectDB) => {
   });
 
 
-  // ── ADMIN EDIT & DELETE (no auth — admin panel access) ────────
+  // ── ADMIN EDIT & DELETE (protected with verifyAdmin) ────────
 
   // PUT /api/forms/admin/update/:id — admin can edit any form
-  // PUT /api/forms/admin/update/:id — admin can update any form
-  router.put('/admin/update/:id', async (req, res) => {
+  router.put('/admin/update/:id', verifyAdmin, async (req, res) => {
     try {
 
       // ✅ Wait for MongoDB connection and verify it succeeded
@@ -322,7 +319,7 @@ module.exports = (connectionManager, connectDB) => {
   });
 
   // DELETE /api/forms/admin/delete/:id — admin can delete any form (FSE, TL, or Manager)
-  router.delete('/admin/delete/:id', async (req, res) => {
+  router.delete('/admin/delete/:id', verifyAdmin, async (req, res) => {
     try {
 
       // ✅ Wait for MongoDB connection and verify it succeeded
@@ -378,7 +375,13 @@ module.exports = (connectionManager, connectDB) => {
       let userId = req.user.id;
 
       // If admin is impersonating, fetch forms for the target user
-      if (viewAs && (req.user.isAdmin || req.user.role === 'admin')) {
+      if (viewAs && (req.user.isAdmin || req.user.role === 'admin' || req.user.impersonating || req.user.adminImpersonating)) {
+        if ((req.user.impersonating || req.user.adminImpersonating) && !req.user.isAdmin && req.user.role !== 'admin') {
+          const allowedTarget = (req.user.targetEmail || req.user.email || '').toLowerCase().trim();
+          if (viewAs.toLowerCase().trim() !== allowedTarget) {
+            return res.status(403).json({ message: 'Unauthorized: Cannot view forms of other employees during impersonation' });
+          }
+        }
         const Employee = require('../models/Employee');
         const targetUser = await Employee.findOne({ newJoinerEmailId: viewAs });
         if (!targetUser) {
@@ -415,16 +418,17 @@ module.exports = (connectionManager, connectDB) => {
 
       // Filter by product if specified
       if (product && product !== 'All') {
+        const safeProduct = escapeRegex(product.trim());
         queryFilter.$or = [
-          { formFillingFor: { $regex: new RegExp(product.trim(), 'i') } },
-          { tideProduct: { $regex: new RegExp(product.trim(), 'i') } },
-          { brand: { $regex: new RegExp(product.trim(), 'i') } }
+          { formFillingFor: { $regex: new RegExp(safeProduct, 'i') } },
+          { tideProduct: { $regex: new RegExp(safeProduct, 'i') } },
+          { brand: { $regex: new RegExp(safeProduct, 'i') } }
         ];
       }
 
       // Filter by search term (merchant name, phone number, or FSE name)
-      if (search && search.trim()) {
-        const searchRegex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      if (search && typeof search === 'string' && search.trim()) {
+        const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
         const searchFilter = { $or: [{ customerName: searchRegex }, { customerNumber: searchRegex }, { employeeName: searchRegex }] };
         if (queryFilter.$or) {
           queryFilter.$and = [ { $or: queryFilter.$or }, searchFilter ];
@@ -769,7 +773,7 @@ module.exports = (connectionManager, connectDB) => {
   });
 
   // POST /api/forms/admin/settle-duplicate — admin marks a duplicate as settled
-  router.post('/admin/settle-duplicate', async (req, res) => {
+  router.post('/admin/settle-duplicate', verifyAdmin, async (req, res) => {
     try {
       const DuplicateSettlement = require('../models/DuplicateSettlement');
       const { customerNumber, customerName, product, employees, note } = req.body;
@@ -890,7 +894,7 @@ module.exports = (connectionManager, connectDB) => {
   */
 
   // DELETE /api/forms/admin/adjust-points/:employeeId/history/:historyId — delete a specific adjustment
-  router.delete('/admin/adjust-points/:employeeId/history/:historyId', async (req, res) => {
+  router.delete('/admin/adjust-points/:employeeId/history/:historyId', verifyAdmin, async (req, res) => {
     try {
       const EmployeePoints = require('../models/EmployeePoints');
       const Employee = require('../models/Employee');
@@ -904,7 +908,7 @@ module.exports = (connectionManager, connectDB) => {
         const emp = await Employee.findById(req.params.employeeId).select('newJoinerName');
         if (!emp) return res.status(404).json({ message: 'Employee not found' });
         doc = await EmployeePoints.findOne({
-          newJoinerName: { $regex: new RegExp(`^${emp.newJoinerName.trim()}\\s*$`, 'i') }
+          newJoinerName: { $regex: new RegExp(`^${escapeRegex(emp.newJoinerName.trim())}\\s*$`, 'i') }
         });
         if (!doc) return res.status(404).json({ message: 'Points record not found' });
         req._empName = emp.newJoinerName;
@@ -1191,7 +1195,7 @@ module.exports = (connectionManager, connectDB) => {
 
   // ── PUT /api/forms/admin/adjust-points/:id ──────────────────────
   // id = EmployeePoints _id OR employeeId
-  router.put('/admin/adjust-points/:id', async (req, res) => {
+  router.put('/admin/adjust-points/:id', verifyAdmin, async (req, res) => {
     try {
       const EmployeePoints = require('../models/EmployeePoints');
       const { adjustment, reason, productSlabs } = req.body;
@@ -1248,7 +1252,7 @@ module.exports = (connectionManager, connectDB) => {
 
           const empName = freshDoc.newJoinerName.trim();
           const emp = await Employee.findOne({
-            newJoinerName: { $regex: new RegExp(`^${empName}\\s*$`, 'i') }
+            newJoinerName: { $regex: new RegExp(`^${escapeRegex(empName)}\\s*$`, 'i') }
           }).select('_id reportingManager');
 
           // Calculate slab bonus from productSlabs
@@ -1315,13 +1319,13 @@ module.exports = (connectionManager, connectDB) => {
       }
     } catch (err) {
       console.error('❌ Error in adjust-points:', err);
-      res.status(500).json({ message: err.message, error: err.toString(), stack: err.stack });
+      res.status(500).json({ message: 'Failed to adjust points. Please try again later.' });
     }
   });
 
   // ── POST /api/forms/admin/init-employee-points ──────────────────
   // Creates EmployeePoints record if not exists for an employee
-  router.post('/admin/init-employee-points', async (req, res) => {
+  router.post('/admin/init-employee-points', verifyAdmin, async (req, res) => {
     try {
       const EmployeePoints = require('../models/EmployeePoints');
       const { newJoinerName, employeeId } = req.body;
@@ -1329,7 +1333,7 @@ module.exports = (connectionManager, connectDB) => {
 
       const trimmedName = newJoinerName.trim();
       let doc = await EmployeePoints.findOne({
-        newJoinerName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') }
+        newJoinerName: { $regex: new RegExp(`^${escapeRegex(trimmedName)}\\s*$`, 'i') }
       });
       if (!doc) {
         doc = await EmployeePoints.create({ newJoinerName: trimmedName, employeeId: employeeId || null });
@@ -1352,7 +1356,13 @@ module.exports = (connectionManager, connectDB) => {
       let targetId = req.user.id;
 
       // If admin is impersonating, fetch points for the target user
-      if (viewAs && (req.user.isAdmin || req.user.role === 'admin')) {
+      if (viewAs && (req.user.isAdmin || req.user.role === 'admin' || req.user.impersonating || req.user.adminImpersonating)) {
+        if ((req.user.impersonating || req.user.adminImpersonating) && !req.user.isAdmin && req.user.role !== 'admin') {
+          const allowedTarget = (req.user.targetEmail || req.user.email || '').toLowerCase().trim();
+          if (viewAs.toLowerCase().trim() !== allowedTarget) {
+            return res.status(403).json({ message: 'Unauthorized: Cannot view points of other employees during impersonation' });
+          }
+        }
         const targetUser = await Employee.findOne({ newJoinerEmailId: viewAs }).select('newJoinerName _id');
         if (!targetUser) {
           return res.status(404).json({ message: 'Target user not found' });
@@ -1375,7 +1385,7 @@ module.exports = (connectionManager, connectDB) => {
 
       // Find the record with slabs and adjustments if available
       const docs = await EmployeePoints.find({
-        newJoinerName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') }
+        newJoinerName: { $regex: new RegExp(`^${escapeRegex(trimmedName)}\\s*$`, 'i') }
       }).lean();
       const doc = docs.find(d => d.productSlabs && Object.keys(d.productSlabs).length > 0) || docs[0];
 
@@ -1392,7 +1402,7 @@ module.exports = (connectionManager, connectDB) => {
       if (month && year) {
         const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
         const monthlyDoc = await EmployeeMonthlyPoints.findOne({
-          employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') },
+          employeeName: { $regex: new RegExp(`^${escapeRegex(trimmedName)}\\s*$`, 'i') },
           month: month,
           year: parseInt(year)
         }).lean();
@@ -1425,7 +1435,7 @@ module.exports = (connectionManager, connectDB) => {
         ...dateFilter,
         $or: [
           { submittedBy: targetId },
-          { employeeName: { $regex: new RegExp(`^${trimmedName}\\s*$`, 'i') } }
+          { employeeName: { $regex: new RegExp(`^${escapeRegex(trimmedName)}\\s*$`, 'i') } }
         ]
       };
 
@@ -1478,8 +1488,7 @@ module.exports = (connectionManager, connectDB) => {
 
   // ── POST /api/forms/admin/recalculate-all-points ───────────────
   // Runs verification for ALL employees' forms and saves points automatically
-  // Called by cron or manually — no frontend interaction needed
-  router.post('/admin/recalculate-all-points', async (req, res) => {
+  router.post('/admin/recalculate-all-points', verifyAdmin, async (req, res) => {
     try {
       const EmployeePoints = require('../models/EmployeePoints');
       const VerificationRule = require('../models/VerificationRule');
@@ -1583,7 +1592,7 @@ module.exports = (connectionManager, connectDB) => {
   });
 
   // POST /api/forms/admin/refresh-verification — Refresh verification status for all or specific forms
-  router.post('/admin/refresh-verification', async (req, res) => {
+  router.post('/admin/refresh-verification', verifyAdmin, async (req, res) => {
     try {
       const { formIds, phone } = req.body;
       const { updateFormVerificationStatus, updateMultipleFormsVerification, updateVerificationByPhone } = require('../utils/updateVerificationStatus');
@@ -1608,7 +1617,7 @@ module.exports = (connectionManager, connectDB) => {
   });
 
   // POST /api/forms/admin/revert-verification/:id — Manually revert verification status back to Not Found
-  router.post('/admin/revert-verification/:id', async (req, res) => {
+  router.post('/admin/revert-verification/:id', verifyAdmin, async (req, res) => {
     try {
       const FormResponse = require('../models/FormResponse');
       const TLFormResponse = require('../models/TLFormResponse');
@@ -1665,7 +1674,7 @@ module.exports = (connectionManager, connectDB) => {
   });
 
   // ── POST /api/forms/admin/delete-slab ─────────────────────────────────────
-  router.post('/admin/delete-slab', async (req, res) => {
+  router.post('/admin/delete-slab', verifyAdmin, async (req, res) => {
     try {
       const EmployeePoints = require('../models/EmployeePoints');
       const ChangeRequest = require('../models/ChangeRequest');
@@ -1684,7 +1693,7 @@ module.exports = (connectionManager, connectDB) => {
       // If this doc has no slabs for the product, find the correct one by name
       if (!doc.productSlabs?.[product]) {
         const better = await EmployeePoints.findOne({
-          newJoinerName: { $regex: new RegExp(`^${doc.newJoinerName.trim()}\\s*$`, 'i') },
+          newJoinerName: { $regex: new RegExp(`^${escapeRegex(doc.newJoinerName.trim())}\\s*$`, 'i') },
           [`productSlabs.${product}`]: { $exists: true }
         });
         if (better) doc = better;
@@ -1838,7 +1847,7 @@ module.exports = (connectionManager, connectDB) => {
 
         try {
           const empPts = await EmployeePoints.findOne({
-            newJoinerName: { $regex: new RegExp(`^${data.displayName.trim()}$`, 'i') }
+            newJoinerName: { $regex: new RegExp(`^${escapeRegex(data.displayName.trim())}$`, 'i') }
           }).lean();
 
           if (empPts?.productSlabs) {

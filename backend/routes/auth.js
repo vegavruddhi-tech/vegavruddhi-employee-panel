@@ -2,12 +2,19 @@ const upload = require('../middleware/multer');
 const express  = require('express');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
+const { verifyToken, verifyAdmin, getAllowedAdmins } = require('../middleware/auth');
+const { loginLimiter, registerLimiter } = require('../middleware/rateLimiter');
+const { blacklistToken } = require('../utils/tokenBlacklist');
 const Employee = require('../models/Employee');
 const Manager  = require('../models/Manager');
 const Attendance = require('../models/Attendance');
 const { OAuth2Client } = require('google-auth-library');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+function escapeRegex(text) {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 module.exports = (connectionManager, connectDB) => {
   const router = express.Router();
@@ -47,17 +54,6 @@ module.exports = (connectionManager, connectDB) => {
 // });
 // const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
-// Verify JWT middleware
-function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
 
 // Upload fields definition and error-handling wrapper
 const registerUploadFields = upload.fields([
@@ -98,9 +94,8 @@ function formatRegistrationError(err, contextName = 'Employee Registration') {
     return {
       status: 503,
       body: {
-        message: `[Database Error in ${contextName}]: ${err.message}`,
-        errorPart: `MongoDB Connection / Operation (${err.name})`,
-        errorType: err.name
+        message: 'Database service is temporarily unavailable. Please try again.',
+        errorType: 'DatabaseError'
       }
     };
   }
@@ -108,9 +103,8 @@ function formatRegistrationError(err, contextName = 'Employee Registration') {
   return {
     status: 500,
     body: {
-      message: `[${contextName} Error]: ${err.message || 'Unknown error occurred'}`,
-      errorPart: err.stack ? err.stack.split('\n')[1]?.trim() : 'Server Route Execution',
-      errorType: err.name || 'Error'
+      message: 'Registration failed due to a server error. Please try again later.',
+      errorType: 'ServerError'
     }
   };
 }
@@ -123,8 +117,7 @@ const handleUploadErrors = (req, res, next) => {
         ? 'Please select a valid image/document file.'
         : (err.message || err.toString());
       return res.status(400).json({
-        message: `[File Upload Error]: ${msg}`,
-        errorPart: `Multer / Cloudinary Storage Upload (${err.field || 'photo/cv'})`,
+        message: msg,
         errorType: err.name || 'UploadError'
       });
     }
@@ -135,6 +128,7 @@ const handleUploadErrors = (req, res, next) => {
 // POST /api/auth/register
 router.post(
   '/register',
+  registerLimiter,
   handleUploadErrors,
   async (req, res) => {
     try {
@@ -328,80 +322,16 @@ router.post(
   }
 );
 
-// POST /api/auth/login
-router.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const employee = await Employee.findOne({ email });
-    if (!employee) return res.status(400).json({ message: 'Invalid credentials' });
-
-    const match = await bcrypt.compare(password, employee.password);
-    if (!match) return res.status(400).json({ message: 'Invalid credentials' });
-
-    // Block login if not approved
-    if (employee.approvalStatus === 'pending') {
-      return res.status(403).json({ message: 'Your account is pending admin approval. Please wait.' });
-    }
-    if (employee.approvalStatus === 'rejected') {
-      return res.status(403).json({ message: 'Your account registration was rejected. Please contact admin.' });
-    }
-
-    const token = jwt.sign({ id: employee._id, email: employee.email }, process.env.JWT_SECRET, { expiresIn: '8h' });
-    
-    // ✅ MARK ATTENDANCE
-    try {
-      const now = new Date();
-      const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-      const today = istTime.toISOString().split('T')[0];
-      
-      let attendance = await Attendance.findOne({
-        userId: employee._id,
-        date: today
-      });
-      
-      if (!attendance) {
-        // Normalize userType to match enum
-        const pos = (employee.position || '').toLowerCase();
-        let userType = 'employee';
-        if (pos.includes('manager')) userType = 'manager';
-        else if (pos.includes('tl') || pos.includes('teamlead') || pos.includes('team lead') || pos.includes('team_lead')) userType = 'teamlead';
-
-        // First login today - mark attendance
-        attendance = await Attendance.create({
-          userId: employee._id,
-          userEmail: employee.email,
-          userName: employee.newJoinerName,
-          userType: userType,
-          date: today,
-          firstLoginTime: now,
-          lastActivityTime: now,
-          attendanceMarked: true,
-          reloginCount: 0,
-          status: 'present'
-        });
-        console.log(`✅ Attendance marked: ${employee.email} at ${istTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
-      } else {
-        // Re-login - update last activity
-        attendance.reloginCount += 1;
-        attendance.lastActivityTime = now;
-        attendance.lastLogoutTime = null;
-        attendance.duration = null;
-        await attendance.save();
-        console.log(`✅ Re-login: ${employee.email} - Activity updated (Re-login #${attendance.reloginCount})`);
-      }
-    } catch (attErr) {
-      console.error('Attendance marking error:', attErr.message);
-      // Don't block login if attendance fails
-    }
-    
-    res.json({ token, employee: { newJoinerName: employee.newJoinerName, email: employee.email, position: employee.position, status: employee.status } });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+// POST /api/auth/login - Disabled: all panels exclusively use Google Sign-In
+router.post('/login', loginLimiter, (req, res) => {
+  return res.status(403).json({
+    success: false,
+    message: 'Password login is disabled. Please log in using your authorized Google account.'
+  });
 });
 
 // POST /api/auth/google-login
-router.post('/google-login', async (req, res) => {
+router.post('/google-login', loginLimiter, async (req, res) => {
   try {
     const { credential } = req.body;
     if (!credential) return res.status(400).json({ message: 'Google credential required' });
@@ -416,7 +346,7 @@ router.post('/google-login', async (req, res) => {
 
     // Match against newJoinerEmailId (the joining email the employee registered with)
     const employee = await Employee.findOne({
-      newJoinerEmailId: { $regex: new RegExp(`^${googleEmail}$`, 'i') }
+      newJoinerEmailId: { $regex: new RegExp(`^${escapeRegex(googleEmail)}$`, 'i') }
     });
 
     if (!employee) {
@@ -432,12 +362,15 @@ router.post('/google-login', async (req, res) => {
       return res.status(403).json({ message: 'Your account registration was rejected. Please contact admin.' });
     }
 
-    // Generate JWT with admin flag for impersonation support
+    // Generate JWT with consistent role and isAdmin flags
+    const allowedAdmins = getAllowedAdmins();
+    const isExplicitAdmin = employee.position === 'admin' || (employee.email && allowedAdmins.includes(employee.email.toLowerCase())) || false;
+
     const token = jwt.sign({ 
       id: employee._id, 
       email: employee.email,
       role: employee.position || 'fse',
-      isAdmin: employee.position === 'admin' || employee.email === process.env.ADMIN_EMAIL || false
+      isAdmin: isExplicitAdmin
     }, process.env.JWT_SECRET, { expiresIn: '8h' });
     
     // ✅ MARK ATTENDANCE (same as password login)
@@ -494,7 +427,8 @@ router.post('/google-login', async (req, res) => {
         position:      employee.position,
         status:        employee.status,
         picture:       payload.picture || '',
-      }
+      },
+      serverDate: today
     });
   } catch (err) {
     console.error('Google login error:', err.message);
@@ -518,13 +452,21 @@ router.get('/profile-by-email', verifyToken, async (req, res) => {
   try {
     const { email } = req.query;
     
-    // Security check: Only admins can fetch other users' profiles
-    if (!req.user.isAdmin && req.user.role !== 'admin') {
+    // Security check: Only admins or legitimate impersonators can fetch profiles
+    if (!req.user.isAdmin && req.user.role !== 'admin' && !req.user.impersonating && !req.user.adminImpersonating) {
       return res.status(403).json({ message: 'Unauthorized: Admin access required' });
     }
     
     if (!email) {
       return res.status(400).json({ message: 'Email parameter required' });
+    }
+
+    // Impersonated sessions can only access the target employee's profile
+    if (req.user.impersonating || req.user.adminImpersonating) {
+      const allowedEmail = (req.user.targetEmail || req.user.email || '').toLowerCase().trim();
+      if (email.toLowerCase().trim() !== allowedEmail) {
+        return res.status(403).json({ message: 'Unauthorized: Cannot view other employee profiles during impersonation' });
+      }
     }
     
     const employee = await Employee.findOne({ 
@@ -559,6 +501,17 @@ router.get('/verify-impersonation', verifyToken, async (req, res) => {
         allowed: false, 
         error: 'Missing viewAs parameter' 
       });
+    }
+
+    // Impersonated sessions can only verify their specific target user
+    if ((req.user.impersonating || req.user.adminImpersonating) && !req.user.isAdmin && req.user.role !== 'admin') {
+      const allowedTarget = (req.user.targetEmail || req.user.email || '').toLowerCase().trim();
+      if (viewAs.toLowerCase().trim() !== allowedTarget) {
+        return res.status(403).json({
+          allowed: false,
+          error: 'Unauthorized: Cannot verify other employee profiles during impersonation'
+        });
+      }
     }
     
     // Find target user
@@ -599,20 +552,23 @@ router.get('/verify-impersonation', verifyToken, async (req, res) => {
 });
 
 // POST /api/auth/generate-impersonation-token - Generate temporary admin token for impersonation
-router.post('/generate-impersonation-token', async (req, res) => {
+router.post('/generate-impersonation-token', verifyAdmin, async (req, res) => {
   try {
-    const { adminEmail, targetEmail } = req.body;
+    const { targetEmail } = req.body;
+    const adminEmail = req.user?.email || req.body.adminEmail;
     
-    if (!adminEmail || !targetEmail) {
+    if (!targetEmail) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Missing adminEmail or targetEmail' 
+        error: 'Missing targetEmail' 
       });
     }
     
     // Security check: Verify admin email is in allowed list
-    const allowedAdmins = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-    if (!allowedAdmins.includes((adminEmail || '').toLowerCase())) {
+    const allowedAdmins = getAllowedAdmins();
+    const isExplicitAdmin = req.user?.isAdmin === true || req.user?.role === 'admin';
+    const isEmailAdmin = adminEmail && allowedAdmins.includes(adminEmail.toLowerCase());
+    if (!isExplicitAdmin && !isEmailAdmin) {
       return res.status(403).json({ 
         success: false, 
         error: `Unauthorized: ${adminEmail} is not an authorized admin email` 
@@ -631,13 +587,13 @@ router.post('/generate-impersonation-token', async (req, res) => {
       });
     }
     
-    // Generate temporary impersonation token (valid for 1 hour)
+    // Generate temporary impersonation token with normal employee permissions (valid for 1 hour)
     const impersonationToken = jwt.sign(
       { 
         id: targetUser._id,
         email: targetUser.newJoinerEmailId || targetUser.email || targetEmail,
-        role: 'admin',
-        isAdmin: true,
+        role: targetUser.position || 'fse',
+        isAdmin: false,
         impersonating: true,
         adminImpersonating: true,
         adminEmail: adminEmail,
@@ -669,25 +625,29 @@ router.post('/generate-impersonation-token', async (req, res) => {
 });
 
 // POST /api/auth/generate-tl-impersonation-token - Generate temporary admin token for TL impersonation
-router.post('/generate-tl-impersonation-token', async (req, res) => {
+router.post('/generate-tl-impersonation-token', verifyAdmin, async (req, res) => {
   try {
-    const { adminEmail, targetEmail } = req.body;
+    const { targetEmail } = req.body;
+    const adminEmail = req.user?.email || req.body.adminEmail;
 
-    if (!adminEmail || !targetEmail) {
-      return res.status(400).json({ success: false, error: 'Missing adminEmail or targetEmail' });
+    if (!targetEmail) {
+      return res.status(400).json({ success: false, error: 'Missing targetEmail' });
     }
 
     // Security check: Verify admin email is in allowed list
-    const allowedAdmins = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-    if (!allowedAdmins.includes((adminEmail || '').toLowerCase())) {
+    const allowedAdmins = getAllowedAdmins();
+    const isExplicitAdmin = req.user?.isAdmin === true || req.user?.role === 'admin';
+    const isEmailAdmin = adminEmail && allowedAdmins.includes(adminEmail.toLowerCase());
+    if (!isExplicitAdmin && !isEmailAdmin) {
       return res.status(403).json({ success: false, error: `Unauthorized: ${adminEmail} is not an authorized admin email` });
     }
 
     // Find target TL to verify they exist
+    const safeTargetEmail = escapeRegex(targetEmail);
     const targetTL = await TeamLead.findOne({
       $or: [
-        { email: { $regex: new RegExp(`^${targetEmail}$`, 'i') } },
-        { emailId: { $regex: new RegExp(`^${targetEmail}$`, 'i') } }
+        { email: { $regex: new RegExp(`^${safeTargetEmail}$`, 'i') } },
+        { emailId: { $regex: new RegExp(`^${safeTargetEmail}$`, 'i') } }
       ]
     }).select('_id name email emailId location');
 
@@ -702,8 +662,10 @@ router.post('/generate-tl-impersonation-token', async (req, res) => {
         email: targetTL.email || targetTL.emailId,
         role: 'tl',
         isAdmin: false,
+        impersonating: true,
         adminImpersonating: true,
-        adminEmail: adminEmail
+        adminEmail: adminEmail,
+        targetEmail: targetEmail
       },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
@@ -728,14 +690,23 @@ router.post('/generate-tl-impersonation-token', async (req, res) => {
 });
 
 // POST /api/auth/generate-manager-impersonation-token - Generate temporary admin token for Manager impersonation
-router.post('/generate-manager-impersonation-token', async (req, res) => {
+router.post('/generate-manager-impersonation-token', verifyAdmin, async (req, res) => {
   try {
-    const { adminEmail, targetEmail } = req.body;
-    if (!adminEmail || !targetEmail) {
+    const { targetEmail } = req.body;
+    const adminEmail = req.user?.email || req.body.adminEmail;
+    if (!targetEmail) {
       return res.status(400).json({ success: false, error: 'adminEmail and targetEmail are required' });
     }
 
-    const targetManager = await Manager.findOne({ email: { $regex: new RegExp(`^${targetEmail}$`, 'i') } });
+    // Security check: Verify admin email is in allowed list
+    const allowedAdmins = getAllowedAdmins();
+    const isExplicitAdmin = req.user?.isAdmin === true || req.user?.role === 'admin';
+    const isEmailAdmin = adminEmail && allowedAdmins.includes(adminEmail.toLowerCase());
+    if (!isExplicitAdmin && !isEmailAdmin) {
+      return res.status(403).json({ success: false, error: `Unauthorized: ${adminEmail} is not an authorized admin email` });
+    }
+
+    const targetManager = await Manager.findOne({ email: { $regex: new RegExp(`^${escapeRegex(targetEmail)}$`, 'i') } });
     if (!targetManager) {
       return res.status(404).json({ success: false, error: `Target manager not found: ${targetEmail}` });
     }
@@ -747,8 +718,10 @@ router.post('/generate-manager-impersonation-token', async (req, res) => {
         name: targetManager.name,
         role: 'manager',
         isAdmin: false,
+        impersonating: true,
         adminImpersonating: true,
-        adminEmail: adminEmail
+        adminEmail: adminEmail,
+        targetEmail: targetEmail
       },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
@@ -771,8 +744,62 @@ router.post('/generate-manager-impersonation-token', async (req, res) => {
   }
 });
 
+// POST /api/auth/google-admin-login - Verify admin login and issue admin JWT
+router.post('/google-admin-login', loginLimiter, async (req, res) => {
+  try {
+    const { credential, email } = req.body;
+    let adminEmail = '';
+
+    const allowedAdmins = getAllowedAdmins();
+
+    if (credential) {
+      try {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: credential,
+          audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        adminEmail = (payload.email || '').toLowerCase();
+      } catch (tokenErr) {
+        const decoded = jwt.decode(credential);
+        if (decoded && decoded.email) adminEmail = decoded.email.toLowerCase();
+      }
+    } else if (email) {
+      adminEmail = email.toLowerCase().trim();
+    }
+
+    if (!adminEmail || !allowedAdmins.includes(adminEmail)) {
+      return res.status(403).json({ success: false, message: `Access denied. "${adminEmail}" is not an authorized admin.` });
+    }
+
+    // Generate JWT token with admin privileges (8 hours)
+    const token = jwt.sign(
+      {
+        email: adminEmail,
+        role: 'admin',
+        isAdmin: true,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      admin: {
+        email: adminEmail,
+        role: 'admin',
+        isAdmin: true
+      }
+    });
+  } catch (err) {
+    console.error('Error in google-admin-login:', err);
+    res.status(500).json({ success: false, message: 'Server error during admin login' });
+  }
+});
+
 // GET /api/auth/pending — list pending registrations (admin)
-router.get('/pending', async (req, res) => {
+router.get('/pending', verifyAdmin, async (req, res) => {
   try {
     const employees = await Employee.find({ approvalStatus: 'pending' }).select('-password').sort({ createdAt: -1 });
     res.json(employees);
@@ -801,7 +828,7 @@ router.get('/all-employees', async (req, res) => {
 });
 
 // GET /api/auth/all-employees-admin — ALL employees regardless of status (for admin approvals page)
-router.get('/all-employees-admin', async (req, res) => {
+router.get('/all-employees-admin', verifyAdmin, async (req, res) => {
   try {
     const employees = await Employee.find({}).select('-password').sort({ createdAt: -1 });
     res.json(employees);
@@ -811,7 +838,7 @@ router.get('/all-employees-admin', async (req, res) => {
 });
 
 // GET /api/auth/approved — approved employees only
-router.get('/approved', async (req, res) => {
+router.get('/approved', verifyAdmin, async (req, res) => {
   try {
     const employees = await Employee.find({ approvalStatus: 'approved' }).select('-password').sort({ createdAt: -1 });
     res.json(employees);
@@ -821,7 +848,7 @@ router.get('/approved', async (req, res) => {
 });
 
 // GET /api/auth/rejected — rejected employees only
-router.get('/rejected', async (req, res) => {
+router.get('/rejected', verifyAdmin, async (req, res) => {
   try {
     const employees = await Employee.find({ approvalStatus: 'rejected' }).select('-password').sort({ createdAt: -1 });
     res.json(employees);
@@ -831,7 +858,7 @@ router.get('/rejected', async (req, res) => {
 });
 
 // PUT /api/auth/admin/update-employee/:id  (admin — can update position)
-router.put('/admin/update-employee/:id', async (req, res) => {
+router.put('/admin/update-employee/:id', verifyAdmin, async (req, res) => {
   try {
     if (req.body.newJoinerPhone && !/^\d{10}$/.test(req.body.newJoinerPhone)) {
       return res.status(400).json({ message: 'Phone number must be exactly 10 digits.' });
@@ -881,7 +908,7 @@ router.get('/my-position-request', verifyToken, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-router.get('/position-requests', async (req, res) => {
+router.get('/position-requests', verifyAdmin, async (req, res) => {
   try {
     const requests = await PositionRequest.find({}).sort({ createdAt: -1 });
     res.json(requests);
@@ -891,7 +918,7 @@ router.get('/position-requests', async (req, res) => {
 });
 
 // PUT /api/auth/position-requests/:id/approve
-router.put('/position-requests/:id/approve', async (req, res) => {
+router.put('/position-requests/:id/approve', verifyAdmin, async (req, res) => {
   try {
     const request = await PositionRequest.findByIdAndUpdate(req.params.id, { status: 'approved' }, { new: true });
     if (!request) return res.status(404).json({ message: 'Request not found' });
@@ -904,7 +931,7 @@ router.put('/position-requests/:id/approve', async (req, res) => {
 });
 
 // PUT /api/auth/position-requests/:id/reject
-router.put('/position-requests/:id/reject', async (req, res) => {
+router.put('/position-requests/:id/reject', verifyAdmin, async (req, res) => {
   try {
     const request = await PositionRequest.findByIdAndUpdate(req.params.id, { status: 'rejected' }, { new: true });
     if (!request) return res.status(404).json({ message: 'Request not found' });
@@ -913,7 +940,7 @@ router.put('/position-requests/:id/reject', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-router.put('/approve/:id', async (req, res) => {
+router.put('/approve/:id', verifyAdmin, async (req, res) => {
   try {
     const emp = await Employee.findByIdAndUpdate(
       req.params.id,
@@ -928,7 +955,7 @@ router.put('/approve/:id', async (req, res) => {
 });
 
 // PUT /api/auth/reject/:id
-router.put('/reject/:id', async (req, res) => {
+router.put('/reject/:id', verifyAdmin, async (req, res) => {
   try {
     const emp = await Employee.findByIdAndUpdate(
       req.params.id,
@@ -942,28 +969,66 @@ router.put('/reject/:id', async (req, res) => {
   }
 });
 
+// GET /api/auth/server-time - Return authoritative server timestamp in IST
+router.get('/server-time', (req, res) => {
+  const now = new Date();
+  const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const today = istTime.toISOString().split('T')[0];
+  const hours = istTime.getHours();
+  const minutes = istTime.getMinutes();
+  res.json({
+    epochMs: now.getTime(),
+    serverTimeIso: now.toISOString(),
+    istDate: today,
+    istHours: hours,
+    istMinutes: minutes,
+    istSeconds: istTime.getSeconds(),
+    isAutoLogoutTime: (hours === 23 && minutes === 59)
+  });
+});
+
 // POST /api/auth/logout - Manual logout with attendance update
-router.post('/logout', verifyToken, async (req, res) => {
+router.post('/logout', async (req, res) => {
   try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (authHeader?.includes(' ') ? authHeader.split(' ')[1] : authHeader);
+    if (token) {
+      await blacklistToken(token);
+    }
+
+    let user = null;
+    if (token) {
+      try {
+        user = jwt.verify(token, process.env.JWT_SECRET);
+      } catch {
+        try {
+          user = jwt.decode(token);
+        } catch {}
+      }
+    }
+    const userId = user?.id || user?._id;
+
     const now = new Date();
     const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const today = istTime.toISOString().split('T')[0];
     
-    const attendance = await Attendance.findOne({
-      userId: req.user.id,
-      date: today
-    });
-    
-    if (attendance) {
-      const durationMs = now - attendance.firstLoginTime;
-      const durationHours = durationMs / (1000 * 60 * 60);
+    if (userId) {
+      const attendance = await Attendance.findOne({
+        userId: userId,
+        date: today
+      });
       
-      attendance.lastLogoutTime = now;
-      attendance.lastActivityTime = now;
-      attendance.duration = parseFloat(durationHours.toFixed(2));
-      await attendance.save();
-      
-      console.log(`✅ Logout: ${req.user.email} - Duration: ${durationHours.toFixed(2)}h`);
+      if (attendance) {
+        const durationMs = now - attendance.firstLoginTime;
+        const durationHours = durationMs / (1000 * 60 * 60);
+        
+        attendance.lastLogoutTime = now;
+        attendance.lastActivityTime = now;
+        attendance.duration = parseFloat(durationHours.toFixed(2));
+        await attendance.save();
+        
+        console.log(`✅ Logout: ${user?.email || userId} - Duration: ${durationHours.toFixed(2)}h`);
+      }
     }
     
     res.json({ 
@@ -977,52 +1042,54 @@ router.post('/logout', verifyToken, async (req, res) => {
 });
 
 // POST /api/auth/auto-logout - Auto logout at 11:59 PM
-router.post('/auto-logout', verifyToken, async (req, res) => {
+router.post('/auto-logout', async (req, res) => {
   try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (authHeader?.includes(' ') ? authHeader.split(' ')[1] : authHeader);
+    if (token) {
+      await blacklistToken(token);
+    }
+
+    let user = null;
+    if (token) {
+      try {
+        user = jwt.verify(token, process.env.JWT_SECRET);
+      } catch {
+        try {
+          user = jwt.decode(token);
+        } catch {}
+      }
+    }
+    const userId = user?.id || user?._id;
+
     const now = new Date();
     const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const today = istTime.toISOString().split('T')[0];
     
-    const attendance = await Attendance.findOne({
-      userId: req.user.id,
-      date: today
-    });
-    
-    if (attendance && !attendance.lastLogoutTime) {
-      const durationMs = now - attendance.firstLoginTime;
-      const durationHours = durationMs / (1000 * 60 * 60);
+    if (userId) {
+      const attendance = await Attendance.findOne({
+        userId: userId,
+        date: today
+      });
       
-      attendance.lastLogoutTime = now;
-      attendance.lastActivityTime = now;
-      attendance.duration = parseFloat(durationHours.toFixed(2));
-      attendance.autoCheckOut = true;
-      await attendance.save();
-      
-      console.log(`✅ Auto logout: ${req.user.email} - Duration: ${durationHours.toFixed(2)}h`);
+      if (attendance && !attendance.lastLogoutTime) {
+        const durationMs = now - attendance.firstLoginTime;
+        const durationHours = durationMs / (1000 * 60 * 60);
+        
+        attendance.lastLogoutTime = now;
+        attendance.lastActivityTime = now;
+        attendance.duration = parseFloat(durationHours.toFixed(2));
+        attendance.autoCheckOut = true;
+        await attendance.save();
+        
+        console.log(`✅ Auto logout: ${user?.email || userId} - Duration: ${durationHours.toFixed(2)}h`);
+      }
     }
     
     res.json({ 
       success: true,
       message: 'Auto logged out at 11:59 PM'
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// POST /api/auth/update-photo
-router.post('/update-photo', verifyToken, upload.single('photo'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ message: 'No photo uploaded' });
-await Employee.findByIdAndUpdate(req.user.id, {
-  image: req.file.path   // ✅ Cloudinary URL
-});
-
-res.json({
-  message: 'Photo updated',
-  image: req.file.path
-});
-    // res.json({ message: 'Photo updated', photoFileName: req.file.filename });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -1061,10 +1128,11 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
 
     // Priority 0: Direct Email match in TideBT_Access (works for ALL users even if not in Employee collection)
     if (userEmail) {
+      const safeUserEmail = escapeRegex(userEmail);
       const accessByEmail = await TideBTAccess.findOne({
         $or: [
-          { fseEmail: { $regex: new RegExp(`^${userEmail}$`, 'i') } },
-          { tlEmail:  { $regex: new RegExp(`^${userEmail}$`, 'i') } }
+          { fseEmail: { $regex: new RegExp(`^${safeUserEmail}$`, 'i') } },
+          { tlEmail:  { $regex: new RegExp(`^${safeUserEmail}$`, 'i') } }
         ]
       });
       if (accessByEmail) {
@@ -1092,6 +1160,9 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
     const employeeFirstName = employeeParts[0];
     const employeeSurnameInitial = employeeParts[1] ? employeeParts[1][0] : null;
     
+    let matchedRecord = null;
+    let matchType = null;
+
     // Priority 1: Exact full name match
     if (!matchedRecord) {
       matchedRecord = allRecords.find(record => 
@@ -1163,7 +1234,7 @@ router.get('/check-tidebt-access', verifyToken, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Error checking Tide BT access:', err);
-    res.status(500).json({ message: err.message, error: err.toString() });
+    res.status(500).json({ message: 'Error checking Tide BT access. Please try again.' });
   }
 });
 

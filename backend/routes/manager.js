@@ -14,6 +14,13 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 module.exports = (connectionManager, connectDB) => {
   const router = express.Router();
+  const { verifyToken, verifyAdmin } = require('../middleware/auth');
+  const { loginLimiter, registerLimiter } = require('../middleware/rateLimiter');
+  const { blacklistToken } = require('../utils/tokenBlacklist');
+
+  function escapeRegex(text) {
+    return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
   // ---------- CONNECTION MIDDLEWARE ----------
   router.use(async (req, res, next) => {
@@ -42,19 +49,6 @@ module.exports = (connectionManager, connectDB) => {
       });
     }
   });
-
-// ── JWT middleware ──────────────────────────────────────────────
-function verifyToken(req, res, next) {
-  if (req.method === 'OPTIONS') return next();
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
 
 function formatManagerRegistrationError(err, contextName = 'Manager Registration (/api/manager/register)') {
   console.error(`🔴 [${contextName} Error]:`, err);
@@ -89,9 +83,8 @@ function formatManagerRegistrationError(err, contextName = 'Manager Registration
     return {
       status: 503,
       body: {
-        message: `[Database Error in ${contextName}]: ${err.message}`,
-        errorPart: `MongoDB Connection / Operation (${err.name})`,
-        errorType: err.name
+        message: 'Database service is temporarily unavailable. Please try again.',
+        errorType: 'DatabaseError'
       }
     };
   }
@@ -99,9 +92,8 @@ function formatManagerRegistrationError(err, contextName = 'Manager Registration
   return {
     status: 500,
     body: {
-      message: `[${contextName} Error]: ${err.message || 'Unknown error occurred'}`,
-      errorPart: err.stack ? err.stack.split('\n')[1]?.trim() : 'Server Route Execution',
-      errorType: err.name || 'Error'
+      message: 'Registration failed due to a server error. Please try again.',
+      errorType: 'ServerError'
     }
   };
 }
@@ -117,8 +109,7 @@ const handleManagerUploadErrors = (req, res, next) => {
         ? 'Please select a valid image file.'
         : (err.message || err.toString());
       return res.status(400).json({
-        message: `[File Upload Error]: ${msg}`,
-        errorPart: `Multer / Cloudinary Storage Upload (${err.field || 'photo'})`,
+        message: msg,
         errorType: err.name || 'UploadError'
       });
     }
@@ -127,7 +118,7 @@ const handleManagerUploadErrors = (req, res, next) => {
 };
 
 // ── POST /api/manager/register ──────────────────────────────────
-router.post('/register', handleManagerUploadErrors, async (req, res) => {
+router.post('/register', registerLimiter, handleManagerUploadErrors, async (req, res) => {
   try {
     const { name, phone, email, emailId, location, dob } = req.body;
     const cleanEmail = (email || emailId || '').trim().toLowerCase();
@@ -158,7 +149,7 @@ router.post('/register', handleManagerUploadErrors, async (req, res) => {
 });
 
 // ── POST /api/manager/google-login ─────────────────────────────
-router.post('/google-login', async (req, res) => {
+router.post('/google-login', loginLimiter, async (req, res) => {
   try {
     const { credential } = req.body;
     if (!credential) return res.status(400).json({ message: 'Google credential required' });
@@ -167,7 +158,7 @@ router.post('/google-login', async (req, res) => {
     const payload = ticket.getPayload();
     const email   = payload.email.toLowerCase();
 
-    const manager = await Manager.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const manager = await Manager.findOne({ email: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') } });
     if (!manager) return res.status(403).json({ message: 'No registered Manager found with this Google account. Please register first.' });
     if (manager.approvalStatus === 'pending')  return res.status(403).json({ message: 'Your account is pending admin approval. Please wait.' });
     if (manager.approvalStatus === 'rejected') return res.status(403).json({ message: 'Your account was rejected. Contact admin.' });
@@ -213,6 +204,20 @@ router.post('/google-login', async (req, res) => {
     res.json({ token, manager: { name: manager.name, email: manager.email, image: manager.image, location: manager.location } });
   } catch (err) {
     res.status(401).json({ message: 'Google sign-in failed. Please try again.' });
+  }
+});
+
+// ── POST /api/manager/logout ───────────────────────────────────
+router.post('/logout', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (authHeader?.includes(' ') ? authHeader.split(' ')[1] : authHeader);
+    if (token) {
+      await blacklistToken(token);
+    }
+    res.json({ success: true, message: 'Manager logged out successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -759,7 +764,7 @@ router.get('/rejected-list', async (req, res) => {
 });
 
 // ── Admin: GET /api/manager/pending ────────────────────────────
-router.get('/pending', async (req, res) => {
+router.get('/pending', verifyAdmin, async (req, res) => {
   try {
     const managers = await Manager.find({ approvalStatus: 'pending' }).select('-password');
     res.json(managers);
@@ -769,7 +774,7 @@ router.get('/pending', async (req, res) => {
 });
 
 // ── Admin: PUT /api/manager/approve/:id ────────────────────────
-router.put('/approve/:id', async (req, res) => {
+router.put('/approve/:id', verifyAdmin, async (req, res) => {
   try {
     await Manager.findByIdAndUpdate(req.params.id, { approvalStatus: 'approved' });
     res.json({ message: 'Manager approved' });
@@ -779,7 +784,7 @@ router.put('/approve/:id', async (req, res) => {
 });
 
 // ── Admin: PUT /api/manager/reject/:id ─────────────────────────
-router.put('/reject/:id', async (req, res) => {
+router.put('/reject/:id', verifyAdmin, async (req, res) => {
   try {
     await Manager.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
     res.json({ message: 'Manager rejected' });
@@ -851,7 +856,7 @@ router.get('/my-request', verifyToken, async (req, res) => {
 });
 
 // ── Admin: GET /api/manager/change-requests ────────────────────
-router.get('/change-requests', async (req, res) => {
+router.get('/change-requests', verifyAdmin, async (req, res) => {
   try {
     const requests = await ManagerChangeRequest.find({})
       .sort({ createdAt: -1 });
@@ -862,7 +867,7 @@ router.get('/change-requests', async (req, res) => {
 });
 
 // ── Admin: PUT /api/manager/change-requests/:id/approve ────────
-router.put('/change-requests/:id/approve', async (req, res) => {
+router.put('/change-requests/:id/approve', verifyAdmin, async (req, res) => {
   try {
     const request = await ManagerChangeRequest.findByIdAndUpdate(
       req.params.id,
@@ -888,7 +893,7 @@ router.put('/change-requests/:id/approve', async (req, res) => {
 });
 
 // ── Admin: PUT /api/manager/change-requests/:id/reject ─────────
-router.put('/change-requests/:id/reject', async (req, res) => {
+router.put('/change-requests/:id/reject', verifyAdmin, async (req, res) => {
   try {
     const request = await ManagerChangeRequest.findByIdAndUpdate(
       req.params.id,

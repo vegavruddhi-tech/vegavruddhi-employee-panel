@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const { verifyAdmin } = require('../middleware/auth');
 const SalarySlip = require('../models/SalarySlip');
 const { generateSalarySlipPDF } = require('../utils/pdfGenerator');
+
+function escapeRegex(text) {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // ========== IN-MEMORY POINTS CACHE ==========
 // Stores latest synced points from Merchant Forms
@@ -11,7 +16,7 @@ const pointsCache = new Map(); // Key: "employeeName__month__year", Value: { aut
  * POST /api/salary/sync-points
  * Called by Merchant Forms to sync calculated points
  */
-router.post('/sync-points', async (req, res) => {
+router.post('/sync-points', verifyAdmin, async (req, res) => {
   try {
     const { employees, month, year } = req.body;
 
@@ -44,7 +49,7 @@ router.post('/sync-points', async (req, res) => {
       
       try {
         await EmployeePoints.findOneAndUpdate(
-          { newJoinerName: { $regex: new RegExp(`^${normalizedName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i') } },
+          { newJoinerName: { $regex: new RegExp(`^${escapeRegex(normalizedName)}\\s*$`, 'i') } },
           {
             $set: {
               newJoinerName: normalizedName,
@@ -58,7 +63,7 @@ router.post('/sync-points', async (req, res) => {
         const EmployeeMonthlyPoints = require('../models/EmployeeMonthlyPoints');
         await EmployeeMonthlyPoints.findOneAndUpdate(
           { 
-            employeeName: { $regex: new RegExp(`^${normalizedName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i') },
+            employeeName: { $regex: new RegExp(`^${escapeRegex(normalizedName)}\\s*$`, 'i') },
             month: month,
             year: parseInt(year)
           },
@@ -243,7 +248,7 @@ router.get('/employees', async (req, res) => {
  * POST /api/salary/generate
  * Generate salary slip for an employee
  */
-router.post('/generate', async (req, res) => {
+router.post('/generate', verifyAdmin, async (req, res) => {
   try {
     const {
       employeeId,
@@ -378,10 +383,11 @@ router.get('/list', async (req, res) => {
     if (year) query.year = parseInt(year);
     if (role) query.role = role;
     if (status) query.status = status;
-    if (search) {
+    if (search && typeof search === 'string' && search.trim()) {
+      const safeSearch = escapeRegex(search.trim());
       query.$or = [
-        { employeeName: { $regex: search, $options: 'i' } },
-        { employeeEmail: { $regex: search, $options: 'i' } }
+        { employeeName: { $regex: safeSearch, $options: 'i' } },
+        { employeeEmail: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
@@ -520,7 +526,7 @@ router.get('/:id', async (req, res) => {
  * PUT /api/salary/:id
  * Update/Edit salary slip
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -699,7 +705,7 @@ router.put('/:id', async (req, res) => {
  * DELETE /api/salary/:id
  * Delete salary slip
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -730,7 +736,7 @@ router.delete('/:id', async (req, res) => {
  * POST /api/salary/bulk-generate
  * Generate salary slips for multiple employees
  */
-router.post('/bulk-generate', async (req, res) => {
+router.post('/bulk-generate', verifyAdmin, async (req, res) => {
   try {
     const { employees, month, year, pointValue = 250, generatedBy } = req.body;
 

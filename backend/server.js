@@ -25,6 +25,11 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+const envOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
@@ -32,6 +37,7 @@ const allowedOrigins = [
   'http://localhost:3003',
   'http://localhost:3004',
   'http://localhost:3005',
+  'http://localhost:3006',
   'http://localhost:4000',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
@@ -39,25 +45,57 @@ const allowedOrigins = [
   'http://127.0.0.1:3003',
   'http://127.0.0.1:3004',
   'http://127.0.0.1:3005',
+  'http://127.0.0.1:3006',
   'http://127.0.0.1:4000',
   'https://team-leader-gamma.vercel.app',
+  'https://vegavruddhi-tl-tide-bt.vercel.app',
   'https://vegavruddhi-admin-panel-tq8t.vercel.app',
+  'https://vegavruddhi-admin-panel.vercel.app',
+  'https://vegavruddhi-admin-tide-bt-cyej.vercel.app',
   'https://vegavruddhi-employee-panel-ke56.vercel.app',
-  'https://vegavruddhi-manager-panel.vercel.app'
+  'https://vegavruddhi-employee-panel.vercel.app',
+  'https://vegavruddhi-employee-tide-bt-4obl.vercel.app',
+  'https://vegavruddhi-manager-panel.vercel.app',
+  ...envOrigins
 ];
+
+// Regex matching official Vegavruddhi / Team-Leader deployments on vercel.app
+const officialVercelPattern = /^https:\/\/(vegavruddhi-[a-z0-9-]+|team-leader-[a-z0-9-]+)\.vercel\.app$/i;
+const localDevPattern = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+function isAllowedOrigin(origin) {
+  // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (localDevPattern.test(origin)) return true;
+  if (officialVercelPattern.test(origin)) return true;
+  return false;
+}
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow localhost, vercel deployments, and all allowedOrigins without throwing errors
-    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.includes('vercel.app')) {
+    if (isAllowedOrigin(origin)) {
       callback(null, true);
     } else {
-      console.warn('⚠️ CORS fallback allowed for origin:', origin);
-      callback(null, true);
+      console.warn('🛑 Blocked CORS request from unauthorized origin:', origin);
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
+
+// Handle CORS errors with a clean 403 Forbidden response
+app.use((err, req, res, next) => {
+  if (err && err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      error: 'CORS policy: Access denied from unauthorized origin'
+    });
+  }
+  next(err);
+});
 
 // 🔥 NEW: Add compression middleware to reduce response sizes by 70-80%
 const compression = require('compression');
@@ -71,7 +109,21 @@ app.use(compression({
   level: 6 // Compression level (0-9, 6 is default balance of speed/size)
 }));
 
-app.use(express.json());
+// Limit JSON and URL-encoded body size to prevent memory exhaustion / DoS attacks
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Handle payload too large error cleanly
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    return res.status(413).json({
+      success: false,
+      error: 'Payload Too Large: Request body exceeds the allowed size limit of 2MB'
+    });
+  }
+  next(err);
+});
+
 app.use('/uploads', express.static(uploadsDir));
 
 // MongoDB cached connection for Vercel
@@ -111,7 +163,7 @@ async function connectDB() {
         // Basic settings
         useNewUrlParser: true,
         useUnifiedTopology: true,
-        tlsAllowInvalidCertificates: true,
+        tlsAllowInvalidCertificates: false, // Strict TLS certificate verification enabled
       })
       .then((mongoose) => {
         

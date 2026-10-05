@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const UnfilledForm = require('../models/UnfilledForm');
 
+function escapeRegex(text) {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Unfilled Forms API Routes
  * Provides endpoints to read and manage unfilled forms
@@ -22,7 +26,7 @@ router.get('/list', async (req, res) => {
     const query = {};
     if (month) query.expectedMonth = month;
     if (year) query.expectedYear = parseInt(year);
-    if (product) query.product = new RegExp(product, 'i');
+    if (product && typeof product === 'string') query.product = new RegExp(escapeRegex(product.trim()), 'i');
     if (status) query.status = status;
     if (assignedTo) query.assignedTo = assignedTo;
 

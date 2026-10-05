@@ -409,7 +409,18 @@ export default function Navbar({ emp, taskCount, token }) {
 
   const logout = (e) => {
     e.preventDefault();
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+    if (token) {
+      fetch(`${API_BASE}/api/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token
+        }
+      }).catch(() => {});
+    }
     localStorage.clear();
+    sessionStorage.clear();
     navigate('/');
   };
 

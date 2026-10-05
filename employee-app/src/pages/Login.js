@@ -60,8 +60,13 @@ export default function Login() {
         setLoading(false);
         return;
       }
+      const istDate = data.serverDate || new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })).toISOString().split('T')[0];
+      sessionStorage.setItem('token', data.token);
+      sessionStorage.setItem('employee', JSON.stringify(data.employee));
+      sessionStorage.setItem('session_date', istDate);
       localStorage.setItem('token', data.token);
       localStorage.setItem('employee', JSON.stringify(data.employee));
+      localStorage.setItem('session_date', istDate);
 
       // Check if user has Tide BT access
       const tideBTRes = await fetch(`${API_BASE}/api/auth/check-tidebt-access`, {

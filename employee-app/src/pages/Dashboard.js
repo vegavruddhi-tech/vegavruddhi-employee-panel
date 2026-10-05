@@ -150,6 +150,8 @@ export default function Dashboard() {
     const adminToken = params.get('adminToken') || params.get('token');
 
     if (viewAs && adminToken) {
+      // Immediately sanitize URL to prevent token exposure in history, logs, or Referer
+      window.history.replaceState({}, document.title, window.location.pathname);
       console.log('🔐 Impersonation detected:', { viewAs, hasToken: !!adminToken });
 
       // Validate admin impersonation

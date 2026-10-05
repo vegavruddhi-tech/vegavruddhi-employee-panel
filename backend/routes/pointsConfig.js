@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { verifyAdmin } = require('../middleware/auth');
 const PointsConfiguration = require('../models/PointsConfiguration');
 
 /**
@@ -158,7 +159,7 @@ router.get('/:productName', async (req, res) => {
  * POST /api/points-config
  * Create or update product points configuration
  */
-router.post('/', async (req, res) => {
+router.post('/', verifyAdmin, async (req, res) => {
   try {
     const { 
       productName, 
@@ -248,7 +249,7 @@ router.post('/', async (req, res) => {
  * DELETE /api/points-config/:id
  * Delete product configuration
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     

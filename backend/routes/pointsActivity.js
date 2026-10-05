@@ -6,14 +6,18 @@ const Employee = require('../models/Employee');
 const TeamLead = require('../models/TeamLead');
 const TLNotification = require('../models/TLNotification');
 
+function escapeRegex(text) {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ---------- GET ALL POINTS ACTIVITY (FOR ADMIN) ----------
 router.get('/all', async (req, res) => {
   try {
     const { page = 1, limit = 50, employeeName, product } = req.query;
     
     const query = {};
-    if (employeeName) query.employeeName = new RegExp(employeeName, 'i');
-    if (product) query.product = new RegExp(product, 'i');
+    if (employeeName && typeof employeeName === 'string') query.employeeName = new RegExp(escapeRegex(employeeName.trim()), 'i');
+    if (product && typeof product === 'string') query.product = new RegExp(escapeRegex(product.trim()), 'i');
     
     const total = await PointsActivity.countDocuments(query);
     const activities = await PointsActivity.find(query)
@@ -125,8 +129,9 @@ router.post('/bulk-create', async (req, res) => {
     }
     
     const createdActivities = [];
+    const safeEmpName = escapeRegex(employeeName.trim());
     const employee = await Employee.findOne({
-      newJoinerName: { $regex: new RegExp(`^${employeeName.trim()}\\s*$`, 'i') }
+      newJoinerName: { $regex: new RegExp(`^${safeEmpName}\\s*$`, 'i') }
     });
 
     // ── Pre-calculate current total for before/after display ─────────────
@@ -135,7 +140,7 @@ router.post('/bulk-create', async (req, res) => {
       try {
         const EmployeePoints = require('../models/EmployeePoints');
         const empPtsDocs = await EmployeePoints.find({
-          newJoinerName: { $regex: new RegExp(`^${employeeName.trim()}\\s*$`, 'i') }
+          newJoinerName: { $regex: new RegExp(`^${safeEmpName}\\s*$`, 'i') }
         }).lean();
         const empPts = empPtsDocs.find(d => d.productSlabs && Object.keys(d.productSlabs).length > 0) || empPtsDocs[0];
         if (empPts) {
@@ -248,9 +253,10 @@ router.post('/bulk-create', async (req, res) => {
             : Math.round(totalBonus * 100) / 100;
 
           // Calculate before/after totals from EmployeePoints
+          const safeEmpName = escapeRegex(employeeName.trim());
           const EmployeePoints = require('../models/EmployeePoints');
           const empPts = await EmployeePoints.findOne({
-            newJoinerName: { $regex: new RegExp(`^${employeeName.trim()}\\s*$`, 'i') }
+            newJoinerName: { $regex: new RegExp(`^${safeEmpName}\\s*$`, 'i') }
           }).lean();
 
           // Auto points from verified forms (stored in verifiedPoints)

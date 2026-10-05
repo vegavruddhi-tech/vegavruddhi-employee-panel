@@ -1,37 +1,42 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const FormConfiguration = require('../models/FormConfiguration');
-
-function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token' });
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
-
 const Employee = require('../models/Employee');
+const { verifyToken, getAllowedAdmins } = require('../middleware/auth');
 
 // Ensure the request has admin or manager level privileges if writing
 async function verifyAdminOrManager(req, res, next) {
   try {
-    if (req.user.email === process.env.ADMIN_EMAIL) {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    // Explicitly reject impersonated sessions from modifying configurations
+    if (req.user.impersonating === true || req.user.adminImpersonating === true) {
+      return res.status(403).json({ message: 'Access denied: Administrative actions are disabled during impersonated sessions' });
+    }
+
+    const allowedAdmins = getAllowedAdmins();
+    const userEmail = (req.user.email || '').toLowerCase().trim();
+
+    // Check if user is an admin in JWT or in allowed admin emails list
+    if (req.user.isAdmin === true || req.user.role === 'admin' || (userEmail && allowedAdmins.includes(userEmail))) {
       return next();
     }
-    const emp = await Employee.findById(req.user.id);
-    if (!emp) return res.status(403).json({ message: 'Unauthorized: User not found' });
-    
-    const pos = (emp.position || '').toLowerCase();
-    if (pos.includes('admin') || pos.includes('manager')) {
-      next();
-    } else {
-      // For testing purposes if admin privileges aren't fully set up yet
-      next();
+
+    // Check if user is an employee with admin or manager position
+    if (req.user.id) {
+      const emp = await Employee.findById(req.user.id);
+      if (emp) {
+        const pos = (emp.position || '').toLowerCase();
+        if (pos.includes('admin') || pos.includes('manager')) {
+          return next();
+        }
+      }
     }
+
+    // Block unauthorized users properly
+    return res.status(403).json({ message: 'Access denied: Admin or Manager privileges required' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -117,17 +122,18 @@ router.get('/', async (req, res) => {
 });
 
 // PUT /api/form-config
-router.put('/', async (req, res) => {
+router.put('/', verifyToken, verifyAdminOrManager, async (req, res) => {
   try {
     const { brands } = req.body;
     let config = await FormConfiguration.findOne();
+    const updatedBy = req.user?.email || 'Admin';
     
     if (!config) {
-      config = new FormConfiguration({ name: 'Default Merchant Form', brands });
+      config = new FormConfiguration({ name: 'Default Merchant Form', brands, updatedBy });
     } else {
       config.brands = brands;
       config.updatedAt = new Date();
-      config.updatedBy = 'AdminPanel'; // Updated by admin panel without token
+      config.updatedBy = updatedBy;
     }
     
     await config.save();

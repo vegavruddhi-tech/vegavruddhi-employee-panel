@@ -1,22 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const { verifyToken } = require('../middleware/auth');
 const Task = require('../models/Task');
 const FormResponse = require('../models/FormResponse');
 const Employee = require('../models/Employee');
 const TeamLead = require('../models/TeamLead');
 const { sendPushToUser } = require('../utils/pushNotifications');
-
-function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token' });
-  try { 
-    req.user = jwt.verify(token, process.env.JWT_SECRET); 
-    next(); 
-  } catch { 
-    res.status(401).json({ message: 'Invalid token' }); 
-  }
-}
 
 // ── ADMIN: Create Task for TL ──────────────────────────────────
 router.post('/admin-to-tl', async (req, res) => {

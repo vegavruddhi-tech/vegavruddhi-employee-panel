@@ -17,20 +17,17 @@ const TLChangeRequest = require('../models/TLChangeRequest');
 
 module.exports = (connectionManager, connectDB) => {
   const router = express.Router();
+  const { verifyToken, verifyAdmin } = require('../middleware/auth');
+  const { loginLimiter, registerLimiter } = require('../middleware/rateLimiter');
+  const { blacklistToken } = require('../utils/tokenBlacklist');
+
+  function escapeRegex(text) {
+    return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
 
   const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-  // ── JWT middleware ──────────────────────────────────────────────
-  function verifyToken(req, res, next) {
-    const token = req.headers['authorization']?.split(' ')[1];
-    if (!token) return res.status(401).json({ message: 'No token provided' });
-    try {
-      req.user = jwt.verify(token, process.env.JWT_SECRET);
-      next();
-    } catch {
-      res.status(401).json({ message: 'Invalid token' });
-    }
-  }
+
 
   // ---------- CONNECTION MIDDLEWARE ----------
   /**
@@ -121,9 +118,8 @@ function formatTlRegistrationError(err, contextName = 'TL Registration (/api/tl/
     return {
       status: 503,
       body: {
-        message: `[Database Error in ${contextName}]: ${err.message}`,
-        errorPart: `MongoDB Connection / Operation (${err.name})`,
-        errorType: err.name
+        message: 'Database service is temporarily unavailable. Please try again.',
+        errorType: 'DatabaseError'
       }
     };
   }
@@ -131,9 +127,8 @@ function formatTlRegistrationError(err, contextName = 'TL Registration (/api/tl/
   return {
     status: 500,
     body: {
-      message: `[${contextName} Error]: ${err.message || 'Unknown error occurred'}`,
-      errorPart: err.stack ? err.stack.split('\n')[1]?.trim() : 'Server Route Execution',
-      errorType: err.name || 'Error'
+      message: 'Registration failed due to a server error. Please try again later.',
+      errorType: 'ServerError'
     }
   };
 }
@@ -152,8 +147,7 @@ const handleTlUploadErrors = (req, res, next) => {
         ? 'Please select a valid image/document file.'
         : (err.message || err.toString());
       return res.status(400).json({
-        message: `[File Upload Error]: ${msg}`,
-        errorPart: `Multer / Cloudinary Storage Upload (${err.field || 'photo/cv'})`,
+        message: msg,
         errorType: err.name || 'UploadError'
       });
     }
@@ -164,6 +158,7 @@ const handleTlUploadErrors = (req, res, next) => {
 // ── POST /api/tl/register ───────────────────────────────────────
 router.post(
   '/register',
+  registerLimiter,
   handleTlUploadErrors,
   async (req, res) => {
     try {
@@ -219,7 +214,7 @@ router.post(
 );
 
 // ── POST /api/tl/google-login ───────────────────────────────────
-router.post('/google-login', async (req, res) => {
+router.post('/google-login', loginLimiter, async (req, res) => {
   try {
     const { credential } = req.body;
     if (!credential) return res.status(400).json({ message: 'Google credential required' });
@@ -232,7 +227,7 @@ router.post('/google-login', async (req, res) => {
     const googleEmail = payload.email.toLowerCase();
 
     // Find TL by their login email
-    let tl = await TeamLead.findOne({ email: { $regex: new RegExp(`^${googleEmail}$`, 'i') } });
+    let tl = await TeamLead.findOne({ email: { $regex: new RegExp(`^${escapeRegex(googleEmail)}$`, 'i') } });
 
     if (!tl) {
       return res.status(403).json({
@@ -289,6 +284,20 @@ router.post('/google-login', async (req, res) => {
   } catch (err) {
     console.error('TL google-login error:', err.message);
     res.status(401).json({ message: 'Google sign-in failed. Please try again.' });
+  }
+});
+
+// ── POST /api/tl/logout ────────────────────────────────────────
+router.post('/logout', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (authHeader?.includes(' ') ? authHeader.split(' ')[1] : authHeader);
+    if (token) {
+      await blacklistToken(token);
+    }
+    res.json({ success: true, message: 'Team Lead logged out successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -648,7 +657,7 @@ router.get('/change-requests', async (req, res) => {
 
 // ── PUT /api/tl/change-requests/:id/approve ────────────────────
 // Admin approves — applies changes to TL profile
-router.put('/change-requests/:id/approve', async (req, res) => {
+router.put('/change-requests/:id/approve', verifyAdmin, async (req, res) => {
   try {
     const request = await TLChangeRequest.findById(req.params.id);
     if (!request) return res.status(404).json({ message: 'Request not found' });
@@ -665,7 +674,7 @@ router.put('/change-requests/:id/approve', async (req, res) => {
 
 // ── PUT /api/tl/change-requests/:id/reject ─────────────────────
 // Admin rejects the request
-router.put('/change-requests/:id/reject', async (req, res) => {
+router.put('/change-requests/:id/reject', verifyAdmin, async (req, res) => {
   try {
     const request = await TLChangeRequest.findByIdAndUpdate(
       req.params.id, { status: 'rejected' }, { new: true }
@@ -677,8 +686,7 @@ router.put('/change-requests/:id/reject', async (req, res) => {
   }
 });
 // GET /api/tl/pending — admin: get all pending TL registrations
-// GET /api/tl/pending
-router.get('/pending', async (req, res) => {
+router.get('/pending', verifyAdmin, async (req, res) => {
   try {
     const tls = await TeamLead.find({ approvalStatus: 'pending' }).select('-password');
     res.json(tls);
@@ -688,7 +696,7 @@ router.get('/pending', async (req, res) => {
 });
 
 // PUT /api/tl/approve/:id
-router.put('/approve/:id', async (req, res) => {
+router.put('/approve/:id', verifyAdmin, async (req, res) => {
   try {
     await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'approved' });
     res.json({ message: 'TL approved' });
@@ -698,7 +706,7 @@ router.put('/approve/:id', async (req, res) => {
 });
 
 // PUT /api/tl/reject/:id
-router.put('/reject/:id', async (req, res) => {
+router.put('/reject/:id', verifyAdmin, async (req, res) => {
   try {
     await TeamLead.findByIdAndUpdate(req.params.id, { approvalStatus: 'rejected' });
     res.json({ message: 'TL rejected' });
@@ -912,7 +920,7 @@ router.get('/tidebt-received-payments', verifyToken, async (req, res) => {
     // excluding payments explicitly marked for FSE Ground Team
     const payments = await db.collection('TideBT_Payments')
       .find({
-        transferTo: { $regex: tlName, $options: 'i' },
+        transferTo: { $regex: escapeRegex(tlName), $options: 'i' },
         transferToWhom: { $not: { $regex: "^FSE Ground Team$", $options: 'i' } }
       })
       .sort({ createdAt: -1 })

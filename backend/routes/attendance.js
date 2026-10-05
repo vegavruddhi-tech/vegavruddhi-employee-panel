@@ -1,22 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const { verifyToken } = require('../middleware/auth');
 const Attendance = require('../models/Attendance');
 const Employee = require('../models/Employee');
 const TeamLead = require('../models/TeamLead');
 const Manager  = require('../models/Manager');
-
-// Middleware to verify JWT
-function verifyToken(req, res, next) {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  try {
-    const jwt = require('jsonwebtoken');
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ message: 'Invalid token' });
-  }
-}
 
 // GET /api/attendance/admin/all - Get all attendance records (no auth for admin panel)
 router.get('/admin/all', async (req, res) => {

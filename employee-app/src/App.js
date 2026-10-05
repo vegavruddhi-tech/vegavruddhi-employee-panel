@@ -11,50 +11,76 @@ import MySalary from './pages/MySalary';
 import InstallPWA from './components/InstallPWA';
 import PullToRefresh from './components/PullToRefresh';
 
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+import { API_BASE, isValidToken } from './api';
 
 function PrivateRoute({ children }) {
   const params = new URLSearchParams(window.location.search);
-  const hasUrlAuth = params.get('adminToken') || params.get('token') || params.get('viewAs') || sessionStorage.getItem('impersonationToken');
-  return (localStorage.getItem('token') || hasUrlAuth) ? children : <Navigate to="/" replace />;
+  const hashParams = window.location.hash ? new URLSearchParams(window.location.hash.substring(1)) : null;
+
+  // Stored tokens (regular login or active impersonation session)
+  const storedToken = sessionStorage.getItem('token') ||
+                      sessionStorage.getItem('impersonationToken') ||
+                      localStorage.getItem('token');
+
+  // URL tokens (passed during legitimate admin impersonation)
+  const urlToken = params.get('adminToken') || params.get('token') ||
+                   (hashParams && (hashParams.get('adminToken') || hashParams.get('token')));
+
+  // Strictly require a valid, non-expired JWT token
+  const hasValidAuth = (storedToken && isValidToken(storedToken)) ||
+                       (urlToken && isValidToken(urlToken));
+
+  return hasValidAuth ? children : <Navigate to="/" replace />;
 }
 
 function AutoLogoutHandler() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const checkAutoLogout = () => {
-      const now = new Date();
-      const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    let serverOffsetMs = 0;
+    let isPerformingLogout = false;
 
-      const hours = istTime.getHours();
-      const minutes = istTime.getMinutes();
-
-      // Check if 11:59 PM IST
-      if (hours === 23 && minutes === 59) {
-        console.log('🕐 11:59 PM IST - Auto logout triggered');
-        handleAutoLogout();
+    const fetchServerTime = async () => {
+      try {
+        const reqStart = Date.now();
+        const res = await fetch(`${API_BASE}/api/auth/server-time`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        const reqEnd = Date.now();
+        const latency = Math.round((reqEnd - reqStart) / 2);
+        // Calibrate server time against client clock
+        serverOffsetMs = (data.epochMs + latency) - reqEnd;
+        return data;
+      } catch (e) {
+        return null;
       }
     };
 
-    const handleAutoLogout = async () => {
-      const token = localStorage.getItem('token');
+    const handleAutoLogout = async (activeToken) => {
+      if (isPerformingLogout) return;
+      isPerformingLogout = true;
 
-      if (!token) return;
+      const token = activeToken || sessionStorage.getItem('token') || localStorage.getItem('token');
 
-      try {
-        await fetch(`${API_BASE}/api/auth/auto-logout`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (error) {
-        console.error('Auto logout error:', error);
+      if (token) {
+        try {
+          await fetch(`${API_BASE}/api/auth/auto-logout`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+        } catch (error) {
+          console.error('Auto logout error:', error);
+        }
       }
 
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('session_date');
+      sessionStorage.clear();
       localStorage.removeItem('token');
+      localStorage.removeItem('session_date');
       localStorage.clear();
 
       alert('Your session has ended at 11:59 PM. Please login again tomorrow.');
@@ -63,12 +89,67 @@ function AutoLogoutHandler() {
       window.location.reload();
     };
 
-    // Check every 30 seconds
+    const checkAutoLogout = async () => {
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+      if (!token || isPerformingLogout) return;
+
+      const serverData = await fetchServerTime();
+
+      let istHours, istMinutes, istDate, isAutoLogoutTime;
+
+      if (serverData && serverData.istDate) {
+        istHours = serverData.istHours;
+        istMinutes = serverData.istMinutes;
+        istDate = serverData.istDate;
+        isAutoLogoutTime = serverData.isAutoLogoutTime;
+      } else {
+        // Fallback: apply calibrated server offset so local clock changes don't manipulate the time
+        const currentServerMs = Date.now() + serverOffsetMs;
+        const serverNow = new Date(currentServerMs);
+        const istTime = new Date(serverNow.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+        istHours = istTime.getHours();
+        istMinutes = istTime.getMinutes();
+        istDate = istTime.toISOString().split('T')[0];
+        isAutoLogoutTime = (istHours === 23 && istMinutes === 59);
+      }
+
+      // Track the date on which this session was active
+      const sessionDate = sessionStorage.getItem('session_date') || localStorage.getItem('session_date');
+      if (!sessionDate) {
+        sessionStorage.setItem('session_date', istDate);
+        localStorage.setItem('session_date', istDate);
+      }
+
+      // Logout condition 1: Authoritative server time is 11:59 PM IST
+      // Logout condition 2: Current server date is different from sessionDate (midnight passed or next day)
+      const hasDateRolledOver = sessionDate && sessionDate !== istDate;
+
+      if (isAutoLogoutTime || hasDateRolledOver) {
+        console.log(`🕐 Server-authoritative Auto Logout triggered (server IST: ${istHours}:${istMinutes}, date: ${istDate})`);
+        handleAutoLogout(token);
+      }
+    };
+
+    // Check periodically (every 30 seconds)
     const interval = setInterval(checkAutoLogout, 30000);
 
+    // Initial check
     checkAutoLogout();
 
-    return () => clearInterval(interval);
+    // Check on tab focus / wake from sleep
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkAutoLogout();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', checkAutoLogout);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', checkAutoLogout);
+    };
   }, [navigate]);
 
   return null;

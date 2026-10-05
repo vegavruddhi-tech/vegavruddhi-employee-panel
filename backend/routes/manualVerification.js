@@ -3,6 +3,10 @@ const router = express.Router();
 const ManualVerification = require('../models/ManualVerification');
 const { getRedisClient } = require('../utils/redisClient');
 
+function escapeRegex(text) {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ---------- CREATE MANUAL VERIFICATION ----------
 router.post('/create', async (req, res) => {
   try {
@@ -102,7 +106,7 @@ router.get('/list', async (req, res) => {
     if (phone) query.phone = String(phone).replace(/\D/g, '');
     if (product) query.product = (product || '').toLowerCase().trim();
     if (month) query.month = (month || '').toLowerCase().trim();
-    if (verifiedBy) query.verifiedBy = new RegExp(verifiedBy, 'i');
+    if (verifiedBy && typeof verifiedBy === 'string') query.verifiedBy = new RegExp(escapeRegex(verifiedBy.trim()), 'i');
 
     // Get total count
     const total = await ManualVerification.countDocuments(query);

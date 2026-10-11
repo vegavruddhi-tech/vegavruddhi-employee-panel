@@ -2,18 +2,18 @@
 
 /* ── VARIABLES ── */
 :root {
-  --green-dark:  #1a4731;
-  --green-mid:   #2d6a4f;
-  --green-light: #40916c;
-  --green-pale:  #d8f3dc;
-  --text-dark:   #1a1a2e;
-  --text-mid:    #4a4a6a;
-  --text-light:  #8888aa;
-  --bg:          #f0f4f1;
+  --green-dark:  #0369a1;
+  --green-mid:   #0284c7;
+  --green-light: #38bdf8;
+  --green-pale:  #e0f2fe;
+  --text-dark:   #0f172a;
+  --text-mid:    #334155;
+  --text-light:  #64748b;
+  --bg:          #f0f9ff;
   --white:       #ffffff;
-  --shadow-sm:   0 2px 8px rgba(26,71,49,0.08);
-  --shadow:      0 4px 24px rgba(26,71,49,0.10);
-  --shadow-lg:   0 12px 40px rgba(26,71,49,0.15);
+  --shadow-sm:   0 2px 8px rgba(2,132,199,0.08);
+  --shadow:      0 4px 24px rgba(2,132,199,0.10);
+  --shadow-lg:   0 12px 40px rgba(2,132,199,0.15);
   --radius:      12px;
   --radius-lg:   18px;
   --font:        'Plus Jakarta Sans', 'Segoe UI', sans-serif;
@@ -76,7 +76,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0a1f14 0%, #1a4731 55%, #2d6a4f 100%);
+  background: linear-gradient(135deg, #0a192f 0%, #0b3c6d 55%, #0284c7 100%);
   padding: 24px;
   position: relative;
   overflow: hidden;
@@ -173,7 +173,7 @@ body {
   background: rgba(255,255,255,0);
   transition: background var(--transition);
 }
-.btn:hover  { background: var(--green-mid); box-shadow: 0 4px 16px rgba(26,71,49,0.3); }
+.btn:hover  { background: var(--green-mid); box-shadow: 0 4px 16px rgba(2,132,199,0.3); }
 .btn:active { transform: scale(0.98); }
 .btn:disabled { background: #b0b8b0; cursor: not-allowed; box-shadow: none; }
 
@@ -230,7 +230,7 @@ body {
   background-size: cover; background-position: center;
   transition: transform var(--transition), box-shadow var(--transition);
 }
-.photo-preview:hover { transform: scale(1.04); box-shadow: 0 4px 16px rgba(26,71,49,0.2); }
+.photo-preview:hover { transform: scale(1.04); box-shadow: 0 4px 16px rgba(2,132,199,0.2); }
 .photo-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .photo-btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -326,7 +326,7 @@ body {
   padding: 30px 36px; margin-bottom: 28px;
   display: flex; align-items: center; gap: 22px;
   position: relative; overflow: hidden;
-  box-shadow: 0 8px 32px rgba(26,71,49,0.25);
+  box-shadow: 0 8px 32px rgba(2,132,199,0.25);
   animation: fadeInUp 0.45s var(--transition) both;
 }
 .welcome-card::before {
@@ -443,7 +443,7 @@ body {
   background: linear-gradient(135deg, var(--green-dark), var(--green-mid));
   color: #fff; display: flex; align-items: center; justify-content: center;
   font-size: 18px; font-weight: 800; flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(26,71,49,0.25);
+  box-shadow: 0 2px 8px rgba(2,132,199,0.25);
   transition: transform var(--transition);
 }
 .merchant-row:hover .mr-avatar { transform: scale(1.08); }
@@ -501,7 +501,7 @@ body {
   transition: all var(--transition); white-space: nowrap;
 }
 .date-filter-btn:hover  { border-color: var(--green-light); color: var(--green-dark); transform: translateY(-1px); }
-.date-filter-btn.active { background: var(--green-dark); color: #fff; border-color: var(--green-dark); box-shadow: 0 2px 8px rgba(26,71,49,0.25); }
+.date-filter-btn.active { background: var(--green-dark); color: #fff; border-color: var(--green-dark); box-shadow: 0 2px 8px rgba(2,132,199,0.25); }
 .date-filter-custom { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .date-filter-custom input[type="date"] {
   padding: 5px 10px; border: 1.5px solid #dde8dd; border-radius: 8px;
@@ -885,7 +885,7 @@ body { padding-bottom: 52px; }
   background: rgba(255,255,255,0.15); color: #fff;
   border: 1px solid rgba(255,255,255,0.25);
 }
-.hero-badge.active { background: rgba(216,243,220,0.2); color: #d8f3dc; }
+.hero-badge.active { background: rgba(224,242,254,0.2); color: #e0f2fe; }
 
 .hero-back {
   padding: 8px 16px; background: rgba(255,255,255,0.12); color: #fff;
@@ -899,7 +899,7 @@ body { padding-bottom: 52px; }
 
 .profile-section {
   background: #fff; border-radius: 14px;
-  box-shadow: 0 2px 16px rgba(26,71,49,0.08);
+  box-shadow: 0 2px 16px rgba(2,132,199,0.08);
   margin-bottom: 20px; overflow: hidden;
 }
 .section-header {
@@ -942,7 +942,7 @@ body { padding-bottom: 52px; }
 /* ── MERCHANT FORM PAGE ── */
 .form-card {
   background: #fff; border-radius: 16px;
-  box-shadow: 0 4px 24px rgba(26,71,49,0.10);
+  box-shadow: 0 4px 24px rgba(2,132,199,0.10);
   overflow: hidden; margin-bottom: 20px;
 }
 .form-card-header {
@@ -1031,7 +1031,7 @@ body { padding-bottom: 52px; }
 }
 .detail-section {
   background: #fff; border-radius: 14px;
-  box-shadow: 0 2px 16px rgba(26,71,49,0.08); margin-bottom: 18px; overflow: hidden;
+  box-shadow: 0 2px 16px rgba(2,132,199,0.08); margin-bottom: 18px; overflow: hidden;
 }
 .detail-section-header {
   display: flex; align-items: center; gap: 10px;

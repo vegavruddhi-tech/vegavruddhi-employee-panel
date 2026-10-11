@@ -270,7 +270,7 @@ function NotificationPanel({ token, onClose }) {
         animation: 'slideInRight 0.22s ease',
       }}>
         {/* Header */}
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#1a4731' }}>
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, #0a192f 0%, #0369a1 100%)' }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 16, color: '#fff' }}>🔔 Notifications</div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
@@ -433,7 +433,7 @@ export default function Navbar({ emp, taskCount, token }) {
       <nav className="navbar">
         <div className="nav-logo">
           <a href="/dashboard" onClick={e => { e.preventDefault(); navigate('/dashboard'); }}>
-            <img src="https://res.cloudinary.com/dhhcykoqa/image/upload/v1775158486/logo-full_ueklky.png" alt="Vegavruddhi Pvt. Ltd." />
+            <img src="/logo-full.png" alt="Synchronous Build Digital" />
           </a>
         </div>
         <div className="nav-right">
@@ -447,21 +447,21 @@ export default function Navbar({ emp, taskCount, token }) {
                 cursor: 'pointer',
                 padding: '8px 16px',
                 borderRadius: 20,
-                background: 'linear-gradient(135deg, #1a4731 0%, #40916c 100%)',
+                background: 'linear-gradient(135deg, #0b3c6d 0%, #0284c7 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
                 transition: 'all 0.2s',
-                border: '2px solid #40916c',
-                boxShadow: '0 2px 8px rgba(26, 71, 49, 0.3)',
+                border: '2px solid #0284c7',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)',
               }}
               onMouseEnter={e => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(26, 71, 49, 0.4)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(2, 132, 199, 0.4)';
               }}
               onMouseLeave={e => {
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(26, 71, 49, 0.3)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(2, 132, 199, 0.3)';
               }}
             >
               <span style={{ fontSize: 16 }}>📱</span>
@@ -535,13 +535,13 @@ export default function Navbar({ emp, taskCount, token }) {
             style={{
               position: 'relative', marginRight: 8, cursor: 'pointer',
               width: 40, height: 40, borderRadius: '50%',
-              background: unreadCount > 0 ? '#1a4731' : 'rgba(26,71,49,0.08)',
+              background: unreadCount > 0 ? '#0284c7' : 'rgba(2,132,199,0.08)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              border: unreadCount > 0 ? '2px solid #40916c' : '2px solid transparent',
+              border: unreadCount > 0 ? '2px solid #38bdf8' : '2px solid transparent',
               transition: 'all 0.2s',
             }}
-            onMouseEnter={e => e.currentTarget.style.background = '#1a4731'}
-            onMouseLeave={e => e.currentTarget.style.background = unreadCount > 0 ? '#1a4731' : 'rgba(26,71,49,0.08)'}
+            onMouseEnter={e => e.currentTarget.style.background = '#0284c7'}
+            onMouseLeave={e => e.currentTarget.style.background = unreadCount > 0 ? '#0284c7' : 'rgba(2,132,199,0.08)'}
           >
             <span style={{ fontSize: 18 }}>🔔</span>
             {unreadCount > 0 && (
@@ -574,13 +574,13 @@ export default function Navbar({ emp, taskCount, token }) {
               <a href="/tasks" onClick={e => { e.preventDefault(); navigate('/tasks'); }}>📋&nbsp; My Tasks</a>
               {/* <a href="/my-salary" onClick={e => { e.preventDefault(); navigate('/my-salary'); }}>💰&nbsp; My Salary</a> */}
               <a href="/profile" onClick={e => { e.preventDefault(); navigate('/profile'); }}>👤&nbsp; My Profile</a>
-              <a href="https://vegavruddhi-employee-tide-bt-4obl.vercel.app" target="_self" style={{ color: '#1565c0' }}
+              {/* <a href="https://vegavruddhi-employee-tide-bt-4obl.vercel.app" target="_self" style={{ color: '#1565c0' }}
                 onClick={e => {
                   e.preventDefault();
                   const token = localStorage.getItem('token');
                   const btUrl = 'https://vegavruddhi-employee-tide-bt-4obl.vercel.app';
                   window.location.href = token ? `${btUrl}?token=${encodeURIComponent(token)}` : btUrl;
-                }}>🔗&nbsp; BT Dashboard</a>
+                }}>🔗&nbsp; BT Dashboard</a> */}
               <a href="#logout" className="logout" onClick={logout}>🚪&nbsp; Logout</a>
             </div>
           </div>

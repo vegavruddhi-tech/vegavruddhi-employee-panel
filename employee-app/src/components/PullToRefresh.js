@@ -77,7 +77,7 @@ const PullToRefresh = ({ onRefresh, children }) => {
 
   const textStyle = {
     fontSize: '13px',
-    color: '#40916c',
+    color: '#0284c7',
     fontWeight: '700',
     opacity: pullDistance / maxPull,
     fontFamily: "'Plus Jakarta Sans', sans-serif"
@@ -87,7 +87,7 @@ const PullToRefresh = ({ onRefresh, children }) => {
     <>
       <div style={indicatorStyle}>
         {isRefreshing ? (
-          <span style={{ fontSize: '13px', color: '#1a4731', fontWeight: 'bold' }}>Refreshing...</span>
+          <span style={{ fontSize: '13px', color: '#0369a1', fontWeight: 'bold' }}>Refreshing...</span>
         ) : (
           <span style={textStyle}>
             {pullDistance > triggerThreshold ? 'Release to refresh' : 'Pull to refresh'}

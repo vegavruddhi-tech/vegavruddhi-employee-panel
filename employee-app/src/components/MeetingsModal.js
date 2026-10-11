@@ -79,7 +79,7 @@ export default function MeetingsModal({ isOpen, onClose, userEmail, token }) {
         {/* Meeting Header */}
         <div style={{
           padding: '12px 20px',
-          background: 'linear-gradient(135deg, #1a4731 0%, #2e7d32 100%)',
+          background: 'linear-gradient(135deg, #0a192f 0%, #0284c7 100%)',
           color: 'white',
           display: 'flex',
           justifyContent: 'space-between',
@@ -177,7 +177,7 @@ export default function MeetingsModal({ isOpen, onClose, userEmail, token }) {
         {/* Header */}
         <div style={{
           padding: '20px 24px',
-          background: 'linear-gradient(135deg, #1a4731 0%, #2e7d32 100%)',
+          background: 'linear-gradient(135deg, #0a192f 0%, #0284c7 100%)',
           color: 'white',
           borderRadius: '16px 16px 0 0',
           display: 'flex',
@@ -228,11 +228,11 @@ export default function MeetingsModal({ isOpen, onClose, userEmail, token }) {
               padding: '14px',
               border: 'none',
               background: activeTab === 'upcoming' ? '#fff' : 'transparent',
-              color: activeTab === 'upcoming' ? '#1a4731' : '#666',
+              color: activeTab === 'upcoming' ? '#0284c7' : '#666',
               fontWeight: 700,
               fontSize: 14,
               cursor: 'pointer',
-              borderBottom: activeTab === 'upcoming' ? '3px solid #2e7d32' : '3px solid transparent',
+              borderBottom: activeTab === 'upcoming' ? '3px solid #0284c7' : '3px solid transparent',
               transition: 'all 0.2s',
               display: 'flex',
               alignItems: 'center',
@@ -250,11 +250,11 @@ export default function MeetingsModal({ isOpen, onClose, userEmail, token }) {
               padding: '14px',
               border: 'none',
               background: activeTab === 'past' ? '#fff' : 'transparent',
-              color: activeTab === 'past' ? '#1a4731' : '#666',
+              color: activeTab === 'past' ? '#0284c7' : '#666',
               fontWeight: 700,
               fontSize: 14,
               cursor: 'pointer',
-              borderBottom: activeTab === 'past' ? '3px solid #2e7d32' : '3px solid transparent',
+              borderBottom: activeTab === 'past' ? '3px solid #0284c7' : '3px solid transparent',
               transition: 'all 0.2s',
               display: 'flex',
               alignItems: 'center',
@@ -446,7 +446,7 @@ export default function MeetingsModal({ isOpen, onClose, userEmail, token }) {
                           ? 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)'
                           : isStartingSoon 
                             ? 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)'
-                            : 'linear-gradient(135deg, #2e7d32 0%, #1a4731 100%)',
+                            : 'linear-gradient(135deg, #0284c7 0%, #0b3c6d 100%)',
                         color: 'white',
                         border: 'none',
                         padding: '12px 20px',

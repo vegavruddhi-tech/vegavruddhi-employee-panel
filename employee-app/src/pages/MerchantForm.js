@@ -409,15 +409,15 @@ export default function MerchantForm() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: '32px 28px', maxWidth: 440, width: '90%', boxShadow: '0 8px 40px rgba(0,0,0,0.2)', textAlign: 'center' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>⚠️</div>
-            <h3 style={{ color: '#1a4731', fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Duplicate Entry Detected</h3>
+            <h3 style={{ color: '#0369a1', fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Duplicate Entry Detected</h3>
             <p style={{ color: '#555', fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
               You have already submitted a form for<br />
-              <strong style={{ color: '#1a4731' }}>{dupModal.name}</strong> with product <strong style={{ color: '#1a4731' }}>{dupModal.product}</strong>.<br /><br />
+              <strong style={{ color: '#0369a1' }}>{dupModal.name}</strong> with product <strong style={{ color: '#0369a1' }}>{dupModal.product}</strong>.<br /><br />
               If the details are different, please edit the existing entry instead.
             </p>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => setDupModal(null)} style={{ padding: '10px 22px', border: '1.5px solid #dde8dd', borderRadius: 8, background: '#fff', color: '#1a4731', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => navigate(`/merchant/${dupModal.existingId}`)} style={{ padding: '10px 22px', border: 'none', borderRadius: 8, background: '#1a4731', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Edit Existing Entry</button>
+              <button onClick={() => setDupModal(null)} style={{ padding: '10px 22px', border: '1.5px solid #bae6fd', borderRadius: 8, background: '#fff', color: '#0369a1', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => navigate(`/merchant/${dupModal.existingId}`)} style={{ padding: '10px 22px', border: 'none', borderRadius: 8, background: '#0284c7', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Edit Existing Entry</button>
             </div>
           </div>
         </div>

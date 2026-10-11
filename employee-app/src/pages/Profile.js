@@ -170,7 +170,7 @@ const openCamera = async () => {
                     cursor: "pointer",
                     fontSize: 14,
                     fontWeight: 600,
-                    color: "#1a4731",
+                    color: "#0284c7",
                   }}
                 >
                   📷 Take Photo
@@ -185,7 +185,7 @@ const openCamera = async () => {
                     cursor: "pointer",
                     fontSize: 14,
                     fontWeight: 600,
-                    color: "#1a4731",
+                    color: "#0284c7",
                     borderTop: "1px solid #f0f5f0",
                   }}
                 >
@@ -279,10 +279,10 @@ const openCamera = async () => {
               <div className="f-label">Location</div>
               <div className="f-value">{emp?.location || "–"}</div>
             </div>
-            <div className="field-item">
+            {/* <div className="field-item">
               <div className="f-label">Reporting Manager</div>
               <div className="f-value">{emp?.reportingManager || "–"}</div>
-            </div>
+            </div> */}
             <div className="field-item">
               <div className="f-label">Joined On</div>
               <div className="f-value">{joined}</div>
@@ -349,7 +349,7 @@ const openCamera = async () => {
               onClick={capture}
               style={{
                 padding: "12px 28px",
-                background: "#1a4731",
+                background: "#0284c7",
                 color: "#fff",
                 border: "none",
                 borderRadius: 8,
@@ -678,7 +678,7 @@ const openCamera = async () => {
                   ["Phone Number", "newJoinerPhone", "tel", false],
                   ["Joiner Email ID", "newJoinerEmailId", "email", false],
                   ["Location", "location", "text", false],
-                  ["Reporting Manager", "reportingManager", "text", true],
+                  // ["Reporting Manager", "reportingManager", "text", true],
                 ].map(([lbl, key, type, full]) => (
                   <div key={key} style={full ? { gridColumn: "1/-1" } : {}}>
                     <label

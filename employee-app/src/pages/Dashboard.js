@@ -665,7 +665,7 @@ export default function Dashboard() {
           {[
             { icon: '💼', label: 'Position', value: emp?.position },
             { icon: '📍', label: 'Location', value: emp?.location },
-            { icon: '👤', label: 'Reporting Manager', value: emp?.reportingManager },
+            // { icon: '👤', label: 'Reporting Manager', value: emp?.reportingManager },
             { icon: '●', label: 'Status', value: emp?.status },
           ].map(c => (
             <div className="info-card dash-card" key={c.label} style={{ padding: '12px 14px' }}>
@@ -732,24 +732,24 @@ export default function Dashboard() {
               <button className="date-filter-btn" onClick={() => setDateFilter('custom')}>Apply</button>
             </div>
             <div style={{ position: 'relative', display: 'inline-block' }}>
-              <span style={{ position: 'absolute', top: -9, left: 10, fontSize: 11, color: '#40916c', background: '#fff', padding: '0 4px', fontWeight: 600, zIndex: 1, pointerEvents: 'none' }}>Year</span>
+              <span style={{ position: 'absolute', top: -9, left: 10, fontSize: 11, color: '#0284c7', background: '#fff', padding: '0 4px', fontWeight: 600, zIndex: 1, pointerEvents: 'none' }}>Year</span>
               <select value={selYear} onChange={e => setSelYear(e.target.value)}
-                style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selYear ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 100, outline: 'none' }}>
+                style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #0284c7', fontSize: 14, color: selYear ? '#0369a1' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 100, outline: 'none' }}>
                 <option value=""></option>
                 {[2026, 2025, 2024, 2023, 2022, 2021].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
-              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#40916c', fontSize: 12 }}>▼</span>
+              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#0284c7', fontSize: 12 }}>▼</span>
             </div>
             <div style={{ position: 'relative', display: 'inline-block' }}>
-              <span style={{ position: 'absolute', top: -9, left: 10, fontSize: 11, color: '#40916c', background: '#fff', padding: '0 4px', fontWeight: 600, zIndex: 1, pointerEvents: 'none' }}>Month</span>
+              <span style={{ position: 'absolute', top: -9, left: 10, fontSize: 11, color: '#0284c7', background: '#fff', padding: '0 4px', fontWeight: 600, zIndex: 1, pointerEvents: 'none' }}>Month</span>
               <select value={selMonth} onChange={e => setSelMonth(e.target.value)}
-                style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #40916c', fontSize: 14, color: selMonth !== '' ? '#1a4731' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 130, outline: 'none' }}>
+                style={{ padding: '10px 32px 10px 12px', borderRadius: 10, border: '1.5px solid #0284c7', fontSize: 14, color: selMonth !== '' ? '#0369a1' : '#888', background: '#fff', cursor: 'pointer', appearance: 'none', minWidth: 130, outline: 'none' }}>
                 <option value="">All Months</option>
                 {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, i) => (
                   <option key={i} value={i.toString()}>{m}</option>
                 ))}
               </select>
-              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#40916c', fontSize: 12 }}>▼</span>
+              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#0284c7', fontSize: 12 }}>▼</span>
             </div>
           </div>
         </div>
@@ -807,9 +807,9 @@ export default function Dashboard() {
                   onClick={() => setSelProduct('')}
                   style={{
                     padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    border: selProduct === '' ? '2px solid #1a4731' : '1.5px solid #c8e6c9',
-                    background: selProduct === '' ? '#1a4731' : '#fff',
-                    color: selProduct === '' ? '#fff' : '#1a4731',
+                    border: selProduct === '' ? '2px solid #0284c7' : '1.5px solid #bae6fd',
+                    background: selProduct === '' ? '#0284c7' : '#fff',
+                    color: selProduct === '' ? '#fff' : '#0369a1',
                     transition: 'all 0.15s'
                   }}>
                   All Products
@@ -819,9 +819,9 @@ export default function Dashboard() {
                     onClick={() => setSelProduct(p)}
                     style={{
                       padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      border: selProduct === p ? '2px solid #1a4731' : '1.5px solid #c8e6c9',
-                      background: selProduct === p ? '#1a4731' : '#fff',
-                      color: selProduct === p ? '#fff' : '#1a4731',
+                      border: selProduct === p ? '2px solid #0284c7' : '1.5px solid #bae6fd',
+                      background: selProduct === p ? '#0284c7' : '#fff',
+                      color: selProduct === p ? '#fff' : '#0369a1',
                       transition: 'all 0.15s'
                     }}>
                     {p}: {counts[p]} ✓

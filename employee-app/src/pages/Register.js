@@ -135,7 +135,7 @@ useEffect(() => {
     setError(''); setSuccess('');
     const nameRegex = /^[a-zA-Z\s]+$/;
     if (!nameRegex.test(form.newJoinerName)) { setError('Name should contain letters only'); return; }
-    if (!nameRegex.test(form.reportingManager)) { setError('Reporting Manager name should contain letters only'); return; }
+    // if (!nameRegex.test(form.reportingManager)) { setError('Reporting Manager name should contain letters only'); return; }
 
     const phoneRegex = /^\d{10}$/;
     if (!phoneRegex.test(form.newJoinerPhone)) { setError('Phone number must be exactly 10 digits'); return; }
@@ -197,13 +197,12 @@ try {
     <div className="auth-wrapper">
       <div className="auth-card" style={{ maxWidth: 520 }}>
         <div className="auth-logo">
-          <img src="https://res.cloudinary.com/dhhcykoqa/image/upload/v1775158486/logo-full_ueklky.png
-" alt="Vegavruddhi Pvt. Ltd." />
-          <span className="tagline">IT &amp; Business Consultation Services</span>
+          <img src="/logo-full.png" alt="Synchronous Build Digital" />
+          <span className="tagline">Digital &amp; Technology Solutions</span>
         </div>
         <hr className="auth-divider" />
         <h2>New Joiner Registration</h2>
-        <p className="subtitle">VV – New Joining Candidate Details</p>
+        <p className="subtitle">Synchronous Build Digital – New Joining Candidate Details</p>
 
         {error   && <div className="error-msg"   style={{ display: 'block' }}>{error}</div>}
         {success && <div className="success-msg" style={{ display: 'block' }}>{success}</div>}
@@ -328,16 +327,15 @@ try {
     <label>Date of Birth <span className="req">*</span></label>
     <input type="date" value={form.dob} onChange={set('dob')} required />
   </div>
-  <div className="form-group">
+  {/* <div className="form-group">
     <label>Reporting Manager <span className="req">*</span></label>
-    <select value={form.reportingManager} onChange={set('reportingManager')} required>
+    <select value={form.reportingManager} onChange={set('reportingManager')}>
     <option value="">-- Select TL --</option>
   {tlList.map(tl => (
     <option key={tl._id} value={tl.name}>{tl.name}</option>
   ))}
 </select>
-
-  </div>
+  </div> */}
 </div>
 <input type="hidden" value="FSE" name="position" />
 
@@ -358,7 +356,7 @@ try {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16 }}>
           <video ref={videoRef} autoPlay playsInline style={{ width: '100%', maxWidth: 420, borderRadius: 12 }} />
           <div style={{ display: 'flex', gap: 12 }}>
-            <button onClick={capture} style={{ padding: '12px 28px', background: '#1a4731', color: '#fff', border: 'none', borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>📷 Capture</button>
+            <button onClick={capture} style={{ padding: '12px 28px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: 8, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>📷 Capture</button>
             <button onClick={stopCamera} style={{ padding: '12px 28px', background: '#555', color: '#fff', border: 'none', borderRadius: 8, fontSize: 15, cursor: 'pointer' }}>Cancel</button>
           </div>
           <canvas ref={canvasRef} style={{ display: 'none' }} />

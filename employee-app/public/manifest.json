@@ -1,7 +1,7 @@
 {
-  "short_name": "Vegavruddhi FSE",
-  "name": "Vegavruddhi Employee Panel - Tide",
-  "description": "Vegavruddhi Employee Portal for FSE Merchant Management",
+  "short_name": "Synchronous Employee",
+  "name": "Synchronous Build Digital - Employee Panel",
+  "description": "Synchronous Build Digital Employee Portal",
   "icons": [
     {
       "src": "favicon.ico",
@@ -23,7 +23,7 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#1a4731",
+  "theme_color": "#0284c7",
   "background_color": "#ffffff",
   "orientation": "portrait",
   "scope": "/",

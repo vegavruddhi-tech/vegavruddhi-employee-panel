@@ -121,7 +121,7 @@ export default function MySalary() {
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           {/* Header */}
           <div style={{ marginBottom: 24 }}>
-            <h1 style={{ fontSize: 28, fontWeight: 800, color: '#1a4731', marginBottom: 8 }}>
+            <h1 style={{ fontSize: 28, fontWeight: 800, color: '#0369a1', marginBottom: 8 }}>
               💰 My Salary Slips
             </h1>
             <p style={{ fontSize: 14, color: '#666' }}>
@@ -144,7 +144,7 @@ export default function MySalary() {
                 onClick={() => setSelectedYear(year)}
                 style={{
                   padding: '8px 20px',
-                  background: selectedYear === year ? '#1a4731' : '#fff',
+                  background: selectedYear === year ? '#0284c7' : '#fff',
                   color: selectedYear === year ? '#fff' : '#333',
                   border: selectedYear === year ? 'none' : '1px solid #ddd',
                   borderRadius: 8,
@@ -199,7 +199,7 @@ export default function MySalary() {
                   >
                     {/* Left: Month/Year */}
                     <div style={{ flex: '0 0 140px' }}>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: '#1a4731' }}>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: '#0369a1' }}>
                         {slip.month} {slip.year}
                       </div>
                       <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>
@@ -247,7 +247,7 @@ export default function MySalary() {
                           onClick={(e) => { e.stopPropagation(); handleViewSlip(slip); }}
                           style={{
                             padding: '8px 16px',
-                            background: '#1a4731',
+                            background: '#0284c7',
                             color: '#fff',
                             border: 'none',
                             borderRadius: 8,
@@ -302,7 +302,7 @@ export default function MySalary() {
               {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                 <div>
-                  <h2 style={{ fontSize: 22, fontWeight: 800, color: '#1a4731', margin: 0 }}>Salary Slip</h2>
+                  <h2 style={{ fontSize: 22, fontWeight: 800, color: '#0369a1', margin: 0 }}>Salary Slip</h2>
                   <p style={{ fontSize: 13, color: '#888', margin: '4px 0 0' }}>{selectedSlip.month} {selectedSlip.year}</p>
                 </div>
                 <button onClick={() => setViewModal(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#999' }}>✕</button>
@@ -318,7 +318,7 @@ export default function MySalary() {
               </div>
 
               {/* Earnings Table - NO % column for employee */}
-              <div style={{ fontWeight: 700, color: '#1a4731', borderBottom: '2px solid #1a4731', paddingBottom: 6, marginBottom: 10, fontSize: 14 }}>Earnings</div>
+              <div style={{ fontWeight: 700, color: '#0369a1', borderBottom: '2px solid #0284c7', paddingBottom: 6, marginBottom: 10, fontSize: 14 }}>Earnings</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14, fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f0f0f0' }}>
@@ -354,7 +354,7 @@ export default function MySalary() {
               </table>
 
               {/* Deductions - black text */}
-              <div style={{ fontWeight: 700, color: '#1a4731', borderBottom: '2px solid #1a4731', paddingBottom: 6, marginBottom: 10, fontSize: 14 }}>Deductions</div>
+              <div style={{ fontWeight: 700, color: '#0369a1', borderBottom: '2px solid #0284c7', paddingBottom: 6, marginBottom: 10, fontSize: 14 }}>Deductions</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14, fontSize: 13 }}>
                 <tbody>
                   {[
@@ -378,7 +378,7 @@ export default function MySalary() {
               </table>
 
               {/* Net Salary */}
-              <div style={{ background: '#1a4731', color: '#fff', padding: '16px 20px', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ background: 'linear-gradient(135deg, #0b3c6d 0%, #0284c7 100%)', color: '#fff', padding: '16px 20px', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                 <span style={{ fontSize: 16, fontWeight: 700 }}>Net Salary (Take Home)</span>
                 <span style={{ fontSize: 24, fontWeight: 800 }}>₹{fmt(c.netSalary)}</span>
               </div>

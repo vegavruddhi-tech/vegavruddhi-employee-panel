@@ -106,9 +106,9 @@ export default function MerchantDirectoryModal({ isOpen, onClose, token }) {
       }}>
         {/* Compact Header */}
         <div style={{
-          padding: '12px 16px', backgroundColor: '#0f3320', color: '#fff',
+          padding: '12px 16px', backgroundColor: '#0a192f', color: '#fff',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          borderBottom: '2px solid #1a5c38'
+          borderBottom: '2px solid #0284c7'
         }}>
           <div>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -147,7 +147,7 @@ export default function MerchantDirectoryModal({ isOpen, onClose, token }) {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
                   width: '100%', padding: '8px 10px 8px 32px', borderRadius: 6,
-                  border: '1.5px solid #1a5c38', fontSize: 13, outline: 'none', boxSizing: 'border-box'
+                  border: '1.5px solid #0284c7', fontSize: 13, outline: 'none', boxSizing: 'border-box'
                 }}
               />
             </div>
@@ -184,7 +184,7 @@ export default function MerchantDirectoryModal({ isOpen, onClose, token }) {
                 <div style={{ fontSize: 12 }}>❌ {error}</div>
               </div>
             ) : merchants.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 30, color: '#1a5c38' }}>
+              <div style={{ textAlign: 'center', padding: 30, color: '#0284c7' }}>
                 <div style={{ fontSize: 24, marginBottom: 6 }}>✨</div>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>No duplicate merchant found!</div>
                 <p style={{ fontSize: 11, color: '#666', margin: '4px 0 0' }}>This merchant/phone is not in our system yet. You can proceed with onboarding.</p>
@@ -209,7 +209,7 @@ export default function MerchantDirectoryModal({ isOpen, onClose, token }) {
                         <td style={{ padding: '6px 8px' }}>
                           <span style={{
                             display: 'inline-block', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700,
-                            backgroundColor: '#e6f4ea', color: '#1a5c38', whiteSpace: 'nowrap'
+                            backgroundColor: '#e0f2fe', color: '#0369a1', whiteSpace: 'nowrap'
                           }}>
                             {m.product}
                           </span>

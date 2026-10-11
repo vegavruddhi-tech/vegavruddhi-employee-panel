@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { API_BASE } from '../api';
-import TideSelectionPopup from '../components/TideSelectionPopup';
+// import TideSelectionPopup from '../components/TideSelectionPopup';
 
 const GOOGLE_CLIENT_ID = '175231524136-39m136pat1dpous6u9eijhfulpmpms1i.apps.googleusercontent.com';
 
@@ -68,6 +68,7 @@ export default function Login() {
       localStorage.setItem('employee', JSON.stringify(data.employee));
       localStorage.setItem('session_date', istDate);
 
+      /*
       // Check if user has Tide BT access
       const tideBTRes = await fetch(`${API_BASE}/api/auth/check-tidebt-access`, {
         headers: { 'Authorization': `Bearer ${data.token}` }
@@ -82,6 +83,8 @@ export default function Login() {
         // No Tide BT access, go directly to Tide dashboard
         navigate('/dashboard');
       }
+      */
+      navigate('/dashboard');
     } catch {
       setError('Server error. Please try again.');
       setLoading(false);
@@ -110,7 +113,7 @@ export default function Login() {
       <div style={{
         fontFamily: "'Inter', sans-serif",
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #071a0f 0%, #0f3320 50%, #1a5c38 100%)',
+        background: 'linear-gradient(135deg, #0a192f 0%, #0b3c6d 50%, #0284c7 100%)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24
       }}>
         <div style={{
@@ -118,16 +121,15 @@ export default function Login() {
           width: '100%', maxWidth: 420, boxShadow: '0 24px 80px rgba(0,0,0,0.35)', textAlign: 'center'
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 32 }}>
-            <img src="https://res.cloudinary.com/dhhcykoqa/image/upload/v1775158486/logo-full_ueklky.png
-" alt="Vegavruddhi" style={{ height: 64, width: 64, objectFit: 'contain' }} />
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1a4731', letterSpacing: '1.5px', textTransform: 'uppercase' }}>Vegavruddhi</div>
-            <div style={{ fontSize: 11, color: '#6b9e82', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 600 }}>IT &amp; Business Consultation Services</div>
+            <img src="/logo-full.png" alt="Synchronous Build Digital" style={{ height: 64, width: 64, objectFit: 'contain' }} />
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#0369a1', letterSpacing: '1px', textTransform: 'uppercase' }}>Synchronous</div>
+            <div style={{ fontSize: 11, color: '#0284c7', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 600 }}>Digital &amp; Technology Solutions</div>
           </div>
 
-          <hr style={{ border: 'none', borderTop: '1.5px solid #e8f0eb', marginBottom: 32 }} />
+          <hr style={{ border: 'none', borderTop: '1.5px solid #e2e8f0', marginBottom: 32 }} />
 
-          <div style={{ fontSize: 24, fontWeight: 800, color: '#1a2e22', marginBottom: 8 }}>Welcome Back 👋</div>
-          <p style={{ fontSize: 14, color: '#6b9e82', marginBottom: 36, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>Welcome Back 👋</div>
+          <p style={{ fontSize: 14, color: '#64748b', marginBottom: 36, lineHeight: 1.5 }}>
             Sign in with your registered Google account to access the employee portal.
           </p>
 
@@ -152,9 +154,9 @@ export default function Login() {
             {loading ? 'Signing in…' : 'Sign in with Google'}
           </button>
 
-          <div style={{ marginTop: 24, padding: '14px 16px', background: '#f0f7f3', borderRadius: 10, borderLeft: '3px solid #1a4731', textAlign: 'left' }}>
-            <p style={{ fontSize: 12, color: '#4a7060', lineHeight: 1.6 }}>
-              Use the <strong style={{ color: '#1a4731' }}>email address you provided</strong> during registration (your joining email ID).
+          <div style={{ marginTop: 24, padding: '14px 16px', background: '#f0f9ff', borderRadius: 10, borderLeft: '3px solid #0284c7', textAlign: 'left' }}>
+            <p style={{ fontSize: 12, color: '#0369a1', lineHeight: 1.6 }}>
+              Use the <strong style={{ color: '#0284c7' }}>email address you provided</strong> during registration (your joining email ID).
             </p>
           </div>
 
@@ -168,18 +170,18 @@ export default function Login() {
             </div>
           )}
 
-          <div style={{ marginTop: 28, fontSize: 13, color: '#6b9e82' }}>
-            New joiner? <Link to="/register" style={{ color: '#1a4731', fontWeight: 700, textDecoration: 'none' }}>Register here</Link>
+          <div style={{ marginTop: 28, fontSize: 13, color: '#64748b' }}>
+            New joiner? <Link to="/register" style={{ color: '#0284c7', fontWeight: 700, textDecoration: 'none' }}>Register here</Link>
           </div>
         </div>
 
-        {/* Tide Selection Popup */}
-        <TideSelectionPopup
+        {/* Tide Selection Popup commented out */}
+        {/* <TideSelectionPopup
           open={showTidePopup}
           onClose={() => setShowTidePopup(false)}
           onSelectTide={handleSelectTide}
           onSelectTideBT={handleSelectTideBT}
-        />
+        /> */}
       </div>
     </>
   );

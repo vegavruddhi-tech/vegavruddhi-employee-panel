@@ -372,12 +372,12 @@ router.post('/google-login', loginLimiter, async (req, res) => {
       role: employee.position || 'fse',
       isAdmin: isExplicitAdmin
     }, process.env.JWT_SECRET, { expiresIn: '8h' });
-    
+
+    // ✅ MARK ATTENDANCE (same as password login)
     const now = new Date();
     const istTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const today = istTime.toISOString().split('T')[0];
 
-    // ✅ MARK ATTENDANCE (same as password login)
     try {
       let attendance = await Attendance.findOne({
         userId: employee._id,

@@ -252,10 +252,28 @@ body {
   font-family: var(--font);
   backdrop-filter: blur(8px);
 }
+.nav-logo a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
 .nav-logo img {
-  height: 44px; object-fit: contain;
-  filter: brightness(0) invert(1);
+  height: 40px;
+  width: 40px;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   transition: transform var(--transition);
+}
+.nav-logo .brand-text {
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
 }
 .nav-logo img:hover { transform: scale(1.04); }
 .nav-right { display: flex; align-items: center; gap: 12px; }

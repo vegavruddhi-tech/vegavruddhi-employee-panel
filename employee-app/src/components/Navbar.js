@@ -434,6 +434,7 @@ export default function Navbar({ emp, taskCount, token }) {
         <div className="nav-logo">
           <a href="/dashboard" onClick={e => { e.preventDefault(); navigate('/dashboard'); }}>
             <img src="/logo-full.png" alt="Synchronous Build Digital" />
+            <span className="brand-text">Synchronous Build Digital</span>
           </a>
         </div>
         <div className="nav-right">

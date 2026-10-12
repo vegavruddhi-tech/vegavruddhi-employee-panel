@@ -1,3 +1,6 @@
+const dns = require('node:dns');
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const mongoose = require('mongoose');
@@ -60,7 +63,7 @@ const allowedOrigins = [
 ];
 
 // Regex matching official Vegavruddhi / Team-Leader deployments on vercel.app
-const officialVercelPattern = /^https:\/\/(vegavruddhi-[a-z0-9-]+|team-leader-[a-z0-9-]+)\.vercel\.app$/i;
+const officialVercelPattern = /^https:\/\/(vegavruddhi-[a-z0-9-]+|team-leader-[a-z0-9-]+|synchronous-[a-z0-9-]+)\.vercel\.app$/i;
 const localDevPattern = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 function isAllowedOrigin(origin) {

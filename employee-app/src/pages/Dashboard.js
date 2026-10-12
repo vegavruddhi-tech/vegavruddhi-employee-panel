@@ -428,8 +428,6 @@ export default function Dashboard() {
       }
       const isFound = vstatus !== 'Not Found';
       const vinfo = {
-        status: vstatus,
-        points: vpoints,
         phoneMatch: isFound ? true : (f.verificationChecks?.phoneMatch || false),
         inSheet: isFound ? true : (f.verificationChecks?.inSheet || false),
         ...f.verificationChecks,
@@ -638,7 +636,7 @@ export default function Dashboard() {
         <div className="welcome-card" style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div className="welcome-avatar" style={{ width: 60, height: 60, fontSize: 24 }}>
             {emp?.image
-              ? <img src={emp.image} />
+              ? <img src={emp.image} alt="avatar" />
               : (emp?.newJoinerName?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?')}
           </div>
           <div className="welcome-text" style={{ flex: 1, minWidth: 150 }}>

@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { API_BASE } from '../api';
 // import TideSelectionPopup from '../components/TideSelectionPopup';
 
-const GOOGLE_CLIENT_ID = '175231524136-39m136pat1dpous6u9eijhfulpmpms1i.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '1066123186680-98c82voik453lp7e36s5vbfodkqtfbpv.apps.googleusercontent.com';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -102,8 +102,8 @@ export default function Login() {
     const token = localStorage.getItem('token');
     const tideBTUrl = process.env.REACT_APP_TIDEBT_URL
       || (window.location.hostname === 'localhost'
-          ? 'http://localhost:3004'
-          : 'https://vegavruddhi-employee-tide-bt-4obl.vercel.app');
+        ? 'http://localhost:3004'
+        : 'https://vegavruddhi-employee-tide-bt-4obl.vercel.app');
     window.location.href = `${tideBTUrl}?token=${encodeURIComponent(token)}`;
   };
 

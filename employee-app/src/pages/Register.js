@@ -327,15 +327,15 @@ try {
     <label>Date of Birth <span className="req">*</span></label>
     <input type="date" value={form.dob} onChange={set('dob')} required />
   </div>
-  {/* <div className="form-group">
+  <div className="form-group">
     <label>Reporting Manager <span className="req">*</span></label>
-    <select value={form.reportingManager} onChange={set('reportingManager')}>
-    <option value="">-- Select TL --</option>
-  {tlList.map(tl => (
-    <option key={tl._id} value={tl.name}>{tl.name}</option>
-  ))}
-</select>
-  </div> */}
+    <select value={form.reportingManager} onChange={set('reportingManager')} required>
+      <option value="">-- Select TL --</option>
+      {tlList.map(tl => (
+        <option key={tl._id} value={tl.name}>{tl.name}</option>
+      ))}
+    </select>
+  </div>
 </div>
 <input type="hidden" value="FSE" name="position" />
 

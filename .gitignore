@@ -29,10 +29,11 @@ uploads/
 *.jpg
 *.jpeg
 
-# Ignore PNG files except PWA icons
+# Ignore PNG files except public assets
 *.png
-!employee-app/public/logo-192.png
-!employee-app/public/logo-512.png
+!employee-app/public/*.png
+!employee-app/public/*.PNG
+
 
 # -----------------------------
 # LOG FILES

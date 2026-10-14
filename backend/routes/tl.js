@@ -219,9 +219,15 @@ router.post('/google-login', loginLimiter, async (req, res) => {
     const { credential } = req.body;
     if (!credential) return res.status(400).json({ message: 'Google credential required' });
 
+    const allowedAudiences = [
+      process.env.GOOGLE_CLIENT_ID,
+      '1066123186680-98c82voik453lp7e36s5vbfodkqtfbpv.apps.googleusercontent.com',
+      '175231524136-39m136pat1dpous6u9eijhfulpmpms1i.apps.googleusercontent.com',
+    ].filter(Boolean);
+
     const ticket = await googleClient.verifyIdToken({
       idToken:  credential,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: allowedAudiences,
     });
     const payload     = ticket.getPayload();
     const googleEmail = payload.email.toLowerCase();

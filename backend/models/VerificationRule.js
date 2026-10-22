@@ -24,7 +24,8 @@ const conditionSchema = new mongoose.Schema({
   value:      { type: String, default: '' },       // single value (for backward compat)
   values:     { type: [String], default: [] },     // multiple values for OR logic (used with 'in' or 'equals')
   label:      { type: String, default: '' },
-  isCritical: { type: Boolean, default: false }    // if true, failure of this condition = critical failure
+  isCritical: { type: Boolean, default: false },   // if true, failure of this condition = critical failure
+  isDisplayOnly: { type: Boolean, default: false } // if true, display only, does not affect verification
 }, { _id: false });
 
 const verificationRuleSchema = new mongoose.Schema({

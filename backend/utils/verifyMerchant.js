@@ -90,8 +90,71 @@ async function findInCollection(collection, phone, name, strictPhone = false, me
 }
 
 // ---------- CONDITION ----------
+function parseRecordDate(val) {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s || s === '0' || s === 'N/A' || s === 'null' || s === 'None' || s === 'undefined') return null;
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmy) {
+    const d = new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const parts = s.slice(0, 10).split('-');
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function evaluateCondition(record, condition) {
-  const rawVal = record[condition.field];
+  let rawVal = record[condition.field];
+
+  // 🔥 Smart Fallback for date_difference_days (Intent to Approval gap)
+  if ((condition.field === 'date_difference_days' || condition.field === 'date_difference') &&
+      (rawVal === undefined || rawVal === null || rawVal === '' || isNaN(Number(rawVal)))) {
+    const intentVal = record.intent_date || record['Intent Date'] || record['intentDate'];
+    const approvedVal = record.approved_date || record['Approved Date'] || record['approvedDate'];
+    if (intentVal && approvedVal) {
+      const dIntent = parseRecordDate(intentVal);
+      const dApproved = parseRecordDate(approvedVal);
+      if (dIntent && dApproved) {
+        const diffMs = dApproved.getTime() - dIntent.getTime();
+        rawVal = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+      }
+    }
+  }
+
+  // 🔥 Display Only / Informational condition (e.g. CIBIL score display only)
+  const isDisplayOnly = Boolean(
+    condition.isDisplayOnly ||
+    condition.displayOnly ||
+    condition.isOptional ||
+    condition.optional ||
+    /cibil/i.test(condition.field || '') ||
+    /cibil/i.test(condition.label || '')
+  );
+
+  if (isDisplayOnly) {
+    const hasVal = rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '' && String(rawVal).trim() !== 'N/A' && String(rawVal).trim() !== '-';
+    return {
+      pass: true,
+      label: condition.label,
+      actual: hasVal ? String(rawVal).trim() : '0',
+      field: condition.field,
+      sheetValue: rawVal ?? '',
+      operator: condition.operator,
+      expected: condition.value,
+      isDisplayOnly: true
+    };
+  }
 
   if (rawVal === undefined || rawVal === null || rawVal === '') {
     return { 
@@ -271,6 +334,16 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     const passed = checks.filter(c => c.pass).length;
     const total  = checks.length;
 
+    // Display-only conditions never block 'Fully Verified'
+    const isConditionDisplayOnly = (c) => Boolean(
+      c.isDisplayOnly || c.displayOnly || c.isOptional || c.optional ||
+      /cibil/i.test(c.field || '') || /cibil/i.test(c.label || '')
+    );
+    const requiredConditions = rule.conditions.filter(c => !isConditionDisplayOnly(c));
+    const requiredChecks = checks.filter((c, i) => !isConditionDisplayOnly(rule.conditions[i]));
+    const requiredPassed = requiredChecks.filter(c => c.pass).length;
+    const requiredTotal = requiredChecks.length;
+
     // ✅ Check for critical condition failures
     const criticalConditions = rule.conditions.filter(c => c.isCritical);
     const criticalChecks = checks.filter((c, i) => rule.conditions[i].isCritical);
@@ -279,8 +352,8 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
 
     const status =
       hasCriticalFailure ? 'Critical Failure' :
-      passed === total   ? 'Fully Verified' :
-      passed > 0         ? 'Partially Done' :
+      requiredPassed === requiredTotal ? 'Fully Verified' :
+      requiredPassed > 0 ? 'Partially Done' :
                            'Not Verified';
 
     return {

@@ -1558,16 +1558,20 @@ module.exports = (connectionManager, connectDB) => {
       );
 
       // Update timestamp in Redis to invalidate frontend cache
-      const redis = getRedisClient();
-      if (redis) {
-        await redis.set('verification_rules_updated_at', Date.now().toString());
-
-        // ✅ CLEAR ALL REDIS VERIFICATION CACHES
-        const pattern = 'verification:*';
-        const keys = await getKeysByPattern(redis, pattern);
-        if (keys.length > 0) {
-          await redis.del(...keys);
+      // Update timestamp in Redis to invalidate frontend cache (safe from Redis quota limit)
+      try {
+        const redis = getRedisClient();
+        if (redis) {
+          await redis.set('verification_rules_updated_at', Date.now().toString());
+          const pattern = 'verification:*';
+          const keys = await getKeysByPattern(redis, pattern);
+          if (keys.length > 0) {
+            await redis.del(...keys);
+          }
         }
+      } catch (redisErr) {
+        console.warn('Redis cache clear note (non-fatal):', redisErr.message);
+      }
 
       }
 
@@ -1588,16 +1592,20 @@ module.exports = (connectionManager, connectDB) => {
       });
 
       // Update timestamp in Redis to invalidate frontend cache
-      const redis = getRedisClient();
-      if (redis) {
-        await redis.set('verification_rules_updated_at', Date.now().toString());
-
-        // ✅ CLEAR ALL REDIS VERIFICATION CACHES
-        const pattern = 'verification:*';
-        const keys = await getKeysByPattern(redis, pattern);
-        if (keys.length > 0) {
-          await redis.del(...keys);
+      // Update timestamp in Redis to invalidate frontend cache (safe from Redis quota limit)
+      try {
+        const redis = getRedisClient();
+        if (redis) {
+          await redis.set('verification_rules_updated_at', Date.now().toString());
+          const pattern = 'verification:*';
+          const keys = await getKeysByPattern(redis, pattern);
+          if (keys.length > 0) {
+            await redis.del(...keys);
+          }
         }
+      } catch (redisErr) {
+        console.warn('Redis cache clear note (non-fatal):', redisErr.message);
+      }
 
       }
 
@@ -1616,16 +1624,20 @@ module.exports = (connectionManager, connectDB) => {
       await VerificationRule.findByIdAndDelete(req.params.id);
 
       // Update timestamp in Redis to invalidate frontend cache
-      const redis = getRedisClient();
-      if (redis) {
-        await redis.set('verification_rules_updated_at', Date.now().toString());
-
-        // ✅ CLEAR ALL REDIS VERIFICATION CACHES
-        const pattern = 'verification:*';
-        const keys = await getKeysByPattern(redis, pattern);
-        if (keys.length > 0) {
-          await redis.del(...keys);
+      // Update timestamp in Redis to invalidate frontend cache (safe from Redis quota limit)
+      try {
+        const redis = getRedisClient();
+        if (redis) {
+          await redis.set('verification_rules_updated_at', Date.now().toString());
+          const pattern = 'verification:*';
+          const keys = await getKeysByPattern(redis, pattern);
+          if (keys.length > 0) {
+            await redis.del(...keys);
+          }
         }
+      } catch (redisErr) {
+        console.warn('Redis cache clear note (non-fatal):', redisErr.message);
+      }
 
       }
 

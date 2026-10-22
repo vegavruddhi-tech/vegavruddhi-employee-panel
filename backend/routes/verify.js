@@ -1573,8 +1573,6 @@ module.exports = (connectionManager, connectDB) => {
         console.warn('Redis cache clear note (non-fatal):', redisErr.message);
       }
 
-      }
-
       res.json(rule);
     } catch (err) {
       res.status(500).json({
@@ -1607,8 +1605,6 @@ module.exports = (connectionManager, connectDB) => {
         console.warn('Redis cache clear note (non-fatal):', redisErr.message);
       }
 
-      }
-
       res.status(201).json(rule);
     } catch (err) {
       res.status(500).json({
@@ -1637,8 +1633,6 @@ module.exports = (connectionManager, connectDB) => {
         }
       } catch (redisErr) {
         console.warn('Redis cache clear note (non-fatal):', redisErr.message);
-      }
-
       }
 
       res.json({

@@ -420,6 +420,46 @@ module.exports = (connectionManager, connectDB) => {
       // Get last sync time (ignore if force refresh)
       const lastSyncTime = forceRefresh ? null : await redis.get('last_sync_time');
 
+      // ⚡ OPTIMIZATION: Month-based scoping for ultra-fast sync (processes ~50-500 forms instead of 11,000!)
+      const syncAll = req.query.all === 'true';
+      const monthParam = req.query.month;
+
+      let dateFilter = null;
+      if (!syncAll) {
+        let targetYear, targetMonthIndex;
+        if (!monthParam || monthParam === 'current') {
+          const now = new Date();
+          targetYear = now.getFullYear();
+          targetMonthIndex = now.getMonth();
+        } else {
+          const parsed = new Date(monthParam);
+          if (!isNaN(parsed.getTime())) {
+            targetYear = parsed.getFullYear();
+            targetMonthIndex = parsed.getMonth();
+          } else {
+            const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+            const mIdx = monthNames.indexOf(String(monthParam).trim().toLowerCase());
+            if (mIdx !== -1) {
+              targetYear = new Date().getFullYear();
+              targetMonthIndex = mIdx;
+            } else {
+              const now = new Date();
+              targetYear = now.getFullYear();
+              targetMonthIndex = now.getMonth();
+            }
+          }
+        }
+        // Month boundary with 12h timezone padding to guarantee all month forms are covered
+        const startOfMonth = new Date(Date.UTC(targetYear, targetMonthIndex, 1, 0, 0, 0, 0));
+        const endOfMonth = new Date(Date.UTC(targetYear, targetMonthIndex + 1, 0, 23, 59, 59, 999));
+        dateFilter = {
+          $gte: new Date(startOfMonth.getTime() - 12 * 3600 * 1000),
+          $lte: new Date(endOfMonth.getTime() + 12 * 3600 * 1000)
+        };
+      }
+
+      const baseFilter = dateFilter ? { createdAt: dateFilter } : {};
+
       // Get all forms from FSE, TL, and Manager collections
       const FormResponse = require('../models/FormResponse');
       const TLFormResponse = require('../models/TLFormResponse');
@@ -431,6 +471,7 @@ module.exports = (connectionManager, connectDB) => {
         // Incremental: Only get new/updated forms
         const lastSync = new Date(lastSyncTime);
         const query = {
+          ...baseFilter,
           $or: [
             { createdAt: { $gt: lastSync } },
             { updatedAt: { $gt: lastSync } }
@@ -444,11 +485,11 @@ module.exports = (connectionManager, connectDB) => {
         ]);
 
       } else {
-        // First time OR force refresh: Get all forms
+        // Target month refresh (or full refresh if syncAll is requested)
         [fseForms, tlForms, managerForms] = await Promise.all([
-          FormResponse.find({}).select('-verificationChecks.record').lean(),
-          TLFormResponse.find({}).select('-verificationChecks.record').lean(),
-          ManagerForm.find({}).select('-verificationChecks.record').lean()
+          FormResponse.find(baseFilter).select('-verificationChecks.record').lean(),
+          TLFormResponse.find(baseFilter).select('-verificationChecks.record').lean(),
+          ManagerForm.find(baseFilter).select('-verificationChecks.record').lean()
         ]);
 
       }

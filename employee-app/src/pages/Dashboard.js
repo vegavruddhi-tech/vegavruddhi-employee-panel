@@ -510,6 +510,23 @@ export default function Dashboard() {
     });
     setVerifiedMap(initialMap);
 
+    // Save initial DB-derived verified points immediately so backend has accurate points even if bulk-admin has not run
+    if (
+      currentSelectionRef.current.owner === reqOwner &&
+      currentSelectionRef.current.token === reqToken &&
+      formsOwner === reqOwner &&
+      dbAutoPts > 0
+    ) {
+      fetch(`${API_BASE}/api/forms/save-verified-points`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({
+          verifiedPoints: Math.round(dbAutoPts * 10) / 10,
+          viewAs: isImpersonating ? viewAsEmail : undefined
+        })
+      }).catch(() => { });
+    }
+
     const formsToCheck = allForms.filter(f => !f.verificationStatus || f.verificationStatus === 'Not Found').slice(0, 30);
     if (formsToCheck.length === 0) {
       console.log('✅ All forms loaded with verification status from DB');
@@ -706,7 +723,7 @@ export default function Dashboard() {
       (!backendPoints.owner || backendPoints.owner === currentOwner);
 
     if (!isCustomFiltered && isDateScopeMatching && recordedScopeMatches && backendPoints.points !== null && backendPoints.points !== undefined) {
-      return backendPoints.points;
+      return Math.max(computed, backendPoints.points);
     }
     return computed;
   }, [backendPoints, baseFiltered, verifiedMap, adjustment, currentOwner, selMonth, selYear, dateFilter, searchQuery, selProduct, isImpersonating, viewAsEmail, token]);

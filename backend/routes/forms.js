@@ -1133,23 +1133,36 @@ module.exports = (connectionManager, connectDB) => {
     try {
       const EmployeePoints = require('../models/EmployeePoints');
       const Employee = require('../models/Employee');
-      const { verifiedPoints } = req.body;
+      const { verifiedPoints, viewAs } = req.body;
 
       // Try Employee first, then TeamLead
       let name = null;
-      const emp = await Employee.findById(req.user.id).select('newJoinerName');
-      if (emp) {
-        name = emp.newJoinerName;
-      } else {
-        const tl = await TeamLead.findById(req.user.id).select('name');
-        if (tl) name = tl.name;
+      let empId = req.user.id;
+
+      // If admin is impersonating or viewing as another user
+      if (viewAs && (req.user.isAdmin || req.user.role === 'admin' || req.user.impersonating || req.user.adminImpersonating)) {
+        const target = await Employee.findOne({ newJoinerEmailId: viewAs }).select('newJoinerName _id');
+        if (target) {
+          name = target.newJoinerName;
+          empId = target._id;
+        }
+      }
+
+      if (!name) {
+        const emp = await Employee.findById(req.user.id).select('newJoinerName');
+        if (emp) {
+          name = emp.newJoinerName;
+        } else {
+          const tl = await TeamLead.findById(req.user.id).select('name');
+          if (tl) name = tl.name;
+        }
       }
 
       if (!name) return res.status(404).json({ message: 'User not found' });
 
       await EmployeePoints.findOneAndUpdate(
         { newJoinerName: name },
-        { $set: { newJoinerName: name, employeeId: req.user.id, verifiedPoints: verifiedPoints || 0, updatedAt: new Date() } },
+        { $set: { newJoinerName: name, employeeId: empId, verifiedPoints: verifiedPoints || 0, updatedAt: new Date() } },
         { upsert: true, new: true }
       );
       res.json({ message: 'Verified points saved' });
@@ -1458,7 +1471,22 @@ module.exports = (connectionManager, connectDB) => {
       };
       let liveVerifiedPoints = 0;
       allForms.forEach(f => {
-        if (f.verificationStatus === 'Fully Verified' || f.verificationChecks?.status === 'Fully Verified') {
+        let vstatus = f.verificationStatus || f.verificationChecks?.status || 'Not Found';
+        const rawChecks = f.verificationChecks?.checks;
+        if (Array.isArray(rawChecks) && rawChecks.length > 0 && vstatus !== 'Not Found' && vstatus !== 'Already Verified') {
+          const isDisplayCheck = (c) => Boolean(
+            c.isDisplayOnly || c.displayOnly ||
+            /cibil/i.test(c.field || '') || /cibil/i.test(c.label || '') ||
+            /bank.*transfer/i.test(c.field || '') || /bank.*transfer/i.test(c.label || '')
+          );
+          const allPassed = rawChecks.every(c => c.pass || isDisplayCheck(c));
+          const hasCritical = rawChecks.some(c => !c.pass && !isDisplayCheck(c) && c.isCritical);
+          if (allPassed && !hasCritical) {
+            vstatus = 'Fully Verified';
+          }
+        }
+
+        if (vstatus === 'Fully Verified') {
           let pts = parseFloat(f.verificationChecks?.points) || 0;
           // 🔥 FIX: If points=0 for a fully-verified form, compute from product name
           if (pts === 0) {
@@ -1469,6 +1497,12 @@ module.exports = (connectionManager, connectDB) => {
         }
       });
       liveVerifiedPoints = Math.round(liveVerifiedPoints * 10) / 10;
+
+      // Consistency: if EmployeePoints has verifiedPoints saved by Admin Panel and no specific month filter narrows it
+      const savedVerifiedPoints = parseFloat(doc?.verifiedPoints) || 0;
+      if (savedVerifiedPoints > liveVerifiedPoints && (!month || month === '')) {
+        liveVerifiedPoints = savedVerifiedPoints;
+      }
 
       const pointsAdjustment = doc?.pointsAdjustment || 0;
       const totalPoints = Math.round((liveVerifiedPoints + slabBonus + pointsAdjustment) * 10) / 10;

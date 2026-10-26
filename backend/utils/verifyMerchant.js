@@ -347,9 +347,9 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     const requiredPassed = requiredChecks.filter(c => c.pass).length;
     const requiredTotal = requiredChecks.length;
 
-    // ✅ Check for critical condition failures
-    const criticalConditions = rule.conditions.filter(c => c.isCritical);
-    const criticalChecks = checks.filter((c, i) => rule.conditions[i].isCritical);
+    // ✅ Check for critical condition failures (display-only conditions never block Fully Verified)
+    const criticalConditions = rule.conditions.filter(c => c.isCritical && !isConditionDisplayOnly(c));
+    const criticalChecks = checks.filter((c, i) => rule.conditions[i].isCritical && !isConditionDisplayOnly(rule.conditions[i]));
     const criticalFailed = criticalChecks.filter(c => !c.pass);
     const hasCriticalFailure = criticalFailed.length > 0;
 

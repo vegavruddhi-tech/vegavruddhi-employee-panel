@@ -128,6 +128,7 @@ export default function Dashboard() {
 
   const [emp, setEmp] = useState(null);
   const [allForms, setAllForms] = useState([]);
+  const [formsOwner, setFormsOwner] = useState(null);
   const [verifiedMap, setVerifiedMap] = useState({});
   const [activeKPI, setActiveKPI] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
@@ -137,13 +138,22 @@ export default function Dashboard() {
   const [selMonth, setSelMonth] = useState(new Date().getMonth().toString());
   const [selProduct, setSelProduct] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [adjustment, setAdjustment] = useState(0);
+  const [adjustment, setAdjustment] = useState({ value: 0, owner: null });
   const [taskCounts, setTaskCounts] = useState({ pending: 0, completed: 0, total: 0 });
   const [page, setPage] = useState(1);
   const [showDirectoryModal, setShowDirectoryModal] = useState(false);
 
-
-  // ✅ Check for impersonation on mount
+  // Track current month, year, and points owner to ignore stale in-flight responses
+  const currentOwner = isImpersonating ? (viewAsEmail || '').toLowerCase().trim() : (token || '');
+  const currentSelectionRef = useRef({ month: selMonth, year: selYear, owner: currentOwner, token });
+  useEffect(() => {
+    currentSelectionRef.current = {
+      month: selMonth,
+      year: selYear,
+      owner: isImpersonating ? (viewAsEmail || '').toLowerCase().trim() : (token || ''),
+      token
+    };
+  }, [selMonth, selYear, isImpersonating, viewAsEmail, token]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const viewAs = params.get('viewAs');
@@ -271,13 +281,25 @@ export default function Dashboard() {
 
   // Load forms (modified to support impersonation)
   const loadForms = useCallback(() => {
+    if (!token) return;
+    const reqOwner = isImpersonating ? (viewAsEmail || '').toLowerCase().trim() : (token || '');
+    const reqToken = token;
     const url = isImpersonating
       ? `${API_BASE}/api/forms/my?viewAs=${encodeURIComponent(viewAsEmail)}`
       : `${API_BASE}/api/forms/my`;
 
     fetch(url, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json())
-      .then(data => setAllForms(Array.isArray(data) ? data : []))
+      .then(data => {
+        if (
+          currentSelectionRef.current.owner !== reqOwner ||
+          currentSelectionRef.current.token !== reqToken
+        ) {
+          return;
+        }
+        setAllForms(Array.isArray(data) ? data : []);
+        setFormsOwner(reqOwner);
+      })
       .catch(console.error);
   }, [token, isImpersonating, viewAsEmail]);
 
@@ -287,9 +309,13 @@ export default function Dashboard() {
   const [backendPoints, setBackendPoints] = useState(null);
   useEffect(() => {
     if (!token) return;
+    const reqMonth = selMonth;
+    const reqYear = selYear;
+    const reqOwner = isImpersonating ? (viewAsEmail || '').toLowerCase().trim() : (token || '');
+    const reqToken = token;
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
-    const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
+    const monthParam = reqMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(reqMonth)])}` : '';
+    const yearParam = reqYear ? `&year=${encodeURIComponent(reqYear)}` : '';
 
     const url = isImpersonating
       ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
@@ -298,9 +324,17 @@ export default function Dashboard() {
     fetch(url, { headers: { Authorization: 'Bearer ' + token } })
       .then(r => r.json())
       .then(d => {
+        if (
+          currentSelectionRef.current.month !== reqMonth ||
+          currentSelectionRef.current.year !== reqYear ||
+          currentSelectionRef.current.owner !== reqOwner ||
+          currentSelectionRef.current.token !== reqToken
+        ) {
+          return;
+        }
         console.log('📊 Backend points data:', d);
-        setAdjustment(d.pointsAdjustment || 0);
-        setBackendPoints(d.totalPoints);
+        setAdjustment({ value: d.pointsAdjustment || 0, owner: reqOwner });
+        setBackendPoints({ points: d.totalPoints, month: reqMonth, year: reqYear, owner: reqOwner });
       })
       .catch(() => { });
   }, [token, isImpersonating, viewAsEmail, selMonth, selYear]);
@@ -319,9 +353,10 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [loadTaskCounts]);
   const getVerifyKey = (f) => f._id || f.customerNumber;
-  // Filtered forms
-  const filtered = useMemo(() => {
-    let list = allForms?.slice();
+  // Base filtered forms (filtered by Date, Year, Month, Product, Search — but NOT activeKPI)
+  const baseFiltered = useMemo(() => {
+    if (formsOwner !== currentOwner) return [];
+    let list = allForms?.slice() || [];
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -354,17 +389,6 @@ export default function Dashboard() {
       });
     }
 
-    if (activeKPI === 'onboard') list = list.filter(f => f.status === 'Ready for Onboarding');
-    if (activeKPI === 'notint') list = list.filter(f => f.status === 'Not Interested');
-    if (activeKPI === 'error') list = list.filter(f => f.status === 'Try but not done due to error');
-    if (activeKPI === 'revisit') list = list.filter(f => f.status === 'Need to visit again');
-    if (activeKPI === 'verified') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified');
-    if (activeKPI === 'critical') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure');
-    if (activeKPI === 'partial') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done');
-    if (activeKPI === 'notver') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified');
-    if (activeKPI === 'phmatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
-    if (activeKPI === 'phnomatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
-
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       list = list.filter(f => {
@@ -377,7 +401,25 @@ export default function Dashboard() {
     }
 
     return list;
-  }, [allForms, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, activeKPI, verifiedMap, searchQuery]);
+  }, [allForms, formsOwner, currentOwner, dateFilter, fromDate, toDate, selYear, selMonth, selProduct, verifiedMap, searchQuery]);
+
+  // Filtered forms (for table display — applies activeKPI filter on top of baseFiltered)
+  const filtered = useMemo(() => {
+    let list = baseFiltered;
+
+    if (activeKPI === 'onboard') list = list.filter(f => f.status === 'Ready for Onboarding');
+    if (activeKPI === 'notint') list = list.filter(f => f.status === 'Not Interested');
+    if (activeKPI === 'error') list = list.filter(f => f.status === 'Try but not done due to error');
+    if (activeKPI === 'revisit') list = list.filter(f => f.status === 'Need to visit again');
+    if (activeKPI === 'verified') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified');
+    if (activeKPI === 'critical') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure');
+    if (activeKPI === 'partial') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done');
+    if (activeKPI === 'notver') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified');
+    if (activeKPI === 'phmatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true);
+    if (activeKPI === 'phnomatch') list = list.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false);
+
+    return list;
+  }, [baseFiltered, activeKPI, verifiedMap]);
 
   useEffect(() => {
     setPage(1);
@@ -398,8 +440,16 @@ export default function Dashboard() {
     }
   };
   useEffect(() => {
+    const reqOwner = isImpersonating ? (viewAsEmail || '').toLowerCase().trim() : (token || '');
+    const reqToken = token;
+
+    if (!reqToken || formsOwner !== reqOwner) {
+      return;
+    }
+
     if (!allForms.length) {
       console.log('⚠️ No forms to verify');
+      setVerifiedMap({});
       return;
     }
 
@@ -464,21 +514,41 @@ export default function Dashboard() {
     if (formsToCheck.length === 0) {
       console.log('✅ All forms loaded with verification status from DB');
       // 🔥 FIX: Still save corrected points (sub-product fix) even when all already verified
+      const reqMonth = selMonth;
+      const reqYear = selYear;
+      if (
+        currentSelectionRef.current.owner !== reqOwner ||
+        currentSelectionRef.current.token !== reqToken ||
+        formsOwner !== reqOwner
+      ) {
+        return;
+      }
       fetch(`${API_BASE}/api/forms/save-verified-points`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ verifiedPoints: Math.round(dbAutoPts * 10) / 10 })
+        body: JSON.stringify({
+          verifiedPoints: Math.round(dbAutoPts * 10) / 10,
+          viewAs: isImpersonating ? viewAsEmail : undefined
+        })
       }).then(() => {
         const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-        const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
-        const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
+        const monthParam = reqMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(reqMonth)])}` : '';
+        const yearParam = reqYear ? `&year=${encodeURIComponent(reqYear)}` : '';
         const url = isImpersonating
           ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
           : `${API_BASE}/api/forms/my-points?1=1${monthParam}${yearParam}`;
         return fetch(url, { headers: { Authorization: 'Bearer ' + token } });
       }).then(r => r.json()).then(d => {
-        setAdjustment(d.pointsAdjustment || 0);
-        setBackendPoints(d.totalPoints || 0);
+        if (
+          currentSelectionRef.current.month !== reqMonth ||
+          currentSelectionRef.current.year !== reqYear ||
+          currentSelectionRef.current.owner !== reqOwner ||
+          currentSelectionRef.current.token !== reqToken
+        ) {
+          return;
+        }
+        setAdjustment({ value: d.pointsAdjustment || 0, owner: reqOwner });
+        setBackendPoints({ points: d.totalPoints || 0, month: reqMonth, year: reqYear, owner: reqOwner });
       }).catch(() => { });
       return;
     }
@@ -506,6 +576,13 @@ export default function Dashboard() {
       })
       .then(vm => {
         if (!vm || Object.keys(vm).length === 0) return;
+        if (
+          currentSelectionRef.current.owner !== reqOwner ||
+          currentSelectionRef.current.token !== reqToken ||
+          formsOwner !== reqOwner
+        ) {
+          return;
+        }
         const updatedMap = { ...initialMap };
         let autoPts = 0;
 
@@ -540,16 +617,31 @@ export default function Dashboard() {
 
         setVerifiedMap(updatedMap);
 
+        const reqMonth = selMonth;
+        const reqYear = selYear;
+
+        // Apply ownership check before post-verification save
+        if (
+          currentSelectionRef.current.owner !== reqOwner ||
+          currentSelectionRef.current.token !== reqToken ||
+          formsOwner !== reqOwner
+        ) {
+          return;
+        }
+
         // Save verified points
         fetch(`${API_BASE}/api/forms/save-verified-points`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({ verifiedPoints: Math.round(autoPts * 10) / 10 })
+          body: JSON.stringify({
+            verifiedPoints: Math.round(autoPts * 10) / 10,
+            viewAs: isImpersonating ? viewAsEmail : undefined
+          })
         })
           .then(() => {
             const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-            const monthParam = selMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(selMonth)])}` : '';
-            const yearParam = selYear ? `&year=${encodeURIComponent(selYear)}` : '';
+            const monthParam = reqMonth !== '' ? `&month=${encodeURIComponent(monthNames[parseInt(reqMonth)])}` : '';
+            const yearParam = reqYear ? `&year=${encodeURIComponent(reqYear)}` : '';
             const url = isImpersonating
               ? `${API_BASE}/api/forms/my-points?viewAs=${encodeURIComponent(viewAsEmail)}${monthParam}${yearParam}`
               : `${API_BASE}/api/forms/my-points?1=1${monthParam}${yearParam}`;
@@ -557,13 +649,21 @@ export default function Dashboard() {
           })
           .then(r => r.json())
           .then(d => {
-            setAdjustment(d.pointsAdjustment || 0);
-            setBackendPoints(d.totalPoints || 0);
+            if (
+              currentSelectionRef.current.month !== reqMonth ||
+              currentSelectionRef.current.year !== reqYear ||
+              currentSelectionRef.current.owner !== reqOwner ||
+              currentSelectionRef.current.token !== reqToken
+            ) {
+              return;
+            }
+            setAdjustment({ value: d.pointsAdjustment || 0, owner: reqOwner });
+            setBackendPoints({ points: d.totalPoints || 0, month: reqMonth, year: reqYear, owner: reqOwner });
           })
           .catch(() => { });
       })
       .catch(() => { });
-  }, [allForms.length, token, selMonth, selYear, isImpersonating, viewAsEmail]); // eslint-disable-line
+  }, [allForms, formsOwner, token, selMonth, selYear, isImpersonating, viewAsEmail]); // eslint-disable-line
   const normalizeProduct = (product) => {
     const p = (product || '').toLowerCase().trim();
     if (p === 'tide insurance' || p === 'insurance') return 'Tide Insurance';
@@ -578,35 +678,54 @@ export default function Dashboard() {
 
   // Calculate total points dynamically according to selected month/period filter and search bar
   const totalPoints = useMemo(() => {
-    const isCustomFiltered = searchQuery.trim() !== '' || selProduct !== '' || (dateFilter && dateFilter !== 'all') || activeKPI !== 'all';
-    if (!isCustomFiltered && backendPoints !== null && backendPoints !== undefined) {
-      return backendPoints;
-    }
+    const isCustomFiltered = searchQuery.trim() !== '' || selProduct !== '';
     let auto = 0;
-    filtered.forEach(f => {
+    baseFiltered.forEach(f => {
       if (verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified') {
         auto += verifiedMap[getVerifyKey(f)]?.points || 0;
       }
     });
-    const adj = (!isCustomFiltered && selMonth === '') ? adjustment : 0;
-    return Math.round((auto + adj) * 10) / 10;
-  }, [backendPoints, filtered, verifiedMap, adjustment, selMonth, dateFilter, searchQuery, selProduct, activeKPI]);
+    const activeAdjustment = (adjustment && typeof adjustment === 'object')
+      ? (adjustment.owner === currentOwner ? (adjustment.value || 0) : 0)
+      : (typeof adjustment === 'number' ? adjustment : 0);
+    const adj = (!isCustomFiltered && selMonth === '') ? activeAdjustment : 0;
+    const computed = Math.round((auto + adj) * 10) / 10;
+
+    // Check if backendPoints date scope matches baseFiltered:
+    // backendPoints has a matching scope only when dateFilter is 'all' AND either:
+    // 1) both specific month and year are selected, or
+    // 2) both month and year are empty (all-time)
+    // If "All Months" is selected for a year (selMonth === '' && selYear !== ''), or if dateFilter is 'today'/'week'/'custom',
+    // backendPoints represents an all-years or all-month total that does not match baseFiltered, so use computed.
+    const isDateScopeMatching = (!dateFilter || dateFilter === 'all') &&
+      ((selMonth !== '' && selYear !== '') || (selMonth === '' && selYear === ''));
+
+    const recordedScopeMatches = backendPoints &&
+      backendPoints.month === selMonth &&
+      backendPoints.year === selYear &&
+      (!backendPoints.owner || backendPoints.owner === currentOwner);
+
+    if (!isCustomFiltered && isDateScopeMatching && recordedScopeMatches && backendPoints.points !== null && backendPoints.points !== undefined) {
+      return backendPoints.points;
+    }
+    return computed;
+  }, [backendPoints, baseFiltered, verifiedMap, adjustment, currentOwner, selMonth, selYear, dateFilter, searchQuery, selProduct, isImpersonating, viewAsEmail, token]);
 
   const kpis = [
-    { key: 'all', label: 'Total Responses', value: filtered.length, cls: 'kpi-total' },
-    { key: 'onboard', label: 'Ready for Onboarding', value: filtered.filter(f => f.status === 'Ready for Onboarding').length, cls: 'kpi-onboard' },
-    { key: 'notint', label: 'Not Interested', value: filtered.filter(f => f.status === 'Not Interested').length, cls: 'kpi-notint' },
-    { key: 'error', label: 'Try but not done', value: filtered.filter(f => f.status === 'Try but not done due to error').length, cls: 'kpi-error' },
-    { key: 'revisit', label: 'Need to visit again', value: filtered.filter(f => f.status === 'Need to visit again').length, cls: 'kpi-revisit' },
+    { key: 'all', label: 'Total Responses', value: baseFiltered.length, cls: 'kpi-total' },
+    { key: 'onboard', label: 'Ready for Onboarding', value: baseFiltered.filter(f => f.status === 'Ready for Onboarding').length, cls: 'kpi-onboard' },
+    { key: 'notint', label: 'Not Interested', value: baseFiltered.filter(f => f.status === 'Not Interested').length, cls: 'kpi-notint' },
+    { key: 'error', label: 'Try but not done', value: baseFiltered.filter(f => f.status === 'Try but not done due to error').length, cls: 'kpi-error' },
+    { key: 'revisit', label: 'Need to visit again', value: baseFiltered.filter(f => f.status === 'Need to visit again').length, cls: 'kpi-revisit' },
   ];
 
   const verifyKpis = [
-    { key: 'verified', label: 'Fully Verified', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length, cls: 'kpi-verified' },
-    { key: 'critical', label: 'Critical Failure', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure').length, cls: 'kpi-critical' },
-    { key: 'partial', label: 'Partially Verified', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length, cls: 'kpi-error' },
-    { key: 'notver', label: 'Not Verified', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length, cls: 'kpi-notint' },
-    { key: 'phmatch', label: 'Phone Matched', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length, cls: 'kpi-onboard' },
-    { key: 'phnomatch', label: 'Phone Not Matched', value: filtered.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false).length, cls: 'kpi-revisit' },
+    { key: 'verified', label: 'Fully Verified', value: baseFiltered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Fully Verified').length, cls: 'kpi-verified' },
+    { key: 'critical', label: 'Critical Failure', value: baseFiltered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Critical Failure').length, cls: 'kpi-critical' },
+    { key: 'partial', label: 'Partially Verified', value: baseFiltered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Partially Done').length, cls: 'kpi-error' },
+    { key: 'notver', label: 'Not Verified', value: baseFiltered.filter(f => verifiedMap[getVerifyKey(f)]?.status === 'Not Verified').length, cls: 'kpi-notint' },
+    { key: 'phmatch', label: 'Phone Matched', value: baseFiltered.filter(f => verifiedMap[getVerifyKey(f)]?.phoneMatch === true).length, cls: 'kpi-onboard' },
+    { key: 'phnomatch', label: 'Phone Not Matched', value: baseFiltered.filter(f => verifiedMap[getVerifyKey(f)]?.inSheet === true && verifiedMap[getVerifyKey(f)]?.phoneMatch === false).length, cls: 'kpi-revisit' },
   ];
 
   const toggleKPI = (key) => setActiveKPI(p => p === key ? 'all' : key);
@@ -769,9 +888,10 @@ export default function Dashboard() {
         {/* Product filter chips */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, marginTop: 4 }}>
           {(() => {
+            const chipForms = formsOwner === currentOwner ? allForms : [];
             const productSet = new Set();
 
-            allForms.forEach(f => {
+            chipForms.forEach(f => {
               if (selMonth !== '') {
                 const formDate = new Date(f.createdAt);
                 if (formDate.getMonth() !== parseInt(selMonth)) return;
@@ -795,7 +915,7 @@ export default function Dashboard() {
             const counts = {};
 
             products.forEach(p => {
-              counts[p] = allForms.filter(f => {
+              counts[p] = chipForms.filter(f => {
                 if (selMonth !== '') {
                   const formDate = new Date(f.createdAt);
                   if (formDate.getMonth() !== parseInt(selMonth)) return false;

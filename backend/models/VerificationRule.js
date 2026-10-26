@@ -26,7 +26,7 @@ const conditionSchema = new mongoose.Schema({
   label:      { type: String, default: '' },
   isCritical: { type: Boolean, default: false },   // if true, failure of this condition = critical failure
   isDisplayOnly: { type: Boolean, default: false } // if true, display only, does not affect verification
-}, { _id: false });
+}, { _id: false, strict: false });
 
 const verificationRuleSchema = new mongoose.Schema({
   collectionName: { type: String, required: true, unique: true },

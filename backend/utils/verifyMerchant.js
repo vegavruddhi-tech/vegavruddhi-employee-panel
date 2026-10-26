@@ -139,7 +139,9 @@ function evaluateCondition(record, condition) {
     condition.isOptional ||
     condition.optional ||
     /cibil/i.test(condition.field || '') ||
-    /cibil/i.test(condition.label || '')
+    /cibil/i.test(condition.label || '') ||
+    /bank.*transfer/i.test(condition.field || '') ||
+    /bank.*transfer/i.test(condition.label || '')
   );
 
   if (isDisplayOnly) {
@@ -337,7 +339,8 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
     // Display-only conditions never block 'Fully Verified'
     const isConditionDisplayOnly = (c) => Boolean(
       c.isDisplayOnly || c.displayOnly || c.isOptional || c.optional ||
-      /cibil/i.test(c.field || '') || /cibil/i.test(c.label || '')
+      /cibil/i.test(c.field || '') || /cibil/i.test(c.label || '') ||
+      /bank.*transfer/i.test(c.field || '') || /bank.*transfer/i.test(c.label || '')
     );
     const requiredConditions = rule.conditions.filter(c => !isConditionDisplayOnly(c));
     const requiredChecks = checks.filter((c, i) => !isConditionDisplayOnly(rule.conditions[i]));
@@ -358,7 +361,7 @@ async function verifyMerchant(db, phone, name, VerificationRule, product, month,
 
     return {
       status,
-      verified: passed === total && !hasCriticalFailure,
+      verified: requiredPassed === requiredTotal && !hasCriticalFailure,
       passed,
       total,
       checks,

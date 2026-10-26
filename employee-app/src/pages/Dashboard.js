@@ -419,7 +419,21 @@ export default function Dashboard() {
     const initialMap = {};
     let dbAutoPts = 0;
     allForms.forEach(f => {
-      const vstatus = f.verificationStatus || f.verificationChecks?.status || 'Not Found';
+      let vstatus = f.verificationStatus || f.verificationChecks?.status || 'Not Found';
+      // 🛡️ Normalization for Display Only checks (consistent with Admin Panel)
+      const rawChecks = f.verificationChecks?.checks;
+      if (Array.isArray(rawChecks) && rawChecks.length > 0 && vstatus !== 'Not Found' && vstatus !== 'Already Verified') {
+        const isDisplayCheck = (c) => Boolean(
+          c.isDisplayOnly || c.displayOnly ||
+          /cibil/i.test(c.field || '') || /cibil/i.test(c.label || '') ||
+          /bank.*transfer/i.test(c.field || '') || /bank.*transfer/i.test(c.label || '')
+        );
+        const allPassed = rawChecks.every(c => c.pass || isDisplayCheck(c));
+        const hasCritical = rawChecks.some(c => !c.pass && !isDisplayCheck(c) && c.isCritical);
+        if (allPassed && !hasCritical) {
+          vstatus = 'Fully Verified';
+        }
+      }
       let vpoints = f.verificationChecks?.points ?? 0;
       // 🔥 FIX: If points=0 but Fully Verified, compute from product name
       if (vpoints === 0 && vstatus === 'Fully Verified') {

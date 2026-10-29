@@ -117,17 +117,28 @@ function parseRecordDate(val) {
 function evaluateCondition(record, condition) {
   let rawVal = record[condition.field];
 
-  // 🔥 Smart Fallback for date_difference_days (Intent to Approval gap)
-  if ((condition.field === 'date_difference_days' || condition.field === 'date_difference') &&
-      (rawVal === undefined || rawVal === null || rawVal === '' || isNaN(Number(rawVal)))) {
-    const intentVal = record.intent_date || record['Intent Date'] || record['intentDate'];
-    const approvedVal = record.approved_date || record['Approved Date'] || record['approvedDate'];
-    if (intentVal && approvedVal) {
-      const dIntent = parseRecordDate(intentVal);
-      const dApproved = parseRecordDate(approvedVal);
-      if (dIntent && dApproved) {
-        const diffMs = dApproved.getTime() - dIntent.getTime();
-        rawVal = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+  // Smart Fallback for date_difference_days & intent_to_approved_difference (Intent to Approval gap)
+  const isDateDiffField = condition.field === 'date_difference_days' ||
+                          condition.field === 'date_difference' ||
+                          condition.field === 'intent_to_approved_difference' ||
+                          /intent.*approv.*diff/i.test(condition.field || '') ||
+                          /intent.*approv.*diff/i.test(condition.label || '') ||
+                          /date.*diff/i.test(condition.field || '');
+
+  if (isDateDiffField && (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === 'N/A' || isNaN(Number(rawVal)))) {
+    const storedDiff = record.date_difference_days ?? record.date_difference ?? record.intent_to_approved_difference;
+    if (storedDiff !== undefined && storedDiff !== null && storedDiff !== '' && storedDiff !== 'N/A' && !isNaN(Number(storedDiff))) {
+      rawVal = Number(storedDiff);
+    } else {
+      const intentVal = record.intent_date || record['Intent Date'] || record['intentDate'] || record['intent_onboarding_date'];
+      const approvedVal = record.approved_date || record['Approved Date'] || record['approvedDate'] || record['approved_onboarding_date'];
+      if (intentVal && approvedVal) {
+        const dIntent = parseRecordDate(intentVal);
+        const dApproved = parseRecordDate(approvedVal);
+        if (dIntent && dApproved) {
+          const diffMs = dApproved.getTime() - dIntent.getTime();
+          rawVal = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+        }
       }
     }
   }
